@@ -1,0 +1,72 @@
+name: TRION Build and Release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trion-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Change 1.0 to 2.0 when starting the next version series.
+  VERSION_PREFIX: "1.0"
+
+jobs:
+  build:
+    name: Build TRION images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          bash podman_bootstrap.sh -d
+
+      - name: Configure Podman build
+        shell: bash
+        run: |
+          printf 'PODMAN_BUILD?=1\n' > .config
+
+      - name: Build desktop disk image and live ISO
+        shell: bash
+        run: |
+          set -euo pipefail
+          make all
+          make live
+
+      - name: Verify build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s build/x86_64/desktop/harddrive.img
+          test -s build/x86_64/desktop/redox-live.iso
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_PREFIX }}.${{ github.run_number }}
+          name: TRION v${{ env.VERSION_PREFIX }}.${{ github.run_number }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            build/x86_64/desktop/harddrive.img
+            build/x86_64/desktop/redox-live.iso
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
