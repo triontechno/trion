@@ -9,7 +9,8 @@ fn usage() {
 
 fn inspect(path: &str) -> Result<(), String> {
     let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    let elf = goblin::Object::parse(&bytes).map_err(|e| format!("not a recognized object file: {e}"))?;
+    let elf =
+        goblin::Object::parse(&bytes).map_err(|e| format!("not a recognized object file: {e}"))?;
     let elf = match elf {
         goblin::Object::Elf(elf) => elf,
         _ => return Err("input is not an ELF file; this prototype targets ELF".into()),
