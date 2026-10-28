@@ -1,0 +1,53 @@
+let alpha_numeric_name0 = hello
+let _name_with_1_leading_underscore = leading
+let __2 = underscores
+let ___ = !
+echo $alpha_numeric_name0 $_name_with_1_leading_underscore $__2 $___
+echo -e "\n\n$alpha_numeric_name0"
+echo "variables:"
+# ANCHOR: variables
+let string_variable = "hello string"
+let array_variable = [ hello array ]
+echo $string_variable
+echo @array_variable
+# ANCHOR_END: variables
+echo "multiple_assignment:"
+# ANCHOR: multiple_assignment
+let a b = one two
+echo $a
+echo $b
+
+let a b = one [two three four]
+echo $a
+echo @b
+# ANCHOR_END: multiple_assignment
+echo "type_checked_assignment:"
+# ANCHOR: type_checked_assignment
+let a:bool = 1
+let b:bool = true
+let c:bool = n
+echo $a $b $c
+let fail:bool = ""
+
+let a:str b:[str] c:int d:[float] = one [two three] 4 [5.1 6.2 7.3]
+echo $a
+echo @b
+echo $c
+echo @d
+# ANCHOR_END: type_checked_assignment
+echo "dropping_variables:"
+# ANCHOR: dropping_variables
+let string = "hello"
+drop string
+let array = [ hello world ]
+drop array
+# ANCHOR_END: dropping_variables
+echo "command_local_variables:"
+# ANCHOR: command_local_variables
+export TEST_VAR=other_value
+TEST_VAR=test_var_value echo $TEST_VAR
+
+TZ=America/New_York date --date="2025-10-01T09:00:00+00:00" +'%Y-%m-%d %R:%S'
+
+TEST_VAR_ONE=one TEST_VAR_TWO=two TEST_VAR_THREE=three echo $TEST_VAR_THREE $TEST_VAR_TWO $TEST_VAR_ONE
+# ANCHOR_END: command_local_variables

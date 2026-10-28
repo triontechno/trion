@@ -1,0 +1,85 @@
+use crate::callback::Callback;
+
+#[cfg(feature = "library")]
+use crate::{backend::Error, package::RemotePackage};
+
+#[derive(Clone)]
+pub struct SilentCallback {}
+
+impl Default for SilentCallback {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SilentCallback {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Callback for SilentCallback {
+    fn fetch_start(&mut self, _: usize) {}
+
+    fn fetch_package_name(&mut self, _: &crate::PackageName) {}
+
+    fn fetch_package_increment(&mut self, _: usize, _: usize) {}
+
+    fn fetch_end(&mut self) {}
+
+    #[cfg(feature = "library")]
+    fn install_prompt(&mut self, _: &crate::PackageList) -> Result<(), Error> {
+        Ok(())
+    }
+
+    #[cfg(feature = "library")]
+    fn install_check(
+        &mut self,
+        _: &[pkgar::TransactionConflict],
+        _: &[pkgar::TransactionIgnored],
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn download_start(&mut self, _: u64, _: &str) {}
+
+    fn download_increment(&mut self, _: u64) {}
+
+    fn download_end(&mut self) {}
+
+    #[cfg(feature = "library")]
+    fn extract_start(&mut self, _pkg_name: &RemotePackage, _index_count: usize) {}
+
+    #[cfg(feature = "library")]
+    fn extract_increment(&mut self, _indexed: usize) {}
+
+    #[cfg(feature = "library")]
+    fn extract_end(&mut self) {}
+
+    #[cfg(feature = "library")]
+    fn uncheck_start(&mut self, _pkg_name: &crate::PackageName, _index_count: usize) {}
+
+    #[cfg(feature = "library")]
+    fn uncheck_increment(&mut self, _indexed: usize) {}
+
+    #[cfg(feature = "library")]
+    fn uncheck_end(&mut self) {}
+
+    #[cfg(feature = "library")]
+    fn commit_start(&mut self, _: usize) {}
+
+    #[cfg(feature = "library")]
+    fn commit_increment(&mut self, _: &pkgar::Transaction) {}
+
+    #[cfg(feature = "library")]
+    fn commit_end(&mut self) {}
+
+    #[cfg(feature = "library")]
+    fn abort_start(&mut self, _: usize) {}
+
+    #[cfg(feature = "library")]
+    fn abort_increment(&mut self, _: &pkgar::Transaction) {}
+
+    #[cfg(feature = "library")]
+    fn abort_end(&mut self) {}
+}

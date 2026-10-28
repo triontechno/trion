@@ -1,0 +1,311 @@
+//! # Futex
+//! Futex or Fast Userspace Mutex is "a method for waiting until a certain condition becomes true."
+//!
+//! For more information about futexes, please read [this](https://eli.thegreenplace.net/2018/basics-of-futexes/) blog post, and the [futex(2)](http://man7.org/linux/man-pages/man2/futex.2.html) man page
+use alloc::{
+    sync::{Arc, Weak},
+    vec::Vec,
+};
+use core::sync::atomic::{AtomicU32, Ordering};
+use hashbrown::{
+    hash_map::{DefaultHashBuilder, Entry, OccupiedEntry},
+    HashMap,
+};
+use rmm::Arch;
+use syscall::EINTR;
+
+use crate::{
+    context::{
+        self,
+        memory::{AccessMode, AddrSpace, Provider},
+        unblock_context, ContextLock,
+    },
+    memory::{Page, PhysicalAddress, VirtualAddress},
+    sync::{CleanLockToken, Mutex, L1},
+};
+
+use crate::syscall::{
+    data::TimeSpec,
+    error::{Error, Result, EAGAIN, EFAULT, EINVAL, ENOMEM, ETIMEDOUT},
+    flag::{FUTEX_WAIT, FUTEX_WAIT64, FUTEX_WAKE},
+};
+
+use super::usercopy::UserSlice;
+
+// Physical address used as key, required if synchronizing across address spaces
+// (necessitates MAP_SHARED since CoW would invalidate this address).
+type FutexList = HashMap<PhysicalAddress, Vec<FutexEntry>>;
+
+pub struct FutexEntry {
+    // Context to wake up, and compare address spaces.
+    context_lock: Weak<ContextLock>,
+}
+
+// TODO: Process-private futexes? In that case, put the futex table in each AddrSpace, or just
+// implement that fully in userspace. Although futex is probably the best API for process-shared
+// POSIX synchronization primitives, a local hash table and wait-for-thread kernel APIs (e.g.
+// lwp_park/lwp_unpark from NetBSD) could be a simpler replacement.
+static FUTEXES: Mutex<L1, FutexList> =
+    Mutex::new(FutexList::with_hasher(DefaultHashBuilder::new()));
+
+pub fn get_futex_stat(token: &mut CleanLockToken) -> (usize, usize) {
+    let mut regc = 0;
+    let mut regl = 0;
+    let registry = FUTEXES.lock(token.token());
+    for (_, v) in registry.iter() {
+        regl += v.len();
+        regc += 1;
+    }
+    (regc, regl)
+}
+
+fn validate_and_translate_virt(space: &AddrSpace, addr: VirtualAddress) -> Option<PhysicalAddress> {
+    // TODO: Move this elsewhere!
+    if addr.data().saturating_add(size_of::<usize>()) >= crate::USER_END_OFFSET {
+        return None;
+    }
+
+    let page = Page::containing_address(addr);
+    let off = addr.data() - page.start_address().data();
+
+    let (frame, _) = space.table.utable.translate(page.start_address())?;
+
+    Some(frame.add(off))
+}
+
+pub fn futex(
+    addr: usize,
+    op: usize,
+    val: usize,
+    val2: usize,
+    _addr2: usize,
+    token: &mut CleanLockToken,
+) -> Result<usize> {
+    let target_virtaddr = VirtualAddress::new(addr);
+    let page = Page::containing_address(target_virtaddr);
+
+    let current_addrsp = AddrSpace::current()?;
+
+    // Keep the address space locked so we can safely read from the physical address. Unlock it
+    // before context switching.
+    let addr_space_guard = current_addrsp.acquire_read(token.downgrade());
+    let needs_correction = match addr_space_guard.grants.contains(page) {
+        Some((_, info)) => matches!(info.provider, Provider::Allocated { .. }),
+        None => false,
+    };
+
+    let addr_space_guard = if needs_correction {
+        drop(addr_space_guard);
+        crate::context::memory::try_correcting_page_tables(page, AccessMode::Write, token)
+            .map_err(|err| match err {
+                crate::context::memory::PfError::Oom => Error::new(ENOMEM),
+                crate::context::memory::PfError::Segv => Error::new(EFAULT),
+                _ => Error::new(EFAULT),
+            })?;
+        current_addrsp.acquire_read(token.downgrade())
+    } else {
+        addr_space_guard
+    };
+
+    let target_physaddr = validate_and_translate_virt(&addr_space_guard, target_virtaddr)
+        .ok_or(Error::new(EFAULT))?;
+
+    match op {
+        // TODO: FUTEX_WAIT_MULTIPLE?
+        FUTEX_WAIT | FUTEX_WAIT64 => {
+            let timeout_opt = UserSlice::ro(val2, size_of::<TimeSpec>())?
+                .none_if_null()
+                .map(|buf| unsafe { buf.read_exact::<TimeSpec>() })
+                .transpose()?;
+            // Must be aligned, otherwise it could cross a page boundary and mess up the
+            // (simpler) validation we did in the first place.
+            if op == FUTEX_WAIT && !addr.is_multiple_of(4) {
+                return Err(Error::new(EINVAL));
+            } else if op == FUTEX_WAIT64 && !addr.is_multiple_of(8) {
+                return Err(Error::new(EINVAL));
+            }
+
+            {
+                let context_lock = context::current();
+
+                // Drop and block this context
+                drop(addr_space_guard);
+
+                {
+                    let mut context = context_lock.write(token.token());
+
+                    context.wake = timeout_opt.map(|time| time.to_nanos());
+                    if let Some((tctl, pctl, _)) = context.sigcontrol()
+                        && tctl.currently_pending_unblocked(pctl) != 0
+                    {
+                        return Err(Error::new(EINTR));
+                    }
+                    context.block("futex");
+                    // Do not return early until rollback handled
+                }
+
+                // Target target_physaddr
+                let futexes = FUTEXES.lock(token.token());
+                let (mut futexes, mut lock_token) = futexes.into_split();
+                futexes
+                    .entry(target_physaddr)
+                    .or_insert_with(Vec::new)
+                    .push(FutexEntry {
+                        context_lock: Arc::downgrade(&context_lock),
+                    });
+
+                // Now rearcquire again to read
+                let addr_space_guard = current_addrsp.acquire_read(lock_token.downgrade());
+
+                // Might be changing, read again to make sure
+                let new_target_physaddr =
+                    validate_and_translate_virt(&addr_space_guard, target_virtaddr);
+
+                let (fetched, expected) = if let Some(target_physaddr) = new_target_physaddr {
+                    if op == FUTEX_WAIT {
+                        // TODO: On systems where virtual memory is not abundant, we might instead
+                        // add an atomic usercopy function.
+                        let accessible_addr =
+                            crate::memory::RmmA::phys_to_virt(target_physaddr).data();
+
+                        (
+                            u64::from(unsafe {
+                                (*(accessible_addr as *const AtomicU32)).load(Ordering::SeqCst)
+                            }),
+                            u64::from(val as u32),
+                        )
+                    } else {
+                        #[cfg(target_has_atomic = "64")]
+                        {
+                            use core::sync::atomic::AtomicU64;
+
+                            // TODO: On systems where virtual memory is not abundant, we might instead
+                            // add an atomic usercopy function.
+                            let accessible_addr =
+                                crate::memory::RmmA::phys_to_virt(target_physaddr).data();
+
+                            (
+                                unsafe {
+                                    (*(accessible_addr as *const AtomicU64)).load(Ordering::SeqCst)
+                                },
+                                val as u64,
+                            )
+                        }
+                        #[cfg(not(target_has_atomic = "64"))]
+                        {
+                            // TODO: rollback
+                            return Err(Error::new(crate::syscall::error::EOPNOTSUPP));
+                        }
+                    }
+                } else {
+                    (0, 1)
+                };
+
+                drop(addr_space_guard);
+
+                if new_target_physaddr.is_none_or(|new| new != target_physaddr)
+                    || fetched != expected
+                {
+                    // The value or physical address is changed before switching, rollback
+                    // TODO: Changing physical address should still be allowed, but our futex can't handle remap
+                    if let Entry::Occupied(futexes_entry) = futexes.entry(target_physaddr) {
+                        if let Some(futex) = remove_futex_entry(futexes_entry) {
+                            drop(futexes);
+                            if let Some(ctx) = futex.context_lock.upgrade() {
+                                unblock_context(&ctx, &mut token.token().downgrade());
+                            }
+                        }
+                    }
+
+                    return Err(Error::new(EAGAIN));
+                }
+            }
+
+            context::switch(token);
+
+            // The scheduler clears `wake` on timeout. Hence if a timeout was
+            // set and `wake` is now `None`, we timed out.
+            if timeout_opt.is_some() && context::current().read(token.token()).wake.is_none() {
+                return Err(Error::new(ETIMEDOUT));
+            }
+
+            // TODO: this doing a second search is not efficient. It probably best to have another
+            // hashtable mapping context and whether it was woken up AND where to remove index from FUTEXES
+            let mut futexes_lock = FUTEXES.lock(token.token());
+            let (futexes_map, _) = futexes_lock.token_split();
+
+            let Entry::Occupied(futexes) = futexes_map.entry(target_physaddr) else {
+                return Ok(0);
+            };
+            if remove_futex_entry(futexes).is_none() {
+                drop(futexes_lock);
+                // Signal can still arrive even if already woken up, in that case we want to assume EINTR happened
+                let current_context_ref = context::current();
+                let context = current_context_ref.read(token.token());
+                if context
+                    .sigcontrol()
+                    .is_none_or(|(control, pctl, _)| control.currently_pending_unblocked(pctl) == 0)
+                {
+                    return Ok(0);
+                }
+            }
+
+            // Not woken up by FUTEX_WAKE, likely by signal
+            Err(Error::new(EINTR))
+        }
+        FUTEX_WAKE => {
+            let mut woken = 0;
+
+            {
+                drop(addr_space_guard);
+                let mut futexes_map = FUTEXES.lock(token.token());
+                let (futexes_map, mut token) = futexes_map.token_split();
+
+                if let Entry::Occupied(mut futexes_entry) = futexes_map.entry(target_physaddr) {
+                    let futexes = futexes_entry.get_mut();
+                    let mut i = 0;
+                    // TODO: Use something like retain, once it is possible to tell it when to stop iterating...
+                    while i < futexes.len() && woken < val {
+                        if let Some(ctx) = futexes[i].context_lock.upgrade() {
+                            unblock_context(&ctx, &mut token.token().downgrade());
+                        }
+                        futexes.swap_remove(i);
+                        woken += 1;
+                    }
+
+                    if futexes.is_empty() {
+                        futexes_entry.remove();
+                    }
+                }
+            }
+
+            Ok(woken)
+        }
+        _ => Err(Error::new(EINVAL)),
+    }
+}
+
+fn remove_futex_entry(
+    mut futexes_entry: OccupiedEntry<'_, PhysicalAddress, Vec<FutexEntry>>,
+) -> Option<FutexEntry> {
+    let current_lock = context::current();
+    let futexes = futexes_entry.get_mut();
+    let mut i = 0;
+    while i < futexes.len() {
+        if let Some(ctx) = futexes[i].context_lock.upgrade() {
+            if Arc::ptr_eq(&ctx, &current_lock) {
+                // Not woken up by FUTEX_WAKE, remove our entry
+                return Some(futexes.swap_remove(i));
+            }
+            i += 1;
+        } else {
+            futexes.swap_remove(i);
+        }
+    }
+
+    if futexes.is_empty() {
+        futexes_entry.remove();
+    }
+
+    None
+}

@@ -1,0 +1,324 @@
+use std::{
+    cell::RefCell,
+    fs,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
+
+use pkgar::{PackageFile, Transaction};
+use pkgar_core::PackageSrc;
+
+use super::{Backend, Error};
+use crate::{
+    backend::wrap_io_err,
+    callback::Callback,
+    package::{RemotePackage, Repository},
+    package_state::PackageState,
+    repo_manager::RepoManager,
+    Package, PackageName, RemoteName, RemotePath, RepoPublicKeyFile,
+};
+
+/// Package backend using pkgar
+pub struct PkgarBackend {
+    /// Root path, usually "/"
+    install_path: PathBuf,
+    /// Things in "/etc/pkg/package.toml"
+    packages: PackageState,
+    /// Things in "/etc/pkg.d" and inet
+    repo_manager: RepoManager,
+    /// temporary commit
+    commits: Transaction,
+    keys_synced: bool,
+    skip_local_check: bool,
+    callback: Rc<RefCell<dyn Callback>>,
+}
+
+impl PkgarBackend {
+    pub fn new(install_path: PathBuf, repo_manager: RepoManager) -> Result<Self, Error> {
+        let packages = PackageState::from_sysroot(&install_path)?;
+
+        // TODO: Use File::lock. This only checks permission
+        packages
+            .to_sysroot(&install_path)
+            .map_err(wrap_io_err!(&install_path, "Writing"))?;
+
+        let dir = install_path.join(crate::PACKAGES_HEAD_DIR);
+        fs::create_dir_all(&dir).map_err(wrap_io_err!(&dir, "Creating dir"))?;
+
+        let callback = repo_manager.callback.clone();
+
+        Ok(PkgarBackend {
+            install_path,
+            packages,
+            repo_manager,
+            // packages_lock,
+            commits: Transaction::new(),
+            keys_synced: false,
+            skip_local_check: false,
+            callback,
+        })
+    }
+
+    // reads /var/lib/packages/[package].pkgar_head
+    fn get_package_head(&self, package: &PackageName) -> Result<PackageFile, Error> {
+        let path = self
+            .install_path
+            .join(crate::PACKAGES_HEAD_DIR)
+            .join(format!("{package}.pkgar_head"));
+
+        let Some(pkg) = self.packages.installed.get(package) else {
+            return Err(Error::PackageNotInstalled(package.clone()));
+        };
+        let Some(remote) = self.packages.pubkeys.get(&pkg.remote) else {
+            return Err(Error::RepoCacheNotFound(package.clone()));
+        };
+
+        let pkg = PackageFile::new(&path, &remote.pkey).map_err(Error::from)?;
+
+        Ok(pkg)
+    }
+
+    fn remove_package_head(&mut self, package: &PackageName) -> Result<(), Error> {
+        let path = self
+            .install_path
+            .join(crate::PACKAGES_HEAD_DIR)
+            .join(format!("{package}.pkgar_head"));
+
+        fs::remove_file(&path).map_err(wrap_io_err!(&path, "Removing file"))?;
+        Ok(())
+    }
+
+    fn create_head(
+        &self,
+        package_file: &mut PackageFile,
+        package: &PackageName,
+    ) -> Result<(), Error> {
+        // creates a head file
+        let head_path = self
+            .install_path
+            .join(crate::PACKAGES_HEAD_DIR)
+            .join(format!("{package}.pkgar_head"));
+
+        package_file.split(&head_path, None::<&Path>)?;
+
+        Ok(())
+    }
+
+    fn sync_keys(&mut self) -> Result<(), Error> {
+        if self.keys_synced {
+            return Ok(());
+        }
+
+        for (name, map) in &mut self.repo_manager.remote_map {
+            if map.pubkey.is_none() {
+                if let Some(pubk) = self.packages.pubkeys.get(name) {
+                    map.pubkey = Some(pubk.pkey)
+                }
+            }
+        }
+
+        self.repo_manager.sync_keys()?;
+
+        self.keys_synced = true;
+        Ok(())
+    }
+
+    fn install_inner(
+        &mut self,
+        package: &RemotePackage,
+        pkg: &mut PackageFile,
+        entries: Vec<pkgar_core::Entry>,
+    ) -> Result<(), Error> {
+        self.callback
+            .borrow_mut()
+            .extract_start(package, entries.len());
+        let mut last_entries;
+        for entry in entries {
+            last_entries = self.commits.total_indexed();
+            if let Err(e) = self
+                .commits
+                .install_one(pkg, &entry, &self.install_path, self.skip_local_check)
+                .map_err(|e| Error::Pkgar(Box::new(e)))
+            {
+                self.callback.borrow_mut().extract_end();
+                return Err(e);
+            }
+            self.callback
+                .borrow_mut()
+                .extract_increment(self.commits.total_indexed() - last_entries);
+        }
+        self.callback.borrow_mut().extract_end();
+        Ok(())
+    }
+
+    fn uninstall_inner(
+        &mut self,
+        package: &PackageName,
+        pkg: &PackageFile,
+        entries: Vec<pkgar_core::Entry>,
+    ) -> Result<(), Error> {
+        let show_progress = !self.skip_local_check;
+        if show_progress {
+            self.callback
+                .borrow_mut()
+                .uncheck_start(package, entries.len());
+        }
+        let mut last_entries;
+        for entry in &entries {
+            last_entries = self.commits.total_indexed();
+            if let Err(e) = self
+                .commits
+                .remove_one(Some(pkg), entry, &self.install_path, self.skip_local_check)
+                .map_err(|e| Error::Pkgar(Box::new(e)))
+            {
+                if show_progress {
+                    self.callback.borrow_mut().uncheck_end();
+                }
+                return Err(e);
+            }
+            if show_progress {
+                self.callback
+                    .borrow_mut()
+                    .uncheck_increment(self.commits.total_indexed() - last_entries);
+            }
+        }
+        // there's no I/O if skip_local_check enabled
+        if show_progress {
+            self.callback.borrow_mut().uncheck_end();
+        }
+        Ok(())
+    }
+}
+
+impl Backend for PkgarBackend {
+    fn install(&mut self, package: RemotePackage) -> Result<(), Error> {
+        self.sync_keys()?;
+        if package.package.version.is_empty() {
+            return Ok(()); // metapackage
+        }
+        // TODO: Actually use that specific remote
+        let (local_path, repo) = self
+            .repo_manager
+            .get_package_pkgar(&package.package.name, package.package.network_size)?;
+        let mut pkg = PackageFile::new(&local_path, &repo.pubkey.unwrap())?;
+        let entries = pkg.read_entries()?;
+        self.install_inner(&package, &mut pkg, entries)?;
+
+        self.create_head(&mut pkg, &package.package.name)?;
+        Ok(())
+    }
+
+    fn uninstall(&mut self, package: PackageName) -> Result<(), Error> {
+        if self.packages.protected.contains(&package) {
+            return Err(Error::ProtectedPackage(package));
+        }
+        self.sync_keys()?;
+        let mut pkg = self.get_package_head(&package)?;
+        let entries = pkg.read_entries()?;
+        self.uninstall_inner(&package, &pkg, entries)?;
+
+        self.remove_package_head(&package)?;
+
+        Ok(())
+    }
+
+    fn upgrade(&mut self, package: &RemotePackage) -> Result<(), Error> {
+        self.sync_keys()?;
+
+        let name = &package.package.name;
+        let mut old = self.get_package_head(name)?;
+        let (local_path, repo) = self
+            .repo_manager
+            .get_package_pkgar(name, package.package.network_size)?;
+        let mut new = PackageFile::new(&local_path, &repo.pubkey.unwrap())?;
+        let old_entries = old.read_entries()?;
+        let new_entries = new.read_entries()?;
+        let (to_install, to_remove) = self.commits.replace_diff(&old_entries, &new_entries)?;
+        self.uninstall_inner(name, &old, to_remove)?;
+        self.install_inner(package, &mut new, to_install)?;
+        self.create_head(&mut new, name)?;
+        Ok(())
+    }
+
+    fn get_package_detail(&self, package: &PackageName) -> Result<RemotePackage, Error> {
+        let (toml, remote) = self.repo_manager.get_package_toml(package)?;
+        Ok(RemotePackage {
+            package: Package::from_toml(&toml)?,
+            remote,
+        })
+    }
+
+    fn get_remote_detail(&self, package: &RemoteName) -> Result<RemotePath, Error> {
+        self.repo_manager
+            .get_remote_info(package)
+            .map(|e| e.to_owned())
+            .ok_or(Error::ValidRepoNotFound)
+    }
+
+    /// TODO: Multiple repository support
+    fn get_repository_detail(&self) -> Result<Repository, Error> {
+        let repo_str = PackageName::new("repo".to_string())?;
+        let (toml, _) = self.repo_manager.get_package_toml(&repo_str)?;
+
+        Ok(Repository::from_toml(&toml)?)
+    }
+
+    fn get_package_state(&self) -> PackageState {
+        self.packages.clone()
+    }
+
+    fn commit_check(
+        &self,
+    ) -> Result<(&[pkgar::TransactionConflict], &[pkgar::TransactionIgnored]), Error> {
+        Ok((
+            self.commits.get_possible_conflicts(),
+            self.commits.get_ignored_entries(),
+        ))
+    }
+
+    fn commit_state(&mut self, new_state: PackageState) -> Result<usize, Error> {
+        let mut transaction = core::mem::replace(&mut self.commits, Transaction::new());
+        self.callback
+            .borrow_mut()
+            .commit_start(transaction.pending_commit());
+        while transaction.pending_commit() > 0 {
+            self.callback.borrow_mut().commit_increment(&transaction);
+            if let Err(e) = transaction.commit_one() {
+                return Err(Error::from(e));
+            }
+        }
+        self.callback.borrow_mut().commit_end();
+
+        self.packages = new_state;
+        for (k, v) in &self.repo_manager.remote_map {
+            let Some(pubkey) = v.pubkey else {
+                return Err(Error::RepoNotLoaded(k.to_string()));
+            };
+            let pk = RepoPublicKeyFile::new(pubkey);
+            self.packages.pubkeys.insert(k.to_string(), pk);
+        }
+        self.packages
+            .to_sysroot(&self.install_path)
+            .map_err(wrap_io_err!(&self.install_path, "Writing"))?;
+        Ok(transaction.total_committed())
+    }
+
+    fn abort_state(&mut self) -> Result<usize, Error> {
+        let mut transaction = core::mem::replace(&mut self.commits, Transaction::new());
+        self.callback
+            .borrow_mut()
+            .abort_start(transaction.pending_commit());
+        while transaction.pending_commit() > 0 {
+            self.callback.borrow_mut().commit_increment(&transaction);
+            if let Err(e) = transaction.abort_one() {
+                return Err(Error::from(e));
+            }
+        }
+        self.callback.borrow_mut().abort_end();
+        Ok(transaction.total_committed())
+    }
+
+    fn set_nocheck(&mut self, nocheck: bool) {
+        self.skip_local_check = nocheck;
+    }
+}

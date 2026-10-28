@@ -1,6 +1,0 @@
-#TODO test
-[source]
-git = "https://github.com/yt-dlp/yt-dlp"
-shallow_clone = true
-[build]
-template = "python"

@@ -1,0 +1,18 @@
+#TODO: more build-out, desktop actions, translations?
+[Desktop Entry]
+Name=COSMIC Document Reader
+Name[ar]=قارئ مستندات COSMIC
+Name[cs]=Prohlížeč dokumentů COSMIC
+Name[uk]=Переглядач документів COSMIC
+Exec=cosmic-reader %u
+Terminal=false
+Type=Application
+StartupNotify=true
+#TODO: add more mime types
+MimeType=application/pdf;
+Icon=com.system76.CosmicReader
+Categories=COSMIC;Office;Viewer;
+Keywords=pdf;document;presentation;viewer;reader;
+Keywords[ar]=مستند;قارئ;عارض;عرض تقديمي;
+Keywords[cs]=pdf;dokument;prezentace;čtečka;prohlížeč;
+Keywords[uk]=pdf;документ;презентація;переглядач;читач;

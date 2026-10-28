@@ -1,0 +1,721 @@
+// SPDX-License-Identifier: MIT
+
+use std::cell::Cell;
+use std::ffi::{c_char, CString};
+use std::fs::File;
+use std::io::{Read, Write};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::{env, mem, slice, thread};
+
+use libredox::{call as redox, flag};
+
+use crate::color::Color;
+use crate::event::{Event, EVENT_RESIZE};
+use crate::renderer::Renderer;
+use crate::{MediaKind, Mode, SurfaceFlag, WindowFlags};
+use crate::{WindowDragKind, WindowFlag};
+
+fn is_display_path(s: &String) -> bool {
+    s.starts_with("/scheme/") && s.split('/').skip(2).next().is_some_and(|s| !s.is_empty())
+}
+
+pub fn get_display_size() -> Result<(u32, u32), String> {
+    let display_path = env::var("ORBITAL_DISPLAY")
+        .ok()
+        .map(|display| format!("{display}/99.0"))
+        .or_else(|| env::var("DISPLAY").ok().filter(is_display_path))
+        .unwrap_or_else(|| "/scheme/orbital/99.0".into());
+    match File::open(&display_path) {
+        Ok(display) => {
+            let mut buf: [u8; 4096] = [0; 4096];
+            let count = redox::fpath(display.as_raw_fd() as usize, &mut buf)
+                .map_err(|err| format!("{}", err))?;
+            let path = unsafe { String::from_utf8_unchecked(Vec::from(&buf[..count])) };
+            let res = path.split(":").nth(1).unwrap_or("");
+            let width = res
+                .split("/")
+                .nth(1)
+                .unwrap_or("")
+                .parse::<u32>()
+                .unwrap_or(0);
+            let height = res
+                .split("/")
+                .nth(2)
+                .unwrap_or("")
+                .parse::<u32>()
+                .unwrap_or(0);
+            Ok((width, height))
+        }
+        Err(err) => Err(format!("{}", err)),
+    }
+}
+
+/// A window
+pub struct Window {
+    /// The x coordinate of the window
+    x: i32,
+    /// The y coordinate of the window
+    y: i32,
+    /// The width of the window
+    w: u32,
+    /// The height of the window
+    h: u32,
+    /// The title of the window
+    t: String,
+    /// True if the window should not wait for events
+    window_async: bool,
+    /// True if the window can be resized
+    resizable: bool,
+    /// Drawing mode
+    mode: Cell<Mode>,
+    /// The input scheme
+    file_opt: Option<File>,
+    /// Window data
+    data_opt: Option<&'static mut [Color]>,
+}
+
+impl Renderer for Window {
+    /// Get width
+    fn width(&self) -> u32 {
+        self.w
+    }
+
+    /// Get height
+    fn height(&self) -> u32 {
+        self.h
+    }
+
+    /// Access pixel buffer
+    fn data(&self) -> &[Color] {
+        self.data_opt.as_ref().unwrap()
+    }
+
+    /// Access pixel buffer mutably
+    fn data_mut(&mut self) -> &mut [Color] {
+        self.data_opt.as_mut().unwrap()
+    }
+
+    /// Flip the buffer
+    fn sync(&mut self) -> bool {
+        self.file_mut().sync_data().is_ok()
+    }
+
+    /// Update the software buffer
+    fn update(&mut self) -> bool {
+        self.sync()
+    }
+
+    /// Update the specified software buffer region
+    fn update_rects(&mut self, rects: &[(i32, i32, u32, u32)]) -> bool {
+        use std::fmt::Write;
+        let mut damage_buf = "Y".to_string();
+        for (x, y, w, h) in rects {
+            let _ = write!(damage_buf, ",{},{},{},{}", x, y, w, h);
+        }
+        self.file_mut().write(damage_buf.as_bytes()).is_ok()
+    }
+
+    /// Set/get mode
+    fn mode(&self) -> &Cell<Mode> {
+        &self.mode
+    }
+}
+
+impl Window {
+    /// Create a new window
+    pub fn new(x: i32, y: i32, w: u32, h: u32, title: &str) -> Option<Self> {
+        Window::new_flags(x, y, w, h, title, WindowFlags::default())
+    }
+
+    /// Create a new window with flags
+    pub fn new_flags<F: Into<WindowFlags>>(
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        title: &str,
+        flags: F,
+    ) -> Option<Self> {
+        let flags = flags.into();
+        let window_async = flags.contains(WindowFlag::Async);
+        let resizable = flags.contains(WindowFlag::Resizable);
+
+        if let Ok(file) = File::open(&format!(
+            "{}/{flags}/{x}/{y}/{w}/{h}/{title}",
+            env::var("ORBITAL_DISPLAY").unwrap_or("/scheme/orbital".to_owned()),
+        )) {
+            let mut window = Window {
+                x,
+                y,
+                w,
+                h,
+                t: title.to_string(),
+                window_async,
+                resizable,
+                mode: Cell::new(Mode::Blend),
+                file_opt: Some(file),
+                data_opt: None,
+            };
+            window.sync_path();
+            unsafe {
+                window.remap();
+            }
+            Some(window)
+        } else {
+            None
+        }
+    }
+
+    pub fn clipboard(&self) -> Option<(MediaKind, String)> {
+        let window_fd = self.file().as_raw_fd();
+        let clipboard_fd = redox::dup(window_fd as usize, b"clipboard").ok()?;
+        let mut clipboard_file = unsafe { File::from_raw_fd(clipboard_fd as RawFd) };
+        let mut kind = [0; 1];
+        clipboard_file.read_exact(&mut kind).ok()?;
+        let kind = MediaKind::from_str(str::from_utf8(&kind).ok()?).ok()?;
+        let mut text = String::new();
+        clipboard_file.read_to_string(&mut text).ok()?;
+        return Some((kind, text));
+    }
+
+    pub fn clipboard_c(&self) -> Option<(MediaKind, CString)> {
+        let (kind, mut text) = self.clipboard()?;
+        text.push('\0');
+        let text = CString::from_vec_with_nul(text.into_bytes()).ok()?;
+        return Some((kind, text));
+    }
+
+    pub fn set_clipboard(&mut self, content: &str, kind: MediaKind) -> bool {
+        let window_fd = self.file().as_raw_fd();
+        if let Ok(clipboard_fd) = redox::dup(window_fd as usize, b"clipboard") {
+            let mut clipboard_file = unsafe { File::from_raw_fd(clipboard_fd as RawFd) };
+            let _ = write!(&mut clipboard_file, "{}", kind);
+            return clipboard_file.write(content.as_bytes()).is_ok();
+        }
+        false
+    }
+
+    /// Register a content to drag. It's up to the receiver how to handles it.
+    /// Invalid when called during dragging from other window.
+    pub fn push_drag_content(&self, content: &str, kind: MediaKind) -> bool {
+        if content.len() == 0 {
+            // can be mixed up with peek_drop_content
+            return false;
+        }
+        let window_fd = self.file().as_raw_fd();
+        // unlike clipboard handle, the dnd handle automatically disposes the resource for any window after read
+        if let Ok(clipboard_fd) = redox::dup(window_fd as usize, b"dnd") {
+            let mut dnd_file = unsafe { File::from_raw_fd(clipboard_fd as RawFd) };
+            let _ = write!(&mut dnd_file, "{}", kind);
+            return dnd_file.write(content.as_bytes()).is_ok();
+        }
+        false
+    }
+
+    /// See the DND content. Must be called at DragEnter to subscribe the DND event for the session.
+    pub fn peek_drop_content(&self) -> Option<(MediaKind, String)> {
+        let window_fd = self.file().as_raw_fd();
+        if let Ok(dnd_fd) = redox::dup(window_fd as usize, b"dnd") {
+            let mut dnd_file = unsafe { File::from_raw_fd(dnd_fd as RawFd) };
+            let mut kind = [0; 1];
+            dnd_file.read_exact(&mut kind).ok()?;
+            let kind = MediaKind::from_str(str::from_utf8(&kind).ok()?).ok()?;
+            let mut text = String::new();
+            dnd_file.read_to_string(&mut text).ok()?;
+            return Some((kind, text));
+        }
+        return None;
+    }
+
+    pub fn peek_drop_content_c(&self) -> Option<(MediaKind, CString)> {
+        let (kind, mut text) = self.peek_drop_content()?;
+        text.push('\0');
+        let text = CString::from_vec_with_nul(text.into_bytes()).ok()?;
+        return Some((kind, text));
+    }
+
+    /// Drop the DND content and stop receiving DND events for the session.
+    /// If called before DropEvent, assumed to refuse, otherwise accept.
+    pub fn pop_drop_content(&mut self) -> bool {
+        self.file_mut().write(b"N,D").is_ok()
+    }
+
+    /// Give the DND session a visual cue whether it will be accepted or not.
+    /// Use pop_drop_content to unsubscribe from the event.
+    pub fn set_drop_accept(&mut self, accept: bool) -> bool {
+        self.file_mut()
+            .write(if accept { b"N,Y" } else { b"N,N" })
+            .is_ok()
+    }
+
+    // TODO: Replace with smarter mechanism, maybe a move event?
+    pub fn sync_path(&mut self) {
+        let mut buf: [u8; 4096] = [0; 4096];
+        if let Ok(count) = redox::fpath(self.file().as_raw_fd() as usize, &mut buf) {
+            let path = unsafe { String::from_utf8_unchecked(Vec::from(&buf[..count])) };
+            // orbital:/x/y/w/h/t
+            let mut parts = path.split('/');
+            if let Some(flags) = parts.next() {
+                self.window_async = flags.contains('a');
+                self.resizable = flags.contains('r');
+            }
+            if let Some(x) = parts.next() {
+                self.x = x.parse::<i32>().unwrap_or(0);
+            }
+            if let Some(y) = parts.next() {
+                self.y = y.parse::<i32>().unwrap_or(0);
+            }
+            if let Some(w) = parts.next() {
+                self.w = w.parse::<u32>().unwrap_or(0);
+            }
+            if let Some(h) = parts.next() {
+                self.h = h.parse::<u32>().unwrap_or(0);
+            }
+            if let Some(t) = parts.next() {
+                self.t = t.to_string();
+            }
+        }
+    }
+
+    /// Get x
+    // TODO: Sync with window movements
+    pub fn x(&self) -> i32 {
+        self.x
+    }
+
+    /// Get y
+    // TODO: Sync with window movements
+    pub fn y(&self) -> i32 {
+        self.y
+    }
+
+    /// Get title
+    pub fn title(&self) -> String {
+        self.t.clone()
+    }
+
+    /// Get async
+    pub fn is_async(&self) -> bool {
+        self.window_async
+    }
+
+    /// Set async
+    pub fn set_async(&mut self, is_async: bool) {
+        self.window_async = is_async;
+        let _ = self
+            .file_mut()
+            .write(if is_async { b"A,1" } else { b"A,0" });
+    }
+
+    /// Set window flag
+    pub fn set_flag(&mut self, flag: WindowFlag, value: bool) {
+        let bytes = [
+            b'F',
+            b',',
+            flag.to_byte(),
+            b',',
+            if value { b'1' } else { b'0' },
+        ];
+        let _ = self.file_mut().write(&bytes);
+        if matches!(flag, WindowFlag::Maximized | WindowFlag::Fullscreen) {
+            self.sync_path();
+        }
+    }
+
+    /// Set cursor visibility upon the window
+    pub fn set_mouse_cursor(&mut self, visible: bool) {
+        let _ = self
+            .file_mut()
+            .write(if visible { b"M,C,1" } else { b"M,C,0" });
+    }
+
+    /// Set mouse grabbing (locking mouse inside window)
+    pub fn set_mouse_grab(&mut self, grab: bool) {
+        let _ = self
+            .file_mut()
+            .write(if grab { b"M,G,1" } else { b"M,G,0" });
+    }
+
+    /// Set mouse relative mode
+    pub fn set_mouse_relative(&mut self, relative: bool) {
+        let _ = self
+            .file_mut()
+            .write(if relative { b"M,R,1" } else { b"M,R,0" });
+    }
+
+    /// Set window dragging (to allow mouse act like grabbing window title or borders).
+    /// Only work if mouse is already hovering.
+    /// Automatically set to None on button release, or re-call with WindowDragKind::None.
+    pub fn set_window_drag(&mut self, kind: WindowDragKind) {
+        let _ = self.file_mut().write(kind.to_orbital_cmd());
+    }
+
+    /// Set window position
+    pub fn set_pos(&mut self, x: i32, y: i32) {
+        let _ = self.file_mut().write(&format!("P,{},{}", x, y).as_bytes());
+        self.sync_path();
+    }
+
+    /// Set window size
+    pub fn set_size(&mut self, width: u32, height: u32) {
+        //TODO: Improve safety and reliability
+        unsafe {
+            self.unmap();
+        }
+
+        let _ = self
+            .file_mut()
+            .write(&format!("S,{},{}", width, height).as_bytes());
+        self.sync_path();
+
+        unsafe {
+            self.remap();
+        }
+    }
+
+    /// Set title
+    pub fn set_title(&mut self, title: &str) {
+        let _ = self.file_mut().write(&format!("T,{}", title).as_bytes());
+        self.sync_path();
+    }
+
+    /// Blocking iterator over events
+    pub fn events(&mut self) -> EventIter {
+        let mut iter = EventIter {
+            extra: None,
+            events: [Event::new(); 16],
+            i: 0,
+            count: 0,
+        };
+
+        'blocking: loop {
+            if iter.count == iter.events.len() {
+                if iter.extra.is_none() {
+                    iter.extra = Some(Vec::with_capacity(32));
+                }
+                iter.extra.as_mut().unwrap().extend_from_slice(&iter.events);
+                iter.count = 0;
+            }
+            let bytes = unsafe {
+                slice::from_raw_parts_mut(
+                    iter.events[iter.count..].as_mut_ptr() as *mut u8,
+                    iter.events[iter.count..].len() * mem::size_of::<Event>(),
+                )
+            };
+            match self.file_mut().read(bytes) {
+                Ok(0) => {
+                    if !self.window_async && iter.extra.is_none() && iter.count == 0 {
+                        thread::yield_now();
+                    } else {
+                        break 'blocking;
+                    }
+                }
+                Ok(count) => {
+                    let count = count / mem::size_of::<Event>();
+                    let events = &iter.events[iter.count..][..count];
+                    iter.count += count;
+
+                    if self.resizable {
+                        let mut resize = None;
+                        for event in events {
+                            let event = *event;
+                            if event.code == EVENT_RESIZE {
+                                resize = Some((event.a as u32, event.b as u32));
+                            }
+                        }
+                        if let Some((w, h)) = resize {
+                            self.set_size(w, h);
+                        }
+                    }
+                    if !self.window_async {
+                        // Synchronous windows are blocking, can't attempt another read
+                        break 'blocking;
+                    }
+                }
+                Err(_) => break 'blocking,
+            }
+        }
+
+        iter
+    }
+
+    fn file(&self) -> &File {
+        self.file_opt.as_ref().unwrap()
+    }
+
+    fn file_mut(&mut self) -> &mut File {
+        self.file_opt.as_mut().unwrap()
+    }
+
+    unsafe fn remap(&mut self) {
+        self.unmap();
+
+        let size = (self.w * self.h) as usize;
+        let fd = self.file().as_raw_fd() as usize;
+        let address = redox::mmap(redox::MmapArgs {
+            fd,
+            offset: 0,
+            length: size * mem::size_of::<Color>(),
+            flags: flag::MAP_SHARED,
+            prot: flag::PROT_READ | flag::PROT_WRITE,
+            addr: core::ptr::null_mut(),
+        })
+        .expect("orbclient: failed to map memory");
+
+        self.data_opt = Some(slice::from_raw_parts_mut(address.cast::<Color>(), size));
+    }
+
+    unsafe fn unmap(&mut self) {
+        if let Some(data) = self.data_opt.take() {
+            redox::munmap(
+                data.as_mut_ptr().cast(),
+                data.len() * mem::size_of::<Color>(),
+            )
+            .expect("orbclient: failed to unmap memory");
+        }
+    }
+}
+
+impl Drop for Window {
+    fn drop(&mut self) {
+        unsafe {
+            self.unmap();
+        }
+    }
+}
+
+impl AsRawFd for Window {
+    fn as_raw_fd(&self) -> RawFd {
+        self.file().as_raw_fd()
+    }
+}
+
+impl FromRawFd for Window {
+    unsafe fn from_raw_fd(fd: RawFd) -> Window {
+        let mut window = Window {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+            t: String::new(),
+            window_async: false,
+            resizable: false,
+            mode: Cell::new(Mode::Blend),
+            file_opt: Some(File::from_raw_fd(fd)),
+            data_opt: None,
+        };
+        window.sync_path();
+        window.remap();
+        window
+    }
+}
+
+impl IntoRawFd for Window {
+    fn into_raw_fd(mut self) -> RawFd {
+        self.file_opt.take().unwrap().into_raw_fd()
+    }
+}
+
+/// Event iterator
+pub struct EventIter {
+    extra: Option<Vec<Event>>,
+    events: [Event; 16],
+    i: usize,
+    count: usize,
+}
+
+impl Iterator for EventIter {
+    type Item = Event;
+    fn next(&mut self) -> Option<Event> {
+        let mut i = self.i;
+        if let Some(ref mut extra) = self.extra {
+            if i < extra.len() {
+                self.i += 1;
+                return Some(extra[i]);
+            }
+            i -= extra.len();
+        }
+        if i < self.count {
+            self.i += 1;
+            return Some(self.events[i]);
+        }
+        None
+    }
+}
+
+// General surface
+pub struct Surface {
+    /// The width of the surface
+    w: u32,
+    /// The height of the surface
+    h: u32,
+    /// Drawing mode
+    mode: Cell<Mode>,
+    /// The shm scheme
+    file_opt: Option<File>,
+    /// Surface data
+    data_opt: Option<&'static mut [Color]>,
+}
+
+impl Renderer for Surface {
+    /// Get width
+    fn width(&self) -> u32 {
+        self.w
+    }
+
+    /// Get height
+    fn height(&self) -> u32 {
+        self.h
+    }
+
+    /// Access pixel buffer
+    fn data(&self) -> &[Color] {
+        self.data_opt.as_ref().unwrap()
+    }
+
+    /// Access pixel buffer mutably
+    fn data_mut(&mut self) -> &mut [Color] {
+        self.data_opt.as_mut().unwrap()
+    }
+
+    /// Flip the hardware buffer
+    fn sync(&mut self) -> bool {
+        true
+    }
+
+    /// Update the software buffer
+    fn update(&mut self) -> bool {
+        true
+    }
+
+    /// Update the specified software buffer region
+    fn update_rects(&mut self, _rects: &[(i32, i32, u32, u32)]) -> bool {
+        true
+    }
+
+    /// Set/get mode
+    fn mode(&self) -> &Cell<Mode> {
+        &self.mode
+    }
+}
+
+impl Surface {
+    /// Create a new surface
+    pub fn new(w: u32, h: u32) -> Option<Self> {
+        Surface::new_flags(w, h, &[])
+    }
+
+    /// Create a new surface with flags
+    pub fn new_flags(w: u32, h: u32, _flags: &[SurfaceFlag]) -> Option<Self> {
+        static SHM_COUNTER: AtomicU64 = AtomicU64::new(0);
+        let pid = redox::getpid().unwrap();
+        let counter = SHM_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let shm_name = CString::new(format!("surface_{}_{}", pid, counter)).unwrap();
+        let shm = unsafe {
+            libc::shm_open(
+                shm_name.as_ptr() as *const c_char,
+                libc::O_CREAT | libc::O_RDWR,
+                0o700,
+            )
+        };
+        if shm == -1 {
+            return None;
+        }
+        // drop as soon as file closed
+        unsafe { libc::shm_unlink(shm_name.as_ptr() as *const c_char) };
+
+        let mut surface = Surface {
+            w,
+            h,
+            mode: Cell::new(Mode::Blend),
+            data_opt: None,
+            file_opt: Some(unsafe { File::from_raw_fd(shm) }),
+        };
+        unsafe {
+            surface.remap();
+        }
+        Some(surface)
+    }
+
+    fn file(&self) -> &File {
+        self.file_opt.as_ref().unwrap()
+    }
+
+    /// Set size
+    pub fn set_size(&mut self, width: u32, height: u32) {
+        //TODO: Improve safety and reliability
+        unsafe {
+            self.unmap();
+        }
+        self.w = width;
+        self.h = height;
+        unsafe {
+            self.remap();
+        }
+    }
+
+    unsafe fn remap(&mut self) {
+        self.unmap();
+
+        let size = (self.w * self.h) as usize;
+        let fd = self.file().as_raw_fd() as usize;
+        let _ = redox::ftruncate(fd, size * mem::size_of::<Color>());
+        let address = redox::mmap(redox::MmapArgs {
+            fd,
+            offset: 0,
+            length: size * mem::size_of::<Color>(),
+            flags: flag::MAP_SHARED,
+            prot: flag::PROT_READ | flag::PROT_WRITE,
+            addr: core::ptr::null_mut(),
+        })
+        .expect("orbclient: failed to map memory");
+
+        self.data_opt = Some(slice::from_raw_parts_mut(address.cast::<Color>(), size));
+    }
+
+    unsafe fn unmap(&mut self) {
+        if let Some(data) = self.data_opt.take() {
+            redox::munmap(
+                data.as_mut_ptr().cast(),
+                data.len() * mem::size_of::<Color>(),
+            )
+            .expect("orbclient: failed to unmap memory");
+        }
+    }
+}
+
+impl Drop for Surface {
+    fn drop(&mut self) {
+        unsafe {
+            self.unmap();
+        }
+    }
+}
+
+impl AsRawFd for Surface {
+    fn as_raw_fd(&self) -> RawFd {
+        self.file().as_raw_fd()
+    }
+}
+
+impl FromRawFd for Surface {
+    unsafe fn from_raw_fd(fd: RawFd) -> Surface {
+        let mut surface = Surface {
+            w: 0,
+            h: 0,
+            mode: Cell::new(Mode::Blend),
+            file_opt: Some(File::from_raw_fd(fd)),
+            data_opt: None,
+        };
+        surface.remap();
+        surface
+    }
+}
+
+impl IntoRawFd for Surface {
+    fn into_raw_fd(mut self) -> RawFd {
+        self.file_opt.take().unwrap().into_raw_fd()
+    }
+}

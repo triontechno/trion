@@ -1,0 +1,126 @@
+use std::{cell::RefCell, rc::Rc};
+use std::{
+    fs::File,
+    io::{self, Write},
+    path::Path,
+};
+use thiserror::Error;
+
+mod curl_backend;
+#[cfg(feature = "library")]
+mod ureq_backend;
+
+use crate::callback::Callback;
+
+pub use curl_backend::CurlBackend;
+#[cfg(not(feature = "library"))]
+pub use curl_backend::CurlBackend as DefaultNetBackend;
+#[cfg(feature = "library")]
+pub use ureq_backend::UreqBackend;
+#[cfg(feature = "library")]
+pub use ureq_backend::UreqBackend as DefaultNetBackend;
+
+pub enum DownloadBackendWriter {
+    ToFile(File),
+    ToBuf(Vec<u8>),
+}
+
+impl Write for DownloadBackendWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            DownloadBackendWriter::ToFile(file) => file.write(buf),
+            DownloadBackendWriter::ToBuf(items) => items.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            DownloadBackendWriter::ToFile(file) => file.flush(),
+            DownloadBackendWriter::ToBuf(items) => items.flush(),
+        }
+    }
+}
+
+impl DownloadBackendWriter {
+    pub fn to_inner_buf(self) -> Vec<u8> {
+        match self {
+            DownloadBackendWriter::ToBuf(items) => items,
+            _ => panic!("Logic error, should be a buffer going here"),
+        }
+    }
+    pub fn to_inner_file(self) -> File {
+        match self {
+            DownloadBackendWriter::ToFile(file) => file,
+            _ => panic!("Logic error, should be a file handle going here"),
+        }
+    }
+}
+
+pub trait DownloadBackend {
+    fn new() -> Result<Self, DownloadError>
+    where
+        Self: Sized;
+
+    fn download(
+        &self,
+        remote_path: &str,
+        remote_len: Option<u64>,
+        writer: &mut DownloadBackendWriter,
+        callback: Rc<RefCell<dyn Callback>>,
+    ) -> Result<(), DownloadError>;
+
+    fn download_to_file(
+        &self,
+        remote_path: &str,
+        remote_len: Option<u64>,
+        local_path: &Path,
+        callback: Rc<RefCell<dyn Callback>>,
+    ) -> Result<(), DownloadError> {
+        let mut output = DownloadBackendWriter::ToFile(File::create(local_path)?);
+        self.download(remote_path, remote_len, &mut output, callback)
+    }
+
+    fn download_to_buf(
+        &self,
+        remote_path: &str,
+        callback: Rc<RefCell<dyn Callback>>,
+    ) -> Result<Vec<u8>, DownloadError> {
+        let mut output = DownloadBackendWriter::ToBuf(Vec::new());
+        self.download(remote_path, None, &mut output, callback)?;
+        Ok(output.to_inner_buf())
+    }
+
+    fn file_size(&self) -> Option<usize> {
+        None
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum DownloadError {
+    // Specific variant for timeout errors
+    #[error("Download timed out")]
+    Timeout,
+    // Specific variant for HTTP status errors (e.g., 404, 500)
+    #[error("HTTP error status: {0}")]
+    HttpStatus(u16),
+    // Fallback for other generic reqwest errors
+    #[cfg(feature = "library")]
+    #[error("Other ureq error: {0}")]
+    Ureq(ureq::Error),
+    // IO errors remain the same
+    #[error("IO error: {0}")]
+    IO(#[from] io::Error),
+    #[error("General error: {0}")]
+    Other(String),
+}
+
+#[cfg(feature = "library")]
+impl From<ureq::Error> for DownloadError {
+    fn from(err: ureq::Error) -> Self {
+        match err {
+            ureq::Error::Timeout(_) => DownloadError::Timeout,
+            ureq::Error::StatusCode(code) => DownloadError::HttpStatus(code),
+            err => DownloadError::Ureq(err),
+        }
+    }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "cosmic-files-applet"
+version = "1.11.0"
+edition = "2024"
+
+[dependencies]
+log.workspace = true
+zbus = "4" # Blocking connection in zbus 5 hangs
+
+[dependencies.cosmic-files]
+path = ".."
+default-features = false
+features = ["desktop", "gvfs", "wayland", "desktop-applet"]

@@ -1,0 +1,9 @@
+appearance = Aparéncia
+theme = Tèma
+match-desktop = Assortir al burèu
+dark = Escur
+light = Clar
+cancel = Anullar
+details = Detalhs
+settings = Configuracion
+remove = Suprimir
