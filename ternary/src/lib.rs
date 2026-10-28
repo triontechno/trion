@@ -57,12 +57,34 @@ impl Ternary {
     pub fn trits_lsf(&self) -> &[i8] { &self.trits }
 
     pub fn to_i128(&self) -> Result<i128, TernaryError> {
-        let mut value = 0i128;
+        // Convert the magnitude in u128 so i128::MIN (whose magnitude is
+        // one larger than i128::MAX) remains representable during conversion.
+        let negative = self.trits.last().copied().unwrap_or(0) < 0;
+        let mut magnitude = 0u128;
         for &trit in self.trits.iter().rev() {
-            value = value.checked_mul(3).ok_or(TernaryError::DecimalOverflow)?;
-            value = value.checked_add(trit as i128).ok_or(TernaryError::DecimalOverflow)?;
+            let digit = if negative { -trit } else { trit };
+            magnitude = magnitude.checked_mul(3).ok_or(TernaryError::DecimalOverflow)?;
+            let addend = digit as i128;
+            if addend < 0 {
+                magnitude = magnitude.checked_sub((-addend) as u128).ok_or(TernaryError::DecimalOverflow)?;
+            } else {
+                magnitude = magnitude.checked_add(addend as u128).ok_or(TernaryError::DecimalOverflow)?;
+            }
         }
-        Ok(value)
+        if negative {
+            let min_magnitude = (i128::MAX as u128) + 1;
+            if magnitude == min_magnitude {
+                Ok(i128::MIN)
+            } else if magnitude <= i128::MAX as u128 {
+                Ok(-(magnitude as i128))
+            } else {
+                Err(TernaryError::DecimalOverflow)
+            }
+        } else if magnitude <= i128::MAX as u128 {
+            Ok(magnitude as i128)
+        } else {
+            Err(TernaryError::DecimalOverflow)
+        }
     }
 
     pub fn add(&self, rhs: &Self) -> Self {
@@ -187,7 +209,7 @@ mod tests {
 
     #[test]
     fn arithmetic_can_exceed_i128() {
-        let huge = Ternary::parse("111111111111111111111111111111111111111111111111111111").unwrap();
+        let huge = Ternary::parse("1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111").unwrap();
         let result = huge.add(&huge);
         assert!(result.to_i128().is_err());
         assert_eq!(result, huge.mul(&Ternary::from_i128(2)));
