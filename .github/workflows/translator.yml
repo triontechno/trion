@@ -1,0 +1,33 @@
+name: Trion binary translator frontend
+
+on:
+  push:
+    branches:
+      - feat/binary-to-ternary-translator
+    paths:
+      - "translator/**"
+      - ".github/workflows/translator.yml"
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "translator/**"
+      - ".github/workflows/translator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: translator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run formatter
+        run: cargo fmt --all -- --check
+      - name: Test translator frontend
+        run: cargo test --all-targets
