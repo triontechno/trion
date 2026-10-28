@@ -2,16 +2,14 @@ name: Trion binary translator frontend
 
 on:
   push:
-    branches:
-      - feat/binary-to-ternary-translator
+    branches: [master, fix/ternary-pillar-layout]
     paths:
-      - "translator/**"
+      - "ternary/translator/**"
       - ".github/workflows/translator.yml"
   pull_request:
-    branches:
-      - master
+    branches: [master]
     paths:
-      - "translator/**"
+      - "ternary/translator/**"
       - ".github/workflows/translator.yml"
   workflow_dispatch:
 
@@ -23,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: translator
+        working-directory: ternary/translator
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
