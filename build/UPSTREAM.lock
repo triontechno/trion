@@ -1,0 +1,4 @@
+repository=https://github.com/triontechno/trion.git
+ref=development
+commit=b3f371c1bac6bb4c88ef4eb4b30139d2e007580f
+source_directory=code
