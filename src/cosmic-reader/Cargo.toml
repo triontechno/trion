@@ -1,0 +1,54 @@
+[package]
+name = "cosmic-reader"
+version = "0.1.0"
+edition = "2024"
+
+[build-dependencies]
+vergen = { version = "8", features = ["git", "gitcl"] }
+
+[dependencies]
+clap_lex = "1.1"
+#TODO: color_space may not be maintained
+color_space = "0.5"
+env_logger = "0.11"
+log = "0.4"
+rayon = "1"
+tokio = { version = "1", features = ["sync"] }
+#TODO: export ttf-parser in fontdb?
+ttf-parser = "0.25"
+url = "2"
+# Internationalization
+i18n-embed = { version = "0.16", features = [
+    "fluent-system",
+    "desktop-requester",
+] }
+i18n-embed-fl = "0.10"
+rust-embed = "8"
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic.git"
+default-features = false
+features = ["tokio", "winit"]
+
+# For lopdf feature
+[dependencies.lopdf]
+git = "https://github.com/J-F-Liu/lopdf.git"
+optional = true
+
+# For mupdf feature
+[dependencies.mupdf]
+version = "0.7"
+optional = true
+
+[target.'cfg(unix)'.dependencies]
+fork = "0.7"
+
+[features]
+default = ["mupdf", "sys-lib", "xdg-portal", "wgpu"]
+sys-lib = ["mupdf?/sys-lib"]
+xdg-portal = ["libcosmic/xdg-portal"]
+wgpu = ["libcosmic/wgpu"]
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true

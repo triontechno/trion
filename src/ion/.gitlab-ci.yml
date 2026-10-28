@@ -1,0 +1,83 @@
+image: "redoxos/redoxer"
+
+stages:
+  - lint
+  - test
+  - deploy
+
+variables:
+    CARGO_HOME: $CI_PROJECT_DIR/cargo
+before_script:
+  - apt-get update -qq
+  - apt-get install -qq libssl-dev pkg-config build-essential curl git
+
+format:
+  stage: lint
+  script:
+    - rustup component add rustfmt
+    - cargo fmt --all -- --check
+
+linux:
+  stage: test
+  cache:
+    key: linux
+    paths:
+      - cargo/
+      - target/
+  script:
+    - cargo check --features=piston
+    - FULL=1 make tests
+
+redox:
+  stage: test
+  cache:
+    key: redox
+    paths:
+      - cargo/
+      - target/
+  before_script:
+    - apt-get update -qq
+    - apt-get install -qq build-essential curl git
+  script:
+    - redoxer build # TODO: do test when it does not hang
+
+link-check:
+  stage: lint
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+  script:
+  - PATH=$PATH:$CARGO_HOME/bin
+  - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+  - cargo binstall mdbook mdbook-linkcheck
+  - make manual
+  - mdbook build manual
+
+pages:
+  stage: deploy
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      when: never
+  script:
+  - PATH=$PATH:$CARGO_HOME/bin
+  - curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+  - cargo binstall mdbook
+  - make manual
+  - mdbook build manual
+  - mv manual/book public
+  artifacts:
+    paths:
+    - public
+
+compare-benchmarks:
+  image: rustlang/rust:nightly
+  stage: test
+  when: manual
+  allow_failure: true
+  except: [master]
+  script:
+    - apt-get install -y libboost-dev jq bc
+    - sh ./ci/run_benchmark.sh
+  artifacts:
+    reports:
+      junit: target/report.xml
+    paths: [target/criterion]

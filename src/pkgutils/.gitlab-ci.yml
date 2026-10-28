@@ -1,0 +1,28 @@
+image: "rust:latest"
+
+stages:
+  - lint
+  - test
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+
+fmt:
+  stage: lint
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
+
+cargo-build:
+  stage: test
+  script:
+    - cargo build -p redox-pkg --no-default-features
+    - cargo build -p redox-pkg --no-default-features --features indicatif
+    - cargo build -p redox-pkg-cli
+
+cargo-test:
+  stage: test
+  script:
+    - cargo test --release -p redox-pkg --features indicatif --locked  -- --nocapture --test-threads=1

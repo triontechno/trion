@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: MIT
+
+#![cfg_attr(not(feature = "std"), no_std)]
+#![deny(unreachable_pub)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(all(feature = "std", not(target_os = "redox")))]
+#[path = "sys/sdl2.rs"]
+mod sys;
+
+#[cfg(all(feature = "std", target_os = "redox"))]
+#[path = "sys/orbital.rs"]
+mod sys;
+
+#[cfg(feature = "std")]
+pub use sys::Surface;
+#[cfg(feature = "std")]
+pub use sys::{get_display_size, EventIter, Window};
+
+#[cfg(feature = "unifont")]
+pub static FONT: &[u8] = include_bytes!("../res/unifont.font");
+
+pub use color::Color;
+pub use event::*;
+pub use graphicspath::GraphicsPath;
+pub use renderer::Renderer;
+
+#[cfg(feature = "std")]
+mod blur;
+pub mod color;
+pub mod event;
+mod flags;
+pub mod graphicspath;
+pub mod image;
+pub mod rect;
+pub mod renderer;
+pub use flags::*;

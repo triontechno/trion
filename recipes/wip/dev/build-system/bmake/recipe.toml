@@ -1,5 +1,0 @@
-#TODO compile and test
-[source]
-tar = "https://www.crufty.net/ftp/pub/sjg/bmake-20260714.tar.gz"
-[build]
-template = "configure"
