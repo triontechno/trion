@@ -5,7 +5,7 @@ on:
     branches:
       - feat/trion-monorepo-foundation
     paths:
-      - "scripts/import-core-sources.sh"
+      - "scripts/**"
       - ".github/workflows/vendor-core-sources.yml"
   workflow_dispatch:
 
@@ -15,7 +15,7 @@ permissions:
 jobs:
   vendor:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Check out migration branch
         uses: actions/checkout@v4
@@ -24,16 +24,18 @@ jobs:
           fetch-depth: 1
       - name: Install rsync
         run: sudo apt-get update && sudo apt-get install -y rsync
-      - name: Import upstream source trees
+      - name: Put the existing build system under build/
+        run: bash scripts/restructure-layout.sh
+      - name: Import upstream source trees into src/
         run: bash scripts/import-core-sources.sh
-      - name: Commit vendored sources
+      - name: Commit monorepo layout and vendored sources
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add source/
+          git add -A
           if git diff --cached --quiet; then
             echo "No source changes to commit."
             exit 0
           fi
-          git commit -m "Vendor first-party Redox and COSMIC sources [skip ci]"
+          git commit -m "Restructure TRION monorepo and vendor core sources [skip ci]"
           git push origin HEAD:feat/trion-monorepo-foundation
