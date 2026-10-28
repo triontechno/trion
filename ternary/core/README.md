@@ -1,10 +1,29 @@
-# TRION balanced-ternary core
+# Trion ternary core
 
-This directory is reserved for TRION's native balanced-ternary implementation.
+A standalone, host-testable first step toward Trion's ternary computing environment. This crate implements **software balanced ternary**; it does not imply ternary hardware.
 
-Design goals:
-- Represent each trit as -1, 0, or +1.
-- Define balanced-ternary arithmetic and serialization independently of binary machine integers where practical.
-- Add unit tests for normalization, overflow policy, arithmetic, and conversion boundaries.
+## Representation
 
-Status: scaffold only; no production implementation has been added yet.
+- Trit values are -1, 0, +1.
+- Text digits are `T` (−1), `0`, `1`, most-significant trit first.
+- Internal trit vectors are least-significant trit first.
+- Zero has one canonical representation: `[0]`.
+- Decimal conversion is bounded to Rust's `i128` range; ternary arithmetic itself operates on trit vectors.
+
+## Build and test
+
+From this directory:
+
+```sh
+cargo test
+cargo run -- from-decimal 42
+cargo run -- to-decimal 1T0
+cargo run -- add 1T 11
+cargo run -- mul 1T 11
+```
+
+The CLI uses exact integer arithmetic where a decimal result fits in `i128`. It reports an error if conversion back to `i128` overflows.
+
+## Scope
+
+This is Phase 1 of Trion's ternary roadmap: arithmetic, canonical representation, parsing/formatting, and tests. It is deliberately isolated from the existing OS build so it can be validated on an ordinary development machine before integration.
