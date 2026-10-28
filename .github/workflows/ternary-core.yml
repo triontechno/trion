@@ -2,16 +2,14 @@ name: Trion ternary core
 
 on:
   push:
-    branches:
-      - feat/ternary-core
+    branches: [master, fix/ternary-pillar-layout]
     paths:
-      - "ternary/**"
+      - "ternary/core/**"
       - ".github/workflows/ternary-core.yml"
   pull_request:
-    branches:
-      - master
+    branches: [master]
     paths:
-      - "ternary/**"
+      - "ternary/core/**"
       - ".github/workflows/ternary-core.yml"
   workflow_dispatch:
 
@@ -24,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: ternary
+        working-directory: ternary/core
     steps:
       - name: Check out source
         uses: actions/checkout@v4
