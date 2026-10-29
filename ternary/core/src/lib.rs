@@ -215,3 +215,188 @@ mod tests {
         assert_eq!(result, huge.mul(&Ternary::from_i128(2)));
     }
 }
+
+
+// ---------------------------------------------------------------------------
+// Checked packed unbalanced-ternary representation (Phase 1).
+//
+// This is a software representation stored in ordinary binary integers. Trit
+// zero is least-significant. It is intentionally separate from `Ternary`,
+// whose digits are balanced (-1, 0, +1).
+// ---------------------------------------------------------------------------
+
+/// Maximum number of unbalanced trits that fit in a binary integer.
+pub const U3_U32_CAPACITY: usize = 20;
+/// Maximum number of unbalanced trits that fit in a binary integer.
+pub const U3_U64_CAPACITY: usize = 40;
+
+/// Errors returned by checked unbalanced-ternary packing operations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PackedTritError {
+    InvalidTrit { index: usize, value: u8 },
+    InvalidBalancedTrit { value: i8 },
+    TooManyTrits { count: usize, capacity: usize },
+    InvalidCount { count: usize, capacity: usize },
+    InvalidPackedValue { value: u64, count: usize },
+}
+
+impl fmt::Display for PackedTritError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTrit { index, value } =>
+                write!(f, "unbalanced trit at index {index} is {value}; expected 0, 1, or 2"),
+            Self::InvalidBalancedTrit { value } =>
+                write!(f, "balanced trit is {value}; expected -1, 0, or 1"),
+            Self::TooManyTrits { count, capacity } =>
+                write!(f, "{count} trits exceed target capacity {capacity}"),
+            Self::InvalidCount { count, capacity } =>
+                write!(f, "trit count {count} exceeds capacity {capacity}"),
+            Self::InvalidPackedValue { value, count } =>
+                write!(f, "packed value {value} is invalid for {count} trits"),
+        }
+    }
+}
+impl std::error::Error for PackedTritError {}
+
+fn u3_limit(count: usize, capacity: usize) -> Result<u128, PackedTritError> {
+    if count > capacity {
+        return Err(PackedTritError::InvalidCount { count, capacity });
+    }
+    let mut limit = 1u128;
+    for _ in 0..count {
+        limit *= 3;
+    }
+    Ok(limit)
+}
+
+/// Pack unbalanced trits (each 0, 1, or 2) into a u32, least-significant first.
+pub fn pack_u3_u32(trits: &[u8]) -> Result<u32, PackedTritError> {
+    if trits.len() > U3_U32_CAPACITY {
+        return Err(PackedTritError::TooManyTrits { count: trits.len(), capacity: U3_U32_CAPACITY });
+    }
+    let mut value = 0u64;
+    let mut place = 1u64;
+    for (index, &trit) in trits.iter().enumerate() {
+        if trit > 2 {
+            return Err(PackedTritError::InvalidTrit { index, value: trit });
+        }
+        value += (trit as u64) * place;
+        place *= 3;
+    }
+    Ok(value as u32)
+}
+
+/// Decode a u32 into exactly `count` unbalanced trits, least-significant first.
+/// Rejects non-canonical values rather than silently discarding high trits.
+pub fn unpack_u3_u32(value: u32, count: usize) -> Result<Vec<u8>, PackedTritError> {
+    let limit = u3_limit(count, U3_U32_CAPACITY)?;
+    if (value as u128) >= limit {
+        return Err(PackedTritError::InvalidPackedValue { value: value as u64, count });
+    }
+    let mut remaining = value;
+    let mut trits = Vec::with_capacity(count);
+    for _ in 0..count {
+        trits.push((remaining % 3) as u8);
+        remaining /= 3;
+    }
+    Ok(trits)
+}
+
+/// Pack unbalanced trits (each 0, 1, or 2) into a u64, least-significant first.
+pub fn pack_u3_u64(trits: &[u8]) -> Result<u64, PackedTritError> {
+    if trits.len() > U3_U64_CAPACITY {
+        return Err(PackedTritError::TooManyTrits { count: trits.len(), capacity: U3_U64_CAPACITY });
+    }
+    let mut value = 0u128;
+    let mut place = 1u128;
+    for (index, &trit) in trits.iter().enumerate() {
+        if trit > 2 {
+            return Err(PackedTritError::InvalidTrit { index, value: trit });
+        }
+        value += (trit as u128) * place;
+        place *= 3;
+    }
+    Ok(value as u64)
+}
+
+/// Decode a u64 into exactly `count` unbalanced trits, least-significant first.
+/// Rejects non-canonical values rather than silently discarding high trits.
+pub fn unpack_u3_u64(value: u64, count: usize) -> Result<Vec<u8>, PackedTritError> {
+    let limit = u3_limit(count, U3_U64_CAPACITY)?;
+    if (value as u128) >= limit {
+        return Err(PackedTritError::InvalidPackedValue { value, count });
+    }
+    let mut remaining = value;
+    let mut trits = Vec::with_capacity(count);
+    for _ in 0..count {
+        trits.push((remaining % 3) as u8);
+        remaining /= 3;
+    }
+    Ok(trits)
+}
+
+/// Convert one unbalanced digit to its balanced logical equivalent.
+pub fn u3_to_balanced(trit: u8) -> Result<i8, PackedTritError> {
+    match trit {
+        0 => Ok(-1),
+        1 => Ok(0),
+        2 => Ok(1),
+        value => Err(PackedTritError::InvalidTrit { index: 0, value }),
+    }
+}
+
+/// Convert one balanced digit to its unbalanced packing equivalent.
+pub fn balanced_to_u3(trit: i8) -> Result<u8, PackedTritError> {
+    match trit {
+        -1 => Ok(0),
+        0 => Ok(1),
+        1 => Ok(2),
+        value => Err(PackedTritError::InvalidBalancedTrit { value }),
+    }
+}
+
+#[cfg(test)]
+mod packed_u3_tests {
+    use super::*;
+
+    #[test]
+    fn packed_round_trips_and_boundaries() {
+        for count in 0..=8 {
+            let total = 3usize.pow(count as u32);
+            for mut n in 0..total {
+                let mut trits = Vec::with_capacity(count);
+                for _ in 0..count { trits.push((n % 3) as u8); n /= 3; }
+                assert_eq!(unpack_u3_u32(pack_u3_u32(&trits).unwrap(), count).unwrap(), trits);
+                assert_eq!(unpack_u3_u64(pack_u3_u64(&trits).unwrap(), count).unwrap(), trits);
+            }
+        }
+        assert_eq!(pack_u3_u32(&vec![2; 20]).unwrap(), 3u64.pow(20) as u32 - 1);
+        assert_eq!(pack_u3_u64(&vec![2; 40]).unwrap(), 3u128.pow(40) as u64 - 1);
+    }
+
+    #[test]
+    fn rejects_invalid_digits_counts_and_noncanonical_values() {
+        assert!(matches!(pack_u3_u32(&[0, 3]), Err(PackedTritError::InvalidTrit { index: 1, value: 3 })));
+        assert!(matches!(pack_u3_u32(&vec![0; 21]), Err(PackedTritError::TooManyTrits { .. })));
+        assert!(matches!(unpack_u3_u32(3, 1), Err(PackedTritError::InvalidPackedValue { .. })));
+        assert!(matches!(unpack_u3_u64(1, 41), Err(PackedTritError::InvalidCount { .. })));
+        assert_eq!(unpack_u3_u32(0, 0).unwrap(), Vec::<u8>::new());
+        assert!(matches!(unpack_u3_u32(1, 0), Err(PackedTritError::InvalidPackedValue { .. })));
+    }
+
+    #[test]
+    fn single_digit_domain_conversion_is_explicit() {
+        for (u, b) in [(0, -1), (1, 0), (2, 1)] {
+            assert_eq!(u3_to_balanced(u).unwrap(), b);
+            assert_eq!(balanced_to_u3(b).unwrap(), u);
+        }
+        assert!(u3_to_balanced(3).is_err());
+        assert!(balanced_to_u3(2).is_err());
+    }
+
+    #[test]
+    fn packed_values_use_little_significance_first() {
+        assert_eq!(pack_u3_u32(&[1, 2]).unwrap(), 7);
+        assert_eq!(unpack_u3_u32(7, 2).unwrap(), vec![1, 2]);
+    }
+}
