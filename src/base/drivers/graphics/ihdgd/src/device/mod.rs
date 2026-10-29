@@ -14,7 +14,7 @@ use pcid_interface::{PciFunction, PciFunctionHandle};
 use range_alloc::RangeAllocator;
 use syscall::error::{Error, Result, EIO, ENODEV, ERANGE};
 
-mod aux;
+mod aux_device;
 mod bios;
 use self::bios::*;
 mod buffer;
