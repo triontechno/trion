@@ -234,6 +234,7 @@ pub const U3_U64_CAPACITY: usize = 40;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PackedTritError {
     InvalidTrit { index: usize, value: u8 },
+    InvalidBalancedTrit { value: i8 },
     TooManyTrits { count: usize, capacity: usize },
     InvalidCount { count: usize, capacity: usize },
     InvalidPackedValue { value: u64, count: usize },
@@ -244,6 +245,8 @@ impl fmt::Display for PackedTritError {
         match self {
             Self::InvalidTrit { index, value } =>
                 write!(f, "unbalanced trit at index {index} is {value}; expected 0, 1, or 2"),
+            Self::InvalidBalancedTrit { value } =>
+                write!(f, "balanced trit is {value}; expected -1, 0, or 1"),
             Self::TooManyTrits { count, capacity } =>
                 write!(f, "{count} trits exceed target capacity {capacity}"),
             Self::InvalidCount { count, capacity } =>
@@ -348,10 +351,7 @@ pub fn balanced_to_u3(trit: i8) -> Result<u8, PackedTritError> {
         -1 => Ok(0),
         0 => Ok(1),
         1 => Ok(2),
-        value => Err(PackedTritError::InvalidTrit {
-            index: 0,
-            value: if value < 0 { 255 } else { value as u8 },
-        }),
+        value => Err(PackedTritError::InvalidBalancedTrit { value }),
     }
 }
 
