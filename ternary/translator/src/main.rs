@@ -35,6 +35,8 @@ fn inspect(path: &str) -> Result<(), String> {
     println!("Note: this command does not translate or execute the binary.\n");
 
     let mut decoded = 0usize;
+    let mut candidate_mnemonics = 0usize;
+    let mut noncandidate_mnemonics = 0usize;
     let mut invalid = 0usize;
     let mut executable_sections = 0usize;
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
@@ -97,6 +99,11 @@ fn inspect(path: &str) -> Result<(), String> {
                     | iced_x86::Mnemonic::Pop
                     | iced_x86::Mnemonic::Syscall
             );
+            if candidate {
+                candidate_mnemonics += 1;
+            } else {
+                noncandidate_mnemonics += 1;
+            }
             if !candidate && unsupported_examples.len() < 12 {
                 let mut text = String::new();
                 formatter.format(&instruction, &mut text);
@@ -110,6 +117,8 @@ fn inspect(path: &str) -> Result<(), String> {
 
     println!("Executable sections decoded: {executable_sections}");
     println!("Instructions decoded: {decoded}");
+    println!("Candidate mnemonics (triage only): {candidate_mnemonics}");
+    println!("Non-candidate mnemonics (backend absent): {noncandidate_mnemonics}");
     println!("Invalid instruction encodings: {invalid}");
     println!("\nInstruction frequencies:");
     for (mnemonic, count) in counts {
