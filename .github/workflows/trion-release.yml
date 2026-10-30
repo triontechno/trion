@@ -58,6 +58,29 @@ jobs:
           test -s build/build/x86_64/desktop/harddrive.img
           test -s build/build/x86_64/desktop/redox-live.iso
 
+      - name: Smoke-test x86_64 kernel entry in QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          trap 'rm -f "$log"' EXIT
+          set +e
+          timeout --signal=TERM --kill-after=10s 120s \
+            make -C build qemu gpu=no kvm=no uefi=no net=no audio=no usb=no serial=yes \
+            >"$log" 2>&1
+          qemu_status=$?
+          set -e
+          if ! grep -Fq 'Redox OS starting...' "$log"; then
+            cat "$log"
+            echo "QEMU did not reach x86_64 kernel entry within 120 seconds."
+            exit 1
+          fi
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            cat "$log"
+            exit "$qemu_status"
+          fi
+          echo "QEMU reached x86_64 kernel entry."
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
