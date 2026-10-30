@@ -3,7 +3,7 @@ name: TRION Build and Release
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 permissions:
@@ -37,19 +37,19 @@ jobs:
       - name: Install build dependencies
         shell: bash
         run: |
-          bash podman_bootstrap.sh -d
+          bash build/podman_bootstrap.sh -d
 
       - name: Configure Podman build
         shell: bash
         run: |
-          printf 'PODMAN_BUILD?=1\n' > .config
+          printf 'PODMAN_BUILD?=1\n' > build/.config
 
       - name: Build desktop disk image and live ISO
         shell: bash
         run: |
           set -euo pipefail
-          make all
-          make live
+          make -C build all
+          make -C build live
 
       - name: Verify build outputs
         shell: bash
