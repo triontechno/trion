@@ -55,8 +55,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s build/x86_64/desktop/harddrive.img
-          test -s build/x86_64/desktop/redox-live.iso
+          test -s build/build/x86_64/desktop/harddrive.img
+          test -s build/build/x86_64/desktop/redox-live.iso
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -66,7 +66,7 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            build/x86_64/desktop/harddrive.img
-            build/x86_64/desktop/redox-live.iso
+            build/build/x86_64/desktop/harddrive.img
+            build/build/x86_64/desktop/redox-live.iso
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
