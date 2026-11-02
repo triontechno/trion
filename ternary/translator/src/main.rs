@@ -154,7 +154,9 @@ fn translate(path: &str, output_path: &str) -> Result<(), String> {
     if let Err(error) = file.write_all(&output) {
         drop(file);
         return match fs::remove_file(output_path) {
-            Ok(()) => Err(format!("cannot write translated output {output_path}: {error}")),
+            Ok(()) => Err(format!(
+                "cannot write translated output {output_path}: {error}"
+            )),
             Err(cleanup_error) => Err(format!(
                 "cannot write translated output {output_path}: {error}; also cannot remove partial output: {cleanup_error}"
             )),

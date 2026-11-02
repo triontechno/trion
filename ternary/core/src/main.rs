@@ -33,9 +33,13 @@ fn parse_u3_trits(input: &str) -> Result<Vec<u8>, String> {
         }
 
         if token.len() == 1 && token.chars().all(|ch| ch.is_ascii_digit()) {
-            let value = token.parse::<u8>().map_err(|e| format!("invalid trit {token:?}: {e}"))?;
+            let value = token
+                .parse::<u8>()
+                .map_err(|e| format!("invalid trit {token:?}: {e}"))?;
             if value > 2 {
-                return Err(format!("trit value {value} is outside the unbalanced domain {{0,1,2}}"));
+                return Err(format!(
+                    "trit value {value} is outside the unbalanced domain {{0,1,2}}"
+                ));
             }
             trits.push(value);
             continue;
@@ -75,16 +79,16 @@ fn format_balanced_trit(value: i8) -> String {
 fn run(args: &[String]) -> Result<String, String> {
     match args {
         [cmd, value] if cmd == "from-decimal" => {
-            let n = value.parse::<i128>().map_err(|e| format!("invalid i128 integer: {e}"))?;
+            let n = value
+                .parse::<i128>()
+                .map_err(|e| format!("invalid i128 integer: {e}"))?;
             Ok(Ternary::from_i128(n).to_string())
         }
-        [cmd, value] if cmd == "to-decimal" => {
-            Ternary::parse(value)
-                .map_err(|e| e.to_string())?
-                .to_i128()
-                .map(|v| v.to_string())
-                .map_err(|e| e.to_string())
-        }
+        [cmd, value] if cmd == "to-decimal" => Ternary::parse(value)
+            .map_err(|e| e.to_string())?
+            .to_i128()
+            .map(|v| v.to_string())
+            .map_err(|e| e.to_string()),
         [cmd, a, b] if cmd == "add" || cmd == "sub" || cmd == "mul" => {
             let a = Ternary::parse(a).map_err(|e| e.to_string())?;
             let b = Ternary::parse(b).map_err(|e| e.to_string())?;
@@ -109,20 +113,32 @@ fn run(args: &[String]) -> Result<String, String> {
             Ok(pack_u3_u16(&values).map_err(|e| e.to_string())?.to_string())
         }
         [cmd, value, count] if cmd == "unpack-u32" => {
-            let packed = value.parse::<u32>().map_err(|e| format!("invalid u32 value: {e}"))?;
-            let count = count.parse::<usize>().map_err(|e| format!("invalid count: {e}"))?;
+            let packed = value
+                .parse::<u32>()
+                .map_err(|e| format!("invalid u32 value: {e}"))?;
+            let count = count
+                .parse::<usize>()
+                .map_err(|e| format!("invalid count: {e}"))?;
             let decoded = unpack_u3_u32(packed, count).map_err(|e| e.to_string())?;
             Ok(format_u3_trits(&decoded))
         }
         [cmd, value, count] if cmd == "unpack-u8" => {
-            let packed = value.parse::<u8>().map_err(|e| format!("invalid u8 value: {e}"))?;
-            let count = count.parse::<usize>().map_err(|e| format!("invalid count: {e}"))?;
+            let packed = value
+                .parse::<u8>()
+                .map_err(|e| format!("invalid u8 value: {e}"))?;
+            let count = count
+                .parse::<usize>()
+                .map_err(|e| format!("invalid count: {e}"))?;
             let decoded = unpack_u3_u8(packed, count).map_err(|e| e.to_string())?;
             Ok(format_u3_trits(&decoded))
         }
         [cmd, value, count] if cmd == "unpack-u16" => {
-            let packed = value.parse::<u16>().map_err(|e| format!("invalid u16 value: {e}"))?;
-            let count = count.parse::<usize>().map_err(|e| format!("invalid count: {e}"))?;
+            let packed = value
+                .parse::<u16>()
+                .map_err(|e| format!("invalid u16 value: {e}"))?;
+            let count = count
+                .parse::<usize>()
+                .map_err(|e| format!("invalid count: {e}"))?;
             let decoded = unpack_u3_u16(packed, count).map_err(|e| e.to_string())?;
             Ok(format_u3_trits(&decoded))
         }
@@ -132,13 +148,19 @@ fn run(args: &[String]) -> Result<String, String> {
             Ok(packed.to_string())
         }
         [cmd, value, count] if cmd == "unpack-u64" => {
-            let packed = value.parse::<u64>().map_err(|e| format!("invalid u64 value: {e}"))?;
-            let count = count.parse::<usize>().map_err(|e| format!("invalid count: {e}"))?;
+            let packed = value
+                .parse::<u64>()
+                .map_err(|e| format!("invalid u64 value: {e}"))?;
+            let count = count
+                .parse::<usize>()
+                .map_err(|e| format!("invalid count: {e}"))?;
             let decoded = unpack_u3_u64(packed, count).map_err(|e| e.to_string())?;
             Ok(format_u3_trits(&decoded))
         }
         [cmd, digit] if cmd == "u3-to-balanced" => {
-            let trit = digit.parse::<u8>().map_err(|e| format!("invalid unbalanced trit: {e}"))?;
+            let trit = digit
+                .parse::<u8>()
+                .map_err(|e| format!("invalid unbalanced trit: {e}"))?;
             let balanced = u3_to_balanced(trit).map_err(|e| e.to_string())?;
             Ok(format_balanced_trit(balanced))
         }

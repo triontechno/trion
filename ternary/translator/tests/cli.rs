@@ -46,7 +46,7 @@ fn rejects_non_elf_input() {
         .expect("run CLI");
     let _ = fs::remove_file(&path);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("not a recognized object file"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("input is not an ELF file"));
 }
 
 #[test]
@@ -65,7 +65,11 @@ fn translate_cli_writes_valid_tir_without_overwriting_existing_output() {
         .arg(&output_path)
         .output()
         .expect("run translator");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         fs::read_to_string(&output_path).unwrap(),
         "TRION-TIR 1 x86_64\n0000000000400000 NOP\n0000000000400001 RET\n"

@@ -68,11 +68,15 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
             .map_err(|_| format!("section {section_index} offset is too large"))?;
         let size = usize::try_from(section.sh_size)
             .map_err(|_| format!("section {section_index} size is too large"))?;
-        let end = start.checked_add(size)
+        let end = start
+            .checked_add(size)
             .ok_or_else(|| format!("section {section_index} bounds overflow"))?;
-        section.sh_addr.checked_add(section.sh_size)
+        section
+            .sh_addr
+            .checked_add(section.sh_size)
             .ok_or_else(|| format!("section {section_index} virtual address overflows"))?;
-        let code = bytes.get(start..end)
+        let code = bytes
+            .get(start..end)
             .ok_or_else(|| format!("section {section_index} lies outside the file"))?;
         executable_sections += 1;
 
@@ -81,14 +85,17 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
             let instruction = decoder.decode();
             let ip = instruction.ip();
             if instruction.is_invalid() {
-                return Err(format!("invalid x86-64 instruction encoding at 0x{ip:016x}"));
+                return Err(format!(
+                    "invalid x86-64 instruction encoding at 0x{ip:016x}"
+                ));
             }
 
             if instruction.mnemonic() == Mnemonic::Nop {
                 writeln!(output, "{ip:016x} NOP").expect("writing to String cannot fail");
             } else if instruction.code() == Code::Mov_r64_imm64 {
-                let register = register_id(instruction.op0_register())
-                    .ok_or_else(|| format!("unsupported MOV destination register at 0x{ip:016x}"))?;
+                let register = register_id(instruction.op0_register()).ok_or_else(|| {
+                    format!("unsupported MOV destination register at 0x{ip:016x}")
+                })?;
                 let immediate = Ternary::from_u128(instruction.immediate64() as u128);
                 writeln!(output, "{ip:016x} MOV_IMM64 r{register} {immediate}")
                     .expect("writing to String cannot fail");
@@ -100,7 +107,8 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
                     instruction.mnemonic()
                 ));
             }
-            instructions = instructions.checked_add(1)
+            instructions = instructions
+                .checked_add(1)
                 .ok_or_else(|| "instruction count overflow".to_string())?;
         }
     }
@@ -134,7 +142,9 @@ pub fn validate_tir(bytes: &[u8]) -> Result<usize, String> {
             return Err(format!("invalid TIR record on line {}", index + 2));
         }
         if fields[0].len() != 16
-            || !fields[0].bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || !fields[0]
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         {
             return Err(format!("invalid instruction address on line {}", index + 2));
         }
@@ -143,7 +153,8 @@ pub fn validate_tir(bytes: &[u8]) -> Result<usize, String> {
         match fields.as_slice() {
             [_, "NOP"] | [_, "RET"] => {}
             [_, "MOV_IMM64", register, immediate] => {
-                let register_id = register.strip_prefix('r')
+                let register_id = register
+                    .strip_prefix('r')
                     .and_then(|value| value.parse::<u8>().ok())
                     .filter(|value| *value < 16)
                     .ok_or_else(|| format!("invalid register on line {}", index + 2))?;
@@ -152,15 +163,21 @@ pub fn validate_tir(bytes: &[u8]) -> Result<usize, String> {
                 }
                 let value = Ternary::parse(immediate)
                     .map_err(|error| format!("invalid immediate on line {}: {error}", index + 2))?;
-                let unsigned = value.to_u128()
+                let unsigned = value
+                    .to_u128()
                     .map_err(|_| format!("immediate is negative on line {}", index + 2))?;
                 if value.to_string().as_str() != *immediate || unsigned > u64::MAX as u128 {
-                    return Err(format!("noncanonical or out-of-range immediate on line {}", index + 2));
+                    return Err(format!(
+                        "noncanonical or out-of-range immediate on line {}",
+                        index + 2
+                    ));
                 }
             }
             _ => return Err(format!("unsupported TIR operation on line {}", index + 2)),
         }
-        count = count.checked_add(1).ok_or_else(|| "TIR instruction count overflow".to_string())?;
+        count = count
+            .checked_add(1)
+            .ok_or_else(|| "TIR instruction count overflow".to_string())?;
     }
     if count == 0 {
         return Err("TIR contains no instructions".to_string());
@@ -173,7 +190,7 @@ mod tests {
     use super::*;
 
     fn minimal_elf(code: &[u8]) -> Vec<u8> {
-        let code_offset = 192usize;
+        let code_offset = 256usize;
         let mut bytes = vec![0u8; code_offset + code.len()];
         bytes[..4].copy_from_slice(b"\x7fELF");
         bytes[4] = 2; // ELFCLASS64
@@ -188,7 +205,8 @@ mod tests {
         bytes[58..60].copy_from_slice(&64u16.to_le_bytes());
         bytes[60..62].copy_from_slice(&2u16.to_le_bytes());
         let section = 128usize;
-        bytes[section + 4..section + 8].copy_from_slice(&section_header::SHT_PROGBITS.to_le_bytes());
+        bytes[section + 4..section + 8]
+            .copy_from_slice(&section_header::SHT_PROGBITS.to_le_bytes());
         bytes[section + 8..section + 16].copy_from_slice(
             &((section_header::SHF_ALLOC | section_header::SHF_EXECINSTR) as u64).to_le_bytes(),
         );
@@ -216,23 +234,43 @@ mod tests {
 
     #[test]
     fn rejects_bad_architecture_malformed_elf_and_unsupported_instructions() {
-        assert!(translate_elf_to_tir(b"not an ELF").unwrap_err().contains("not a recognized"));
+        assert!(
+            translate_elf_to_tir(b"not an ELF")
+                .unwrap_err()
+                .contains("not a recognized")
+        );
         let mut wrong_arch = minimal_elf(&[0xc3]);
         wrong_arch[18..20].copy_from_slice(&header::EM_386.to_le_bytes());
-        assert!(translate_elf_to_tir(&wrong_arch).unwrap_err().contains("expected x86-64"));
-        assert!(translate_elf_to_tir(&minimal_elf(&[0xcc])).unwrap_err().contains("unsupported"));
-        assert!(translate_elf_to_tir(&minimal_elf(&[0x48])).unwrap_err().contains("invalid"));
+        assert!(
+            translate_elf_to_tir(&wrong_arch)
+                .unwrap_err()
+                .contains("expected x86-64")
+        );
+        assert!(
+            translate_elf_to_tir(&minimal_elf(&[0xcc]))
+                .unwrap_err()
+                .contains("unsupported")
+        );
+        assert!(
+            translate_elf_to_tir(&minimal_elf(&[0x48]))
+                .unwrap_err()
+                .contains("invalid")
+        );
     }
 
     #[test]
     fn rejects_elf_with_relocation_sections() {
         let mut elf = minimal_elf(&[0xc3]);
-        let relocation_section = 128 + 64;
+        elf[60..62].copy_from_slice(&3u16.to_le_bytes());
+        let relocation_section = 192;
         elf[relocation_section + 4..relocation_section + 8]
             .copy_from_slice(&section_header::SHT_RELA.to_le_bytes());
-        elf[relocation_section + 32..relocation_section + 40]
-            .copy_from_slice(&0u64.to_le_bytes());
-        assert!(translate_elf_to_tir(&elf).unwrap_err().contains("relocation section"));
+        elf[relocation_section + 32..relocation_section + 40].copy_from_slice(&0u64.to_le_bytes());
+        assert!(
+            translate_elf_to_tir(&elf)
+                .unwrap_err()
+                .contains("relocation section")
+        );
     }
 
     #[test]
