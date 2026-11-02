@@ -227,19 +227,27 @@ Implement in this order:
 1. Review this specification and raise conflicts before coding.
 2. Add core representation types and checked encode/decode APIs in ternary/core/.
 3. Add unit and property tests for defined boundaries and invalid cases.
-4. Add a design note documenting the selected signed multi-trit integer encoding before implementing it.
-5. Document translator classifications and current limitations in ternary/translator/.
-6. Add tests proving inspection and translation are reported as distinct capabilities.
-7. Run the narrowest relevant test suite, then broader repository checks where supported.
-8. Report exact commands and results. Do not claim a full OS build, successful boot, or complete translation unless each was actually tested.
+4. Document the signed multi-trit integer encoding before implementing it.
+5. Document translator classifications and limitations, and test that inspection and translation are distinct.
+6. Run the relevant core and translator test suites, formatting, and lint checks.
+7. Report exact commands and results. Do not claim a full OS build, successful boot, or complete translation unless each was actually tested.
 
 Any implementation choice not specified here MUST be documented and reviewed rather than silently invented.
 
 ## 10. Decisions requiring explicit review before Phase 2
 
-- The canonical signed multi-trit integer encoding.
 - Whether balanced trits are a first-class packed storage format or only an arithmetic/logical domain in the first release.
 - The concrete compiler annotation syntax and compiler integration point.
-- The translator's first supported instruction subset and output format.
+- Extensions beyond the initial x86-64 subset and TIR v1 output format documented below.
 - Whether future translation uses ahead-of-time native code, a VM, an interpreter, or multiple backends.
 - The initial benchmark workloads and minimum acceptable wins for enabling a ternary path by default.
+
+## 11. Phase 1 implementation decisions
+
+The following decisions finalize representation details needed by the Phase 1 implementation without changing the requirements above:
+
+- **Signed integers:** a balanced sequence `d[0..n]` represents `sum(d[i] * 3^i)` with each digit in `{-1,0,+1}` and index zero least significant. Its finite n-trit range is `[-(3^n-1)/2, +(3^n-1)/2]`. Canonical values have no high zero trits; zero is exactly one zero trit. This representation is separate from packed U3 digits. Conversion to/from fixed-width binary integers is exact when in range and reports overflow or negative-to-unsigned conversion as an error.
+- **Serialized values:** `TRN3` version 1 stores balanced values with the 10-byte header and least-significant-first U3-coded payload documented in `ternary/core/README.md`. Unknown versions and domains are rejected. A future incompatible format must use a new version; v1 bytes are not silently reinterpreted.
+- **Translator output:** the first actual translation output is the textual `TRION-TIR 1 x86_64` intermediate format documented in `ternary/translator/README.md`. It translates only the exact listed instruction subset, rejects ELF files with REL/RELA sections until relocation semantics are supported, and is not an executable, interpreter, ABI, or syscall implementation.
+
+The pre-existing specification intentionally leaves compiler annotations, runtime strategy, broader instruction coverage, and hardware integration for later review.

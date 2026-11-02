@@ -1,8 +1,8 @@
 use std::env;
 use std::process::ExitCode;
 use trion_ternary::{
-    Ternary, balanced_to_u3, pack_u3_u32, pack_u3_u64, u3_to_balanced, unpack_u3_u32,
-    unpack_u3_u64,
+    Ternary, balanced_to_u3, pack_u3_u8, pack_u3_u16, pack_u3_u32, pack_u3_u64, u3_to_balanced,
+    unpack_u3_u8, unpack_u3_u16, unpack_u3_u32, unpack_u3_u64,
 };
 
 fn usage() {
@@ -13,10 +13,8 @@ fn usage() {
     eprintln!("  trion-ternary add <a> <b>");
     eprintln!("  trion-ternary sub <a> <b>");
     eprintln!("  trion-ternary mul <a> <b>");
-    eprintln!("  trion-ternary pack-u32 <trit-list>");
-    eprintln!("  trion-ternary unpack-u32 <packed-value> <count>");
-    eprintln!("  trion-ternary pack-u64 <trit-list>");
-    eprintln!("  trion-ternary unpack-u64 <packed-value> <count>");
+    eprintln!("  trion-ternary pack-u8|pack-u16|pack-u32|pack-u64 <trit-list>");
+    eprintln!("  trion-ternary unpack-u8|unpack-u16|unpack-u32|unpack-u64 <packed-value> <count>");
     eprintln!("  trion-ternary u3-to-balanced <digit>");
     eprintln!("  trion-ternary balanced-to-u3 <digit>");
 }
@@ -102,10 +100,30 @@ fn run(args: &[String]) -> Result<String, String> {
             let packed = pack_u3_u32(&values).map_err(|e| e.to_string())?;
             Ok(packed.to_string())
         }
+        [cmd, trits] if cmd == "pack-u8" => {
+            let values = parse_u3_trits(trits)?;
+            Ok(pack_u3_u8(&values).map_err(|e| e.to_string())?.to_string())
+        }
+        [cmd, trits] if cmd == "pack-u16" => {
+            let values = parse_u3_trits(trits)?;
+            Ok(pack_u3_u16(&values).map_err(|e| e.to_string())?.to_string())
+        }
         [cmd, value, count] if cmd == "unpack-u32" => {
             let packed = value.parse::<u32>().map_err(|e| format!("invalid u32 value: {e}"))?;
             let count = count.parse::<usize>().map_err(|e| format!("invalid count: {e}"))?;
             let decoded = unpack_u3_u32(packed, count).map_err(|e| e.to_string())?;
+            Ok(format_u3_trits(&decoded))
+        }
+        [cmd, value, count] if cmd == "unpack-u8" => {
+            let packed = value.parse::<u8>().map_err(|e| format!("invalid u8 value: {e}"))?;
+            let count = count.parse::<usize>().map_err(|e| format!("invalid count: {e}"))?;
+            let decoded = unpack_u3_u8(packed, count).map_err(|e| e.to_string())?;
+            Ok(format_u3_trits(&decoded))
+        }
+        [cmd, value, count] if cmd == "unpack-u16" => {
+            let packed = value.parse::<u16>().map_err(|e| format!("invalid u16 value: {e}"))?;
+            let count = count.parse::<usize>().map_err(|e| format!("invalid count: {e}"))?;
+            let decoded = unpack_u3_u16(packed, count).map_err(|e| e.to_string())?;
             Ok(format_u3_trits(&decoded))
         }
         [cmd, trits] if cmd == "pack-u64" => {

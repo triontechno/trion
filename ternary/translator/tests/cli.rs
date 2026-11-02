@@ -1,5 +1,31 @@
 use std::{fs, process::Command};
 
+fn minimal_x86_64_elf(code: &[u8]) -> Vec<u8> {
+    let code_offset = 192usize;
+    let mut bytes = vec![0u8; code_offset + code.len()];
+    bytes[..4].copy_from_slice(b"\x7fELF");
+    bytes[4] = 2;
+    bytes[5] = 1;
+    bytes[6] = 1;
+    bytes[16..18].copy_from_slice(&2u16.to_le_bytes());
+    bytes[18..20].copy_from_slice(&62u16.to_le_bytes());
+    bytes[20..24].copy_from_slice(&1u32.to_le_bytes());
+    bytes[24..32].copy_from_slice(&0x400000u64.to_le_bytes());
+    bytes[40..48].copy_from_slice(&64u64.to_le_bytes());
+    bytes[52..54].copy_from_slice(&64u16.to_le_bytes());
+    bytes[58..60].copy_from_slice(&64u16.to_le_bytes());
+    bytes[60..62].copy_from_slice(&2u16.to_le_bytes());
+    let section = 128usize;
+    bytes[section + 4..section + 8].copy_from_slice(&1u32.to_le_bytes());
+    bytes[section + 8..section + 16].copy_from_slice(&6u64.to_le_bytes());
+    bytes[section + 16..section + 24].copy_from_slice(&0x400000u64.to_le_bytes());
+    bytes[section + 24..section + 32].copy_from_slice(&(code_offset as u64).to_le_bytes());
+    bytes[section + 32..section + 40].copy_from_slice(&(code.len() as u64).to_le_bytes());
+    bytes[section + 48..section + 56].copy_from_slice(&1u64.to_le_bytes());
+    bytes[code_offset..].copy_from_slice(code);
+    bytes
+}
+
 #[test]
 fn cli_prints_usage_without_arguments() {
     let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
@@ -21,4 +47,39 @@ fn rejects_non_elf_input() {
     let _ = fs::remove_file(&path);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("not a recognized object file"));
+}
+
+#[test]
+fn translate_cli_writes_valid_tir_without_overwriting_existing_output() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let base = std::env::temp_dir().join(format!("trion-translate-{}-{nonce}", std::process::id()));
+    let input = base.with_extension("elf");
+    let output_path = base.with_extension("tir");
+    fs::write(&input, minimal_x86_64_elf(&[0x90, 0xc3])).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("translate")
+        .arg(&input)
+        .arg(&output_path)
+        .output()
+        .expect("run translator");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        fs::read_to_string(&output_path).unwrap(),
+        "TRION-TIR 1 x86_64\n0000000000400000 NOP\n0000000000400001 RET\n"
+    );
+
+    fs::write(&output_path, b"preserve").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("translate")
+        .arg(&input)
+        .arg(&output_path)
+        .output()
+        .expect("run translator against existing output");
+    assert!(!output.status.success());
+    assert_eq!(fs::read(&output_path).unwrap(), b"preserve");
+    fs::remove_file(input).unwrap();
+    fs::remove_file(output_path).unwrap();
 }

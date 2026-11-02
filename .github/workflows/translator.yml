@@ -2,14 +2,16 @@ name: Trion binary translator frontend
 
 on:
   push:
-    branches: [master, fix/ternary-pillar-layout]
+    branches: [main]
     paths:
       - "ternary/translator/**"
+      - "ternary/core/**"
       - ".github/workflows/translator.yml"
   pull_request:
-    branches: [master]
+    branches: [main]
     paths:
       - "ternary/translator/**"
+      - "ternary/core/**"
       - ".github/workflows/translator.yml"
   workflow_dispatch:
 
@@ -25,7 +27,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Run formatter
         run: cargo fmt --all -- --check
+      - name: Check translator
+        run: cargo check --all-targets
       - name: Test translator frontend
         run: cargo test --all-targets
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings

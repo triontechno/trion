@@ -1,10 +1,14 @@
 use goblin::elf::{header, section_header};
 use iced_x86::{Decoder, DecoderOptions, Formatter, IntelFormatter};
-use std::{env, fs, process::ExitCode};
+use std::{env, fs, io::Write, process::ExitCode};
+
+mod tir;
 
 fn usage() {
-    eprintln!("Trion binary translator — ELF inspection prototype");
-    eprintln!("Usage: trion-translate inspect <x86-64-elf>");
+    eprintln!("Trion x86-64 ELF analysis and TIR translator");
+    eprintln!("Usage:");
+    eprintln!("  trion-translate inspect <x86-64-elf>");
+    eprintln!("  trion-translate translate <x86-64-elf> <new-output.tir>");
 }
 
 fn inspect(path: &str) -> Result<(), String> {
@@ -138,10 +142,34 @@ fn inspect(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn translate(path: &str, output_path: &str) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|error| format!("cannot read {path}: {error}"))?;
+    let output = tir::translate_elf_to_tir(&bytes)?;
+    let count = tir::validate_tir(&output)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .map_err(|error| format!("cannot create {output_path} without overwriting: {error}"))?;
+    if let Err(error) = file.write_all(&output) {
+        drop(file);
+        return match fs::remove_file(output_path) {
+            Ok(()) => Err(format!("cannot write translated output {output_path}: {error}")),
+            Err(cleanup_error) => Err(format!(
+                "cannot write translated output {output_path}: {error}; also cannot remove partial output: {cleanup_error}"
+            )),
+        };
+    }
+    println!("Translated {count} instructions to validated TIR v1: {output_path}");
+    println!("Output is an intermediate representation, not an executable binary.");
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     let result = match args.as_slice() {
         [command, path] if command == "inspect" => inspect(path),
+        [command, input, output] if command == "translate" => translate(input, output),
         _ => {
             usage();
             return ExitCode::from(2);
