@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 // Self-checking TRION-H binary processor testbench.
 // Run only on the explicit "TEST IT" instruction.
 
@@ -39,6 +41,7 @@ module testbench;
     localparam OP_JAL  = 7'h0D;
     localparam OP_HALT = 7'h7E;
 
+    localparam FAULT_PC_ALIGNMENT = 4'd1;
     localparam FAULT_INSTRUCTION_RANGE = 4'd2;
     localparam FAULT_ILLEGAL_OPCODE = 4'd3;
     localparam FAULT_DATA_ALIGNMENT = 4'd4;
@@ -273,6 +276,13 @@ module testbench;
         check(retired_count == 64'd0, "illegal instruction is not retired");
 
         reset_program;
+        dut.cpu.pc = 64'd2;
+        run_until_stop(4);
+        check(fault && fault_code == FAULT_PC_ALIGNMENT, "misaligned instruction PC raises alignment fault");
+        check(retired_count == 64'd0 && fault_pc == 64'd2,
+              "misaligned instruction fetch does not retire");
+
+        reset_program;
         dut.imem[0] = enc(OP_ADDI, 5'd1, 5'd0, 5'd0, 10'd1);
         dut.imem[1] = enc(OP_ADDI, 5'd2, 5'd0, 5'd0, 10'd12);
         dut.imem[2] = enc(OP_SLL,  5'd3, 5'd1, 5'd2, 10'd0); // address 4096
@@ -281,6 +291,16 @@ module testbench;
         run_until_stop(12);
         check(fault && fault_code == FAULT_DATA_RANGE, "out-of-range LD raises data-range fault");
         check(fault_pc == 64'd12 && retired_count == 64'd3, "out-of-range LD does not retire");
+
+        reset_program;
+        dut.imem[0] = enc(OP_ADDI, 5'd1, 5'd0, 5'd0, 10'd1);
+        dut.imem[1] = enc(OP_ADDI, 5'd2, 5'd0, 5'd0, 10'd12);
+        dut.imem[2] = enc(OP_SLL,  5'd3, 5'd1, 5'd2, 10'd0);
+        dut.imem[3] = enc(OP_ST,   5'd0, 5'd3, 5'd2, 10'd0);
+        reset_machine;
+        run_until_stop(12);
+        check(fault && fault_code == FAULT_DATA_RANGE, "out-of-range ST raises data-range fault");
+        check(retired_count == 64'd3, "out-of-range ST does not retire");
 
         reset_program;
         dut.imem[0] = enc(OP_JAL, 5'd0, 5'd0, 5'd0, 10'd1023);
