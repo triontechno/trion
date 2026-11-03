@@ -28,6 +28,7 @@ ISA.md.
 | testbench.v | Self-checking processor and ALU verification suite. |
 | Makefile | Explicit Icarus Verilog and Verilator commands. |
 | ISA.md | Instruction formats, opcode map, memory semantics, and fault model. |
+| programs/ | Reusable assembly example and pre-encoded machine-code image. |
 
 ## Simulation memory
 
