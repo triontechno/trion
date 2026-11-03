@@ -23,3 +23,6 @@ source.tar
 source.tar.tmp
 target
 wget-log
+
+# Local processor simulation artifacts
+/.build/processor/
