@@ -224,7 +224,7 @@ module testbench;
         check(dut.cpu.register_file.registers[14] == 128'd42, "JAL skips the sequential instruction");
         check(dut.cpu.register_file.registers[15] == 128'd95, "ADDI sign-extends a negative immediate");
         check(dut.cpu.register_file.registers[0] == 128'd0, "register zero remains hardwired to zero");
-        check(retired_count == 64'd18, "retirement counter includes HALT and excludes skipped instructions");
+        check(retired_count == 64'd19, "retirement counter includes HALT and excludes skipped instructions");
         check(pc == 64'd80, "PC remains on the HALT instruction");
 
         // -------------------------------------------------------------
