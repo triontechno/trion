@@ -389,17 +389,20 @@ module trion_h_sim_system #(
         end
     endfunction
 
-    assign instruction_error = instruction_enable &&
-        ((instruction_address[63:10] != 0) ||
-         (instruction_address[9:2] >= IMEM_WORDS));
-    assign instruction_data = instruction_error ? 32'd0 :
-        imem[instruction_address[9:2]];
+    wire instruction_index_valid;
+    assign instruction_index_valid = (instruction_address[63:10] == 0) &&
+                                     (instruction_address[9:2] < IMEM_WORDS);
+    assign instruction_error = instruction_enable && !instruction_index_valid;
+    assign instruction_data = instruction_index_valid ?
+        imem[instruction_address[9:2]] : 32'd0;
 
+    wire data_index_valid;
+    assign data_index_valid = (data_address[63:12] == 0) &&
+                              (data_address[11:4] < DMEM_WORDS);
     assign data_error = (data_read_enable || data_write_enable) &&
-        ((data_address[63:12] != 0) ||
-         (data_address[11:4] >= DMEM_WORDS));
-    assign data_read_data = data_error ? 128'd0 :
-        dmem[data_address[11:4]];
+                        !data_index_valid;
+    assign data_read_data = data_index_valid ?
+        dmem[data_address[11:4]] : 128'd0;
 
     always @(posedge clk) begin
         if (data_write_enable && !data_error)
