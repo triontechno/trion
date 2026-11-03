@@ -146,6 +146,8 @@ module testbench;
         alu_b = 128'd0;
         alu_operation = 4'd0;
 
+        // Let the simulation memory's deterministic initialization finish.
+        #1;
         clear_memories;
         reset_machine;
 
@@ -229,6 +231,9 @@ module testbench;
         check(dut.cpu.register_file.registers[0] == 128'd0, "register zero remains hardwired to zero");
         check(retired_count == 64'd19, "retirement counter includes HALT and excludes skipped instructions");
         check(pc == 64'd80, "PC remains on the HALT instruction");
+        check(instruction_retired, "HALT produces a retirement pulse");
+        tick;
+        check(!instruction_retired, "retirement pulse clears on the following cycle");
 
         // -------------------------------------------------------------
         // Taken BNE and ordinary not-taken BEQ.
@@ -273,6 +278,7 @@ module testbench;
         reset_machine;
         run_until_stop(4);
         check(fault && fault_code == FAULT_ILLEGAL_OPCODE, "reserved opcode raises illegal-instruction fault");
+        check(fault_instruction[31:25] == 7'h10, "fault record preserves the illegal instruction");
         check(retired_count == 64'd0, "illegal instruction is not retired");
 
         reset_program;
@@ -315,6 +321,8 @@ module testbench;
         reset_machine;
         check(!fault && !halted && pc == 64'd0 && retired_count == 64'd0,
               "reset clears halt, fault, PC, and retirement count");
+        check(dut.cpu.register_file.registers[1] == 128'd0,
+              "reset clears the general-purpose register file");
 
         if (errors == 0)
             $display("ALL TRION-H BINARY PHASE 2 TESTS PASSED");
