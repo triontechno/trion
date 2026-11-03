@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 // TRION-H binary processor RTL.
 // Architecture: 32-bit instructions, 128-bit datapath, 32 x 128-bit GPRs,
 // 64-bit byte-addressed PC. This implementation contains binary operations
