@@ -36,10 +36,13 @@ default. Instruction memory is initialized to HALT and data memory to zero,
 so the simulation does not fetch unknown values by default.
 
 The wrapper accepts IMEM_INIT_FILE and DMEM_INIT_FILE parameters for
-$readmemh initialization. Its instruction/data arrays can also be loaded
-directly by a testbench. The memory wrapper is for simulation; the processor
-core itself uses external memory ports intended for later FPGA or SoC
-integration.
+$readmemh initialization. The reusable smoke program is in
+programs/smoke.asm and its pre-encoded image is programs/smoke.hex. For
+example, set IMEM_INIT_FILE to "src/processor/programs/smoke.hex" when
+instantiating the simulation wrapper from the repository root. Its
+instruction/data arrays can also be loaded directly by a testbench. The
+memory wrapper is for simulation; the processor core itself uses external
+memory ports intended for later FPGA or SoC integration.
 
 The simulation data memory is 4 KiB (256 x 16 bytes); instruction memory is
 1 KiB (256 x 4 bytes). Out-of-range accesses raise processor faults.
@@ -66,11 +69,11 @@ authorized.
 
 From the repository root:
 
-\`\`\`sh
+```sh
 make -C src/processor test-icarus
 make -C src/processor lint-verilator
 make -C src/processor test-verilator
-\`\`\`
+```
 
 test-icarus compiles and runs the testbench. lint-verilator performs lint
 only. test-verilator builds and runs the same testbench with Verilator.
