@@ -1,0 +1,9 @@
+[package]
+name = "trion-executable"
+version = "0.1.0"
+edition = "2024"
+description = "Versioned TRION interpreted executable container for TIR v1"
+license = "MIT"
+
+[dependencies]
+trion-tir-runtime = { path = "../runtime" }
