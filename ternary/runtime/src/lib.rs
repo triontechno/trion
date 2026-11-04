@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn executes_nop_mov_and_ret() {
-        let input = b"TRION-TIR 1 x86_64\n0000000000400000 NOP\n0000000000400001 MOV_IMM64 r0 42\n000000000040000b RET\n";
+        let input = b"TRION-TIR 1 x86_64\n0000000000400000 NOP\n0000000000400001 MOV_IMM64 r0 1TTT0\n000000000040000b RET\n";
         let memory = stack();
         let mut machine = state(&memory);
 
@@ -303,6 +303,7 @@ mod tests {
         let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r4 10\n0000000000400001 RET\n";
         let memory = [0u8, 0, 0, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let mut machine = state(&memory);
+        machine.memory_base = 0;
 
         let result = execute_tir(input, &mut machine, 10).unwrap();
 
@@ -313,7 +314,7 @@ mod tests {
                 instructions_executed: 2
             }
         );
-        assert_eq!(machine.registers[STACK_REGISTER], 0x800b);
+        assert_eq!(machine.registers[STACK_REGISTER], 11);
     }
 
     #[test]
@@ -333,7 +334,7 @@ mod tests {
 
     #[test]
     fn instruction_limit_is_enforced_without_partial_commit() {
-        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 42\n0000000000400001 RET\n";
+        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 1TTT0\n0000000000400001 RET\n";
         let memory = stack();
         let mut machine = state(&memory);
         let before = machine.registers;
@@ -347,7 +348,7 @@ mod tests {
 
     #[test]
     fn rejects_stack_out_of_bounds_without_partial_commit() {
-        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 42\n0000000000400001 RET\n";
+        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 1TTT0\n0000000000400001 RET\n";
         let memory = [0u8; 4];
         let mut machine = state(&memory);
         let before = machine.registers;
