@@ -22,4 +22,5 @@ Automation lives in `.github/` and helper scripts live in `scripts/`. See [MONOR
 - [Phase 2 implementation plan](Phase%202.md)
 - [Phase 2 Stage A](Phase%202%20Stage%20A.md)
 - [Phase 2 Stage B](Phase%202%20Stage%20B.md)
+- [Phase 2 Stage C](Phase%202%20Stage%20C.md)
 - [Packed ternary memory crate](ternary/memory/README.md)
