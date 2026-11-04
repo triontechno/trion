@@ -1,0 +1,9 @@
+[package]
+name = "trion-adaptive"
+version = "0.1.0"
+edition = "2024"
+description = "Adaptive binary/ternary representation selection policy for TRION"
+license = "MIT"
+
+[dependencies]
+trion-ternary = { path = "../core" }
