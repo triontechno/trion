@@ -1,0 +1,10 @@
+[package]
+name = "trion-ternary-memory"
+version = "0.1.0"
+edition = "2024"
+description = "Checked packed balanced-ternary logical memory for TRION"
+license = "MIT"
+
+[lib]
+name = "trion_ternary_memory"
+path = "src/lib.rs"
