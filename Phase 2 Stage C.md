@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage C: TIR Execution Foundation
 
-**Status:** Implementation  
+**Status:** Implemented and CI-verified in main  
 **Prerequisites:** Stage A adaptive policy and Stage B checked packed memory  
 **Current input:** Canonical textual TRION-TIR v1
 
