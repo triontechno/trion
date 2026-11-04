@@ -1,0 +1,9 @@
+[package]
+name = "trion-tir-runtime"
+version = "0.1.0"
+edition = "2024"
+description = "Bounded interpreter for the supported TRION TIR v1 subset"
+license = "MIT"
+
+[dependencies]
+trion-ternary = { path = "../core" }
