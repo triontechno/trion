@@ -90,9 +90,7 @@ impl CandidateMetrics {
     }
 
     const fn eligible(self, require_compatibility: bool) -> bool {
-        self.supported
-            && self.semantically_validated
-            && (!require_compatibility || self.compatible)
+        self.supported && self.semantically_validated && (!require_compatibility || self.compatible)
     }
 }
 
@@ -161,9 +159,7 @@ impl std::error::Error for SelectionError {}
 /// Cryptographic workloads require semantic validation and compatibility for
 /// every candidate; a ternary candidate is never preferred merely because it
 /// is ternary.
-pub fn select_representation(
-    request: SelectionRequest,
-) -> Result<Selection, SelectionError> {
+pub fn select_representation(request: SelectionRequest) -> Result<Selection, SelectionError> {
     match request.boundary {
         Boundary::Internal => select_internal(request.candidates),
         Boundary::ConventionalHardware
@@ -201,9 +197,7 @@ fn select_internal(candidates: CandidateSet) -> Result<Selection, SelectionError
     best.ok_or(SelectionError::NoSupportedValidatedCandidate)
 }
 
-fn select_binary_boundary(
-    candidates: CandidateSet,
-) -> Result<Selection, SelectionError> {
+fn select_binary_boundary(candidates: CandidateSet) -> Result<Selection, SelectionError> {
     let binary = candidates.binary.filter(|m| m.eligible(true));
     let hybrid = candidates.hybrid.filter(|m| m.eligible(true));
 
@@ -227,9 +221,7 @@ fn select_binary_boundary(
     }
 }
 
-fn select_cryptographic(
-    candidates: CandidateSet,
-) -> Result<Selection, SelectionError> {
+fn select_cryptographic(candidates: CandidateSet) -> Result<Selection, SelectionError> {
     // Validation is mandatory for all crypto paths. Prefer the lowest-cost
     // validated candidate, but do not infer security from its number system.
     let mut best: Option<Selection> = None;
