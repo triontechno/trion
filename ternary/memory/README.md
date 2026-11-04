@@ -22,3 +22,6 @@ cargo test --manifest-path ternary/memory/Cargo.toml
 cargo fmt --manifest-path ternary/memory/Cargo.toml -- --check
 cargo clippy --manifest-path ternary/memory/Cargo.toml --all-targets -- -D warnings
 ```
+
+
+Stage B validation note: the canonical decoder rejects reserved byte values and nonzero padding trits; the test suite exhaustively covers all 243 valid packed-byte patterns.
