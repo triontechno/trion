@@ -99,10 +99,7 @@ impl PackedTritBuffer {
 
         for (index, &byte) in bytes.iter().enumerate() {
             if u16::from(byte) > MAX_PACKED_BYTE {
-                return Err(PackedTritError::InvalidPackedByte {
-                    index,
-                    value: byte,
-                });
+                return Err(PackedTritError::InvalidPackedByte { index, value: byte });
             }
         }
 
@@ -113,9 +110,7 @@ impl PackedTritBuffer {
             for position in remainder..TRITS_PER_BYTE {
                 let digit = (last / POW3[position]) % 3;
                 if digit != 1 {
-                    return Err(PackedTritError::NonCanonicalPadding {
-                        index: last_index,
-                    });
+                    return Err(PackedTritError::NonCanonicalPadding { index: last_index });
                 }
             }
         }
@@ -301,9 +296,6 @@ mod tests {
         let buffer = PackedTritBuffer::new_zeroed(0).unwrap();
         assert!(buffer.is_empty());
         assert!(buffer.as_packed_bytes().is_empty());
-        assert_eq!(
-            PackedTritBuffer::from_packed_bytes(0, &[]).unwrap(),
-            buffer
-        );
+        assert_eq!(PackedTritBuffer::from_packed_bytes(0, &[]).unwrap(), buffer);
     }
 }
