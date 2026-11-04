@@ -137,8 +137,9 @@ impl std::error::Error for SelectionError {}
 /// compatible, and no more costly than the binary candidate. Otherwise they
 /// fall back to a validated compatible Binary candidate.
 ///
-/// Cryptographic workloads require semantic validation for every candidate;
-/// a ternary candidate is never preferred merely because it is ternary.
+/// Cryptographic workloads require semantic validation and compatibility for
+/// every candidate; a ternary candidate is never preferred merely because it
+/// is ternary.
 pub fn select_representation(
     request: SelectionRequest,
 ) -> Result<Selection, SelectionError> {
