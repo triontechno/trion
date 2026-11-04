@@ -349,7 +349,8 @@ mod tests {
 
     #[test]
     fn rejects_stack_out_of_bounds_without_partial_commit() {
-        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 1TTT0\n0000000000400001 RET\n";
+        let input =
+            b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 1TTT0\n0000000000400001 RET\n";
         let memory = [0u8; 4];
         let mut machine = state(&memory);
         let before = machine.registers;
