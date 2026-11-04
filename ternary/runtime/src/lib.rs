@@ -300,8 +300,8 @@ mod tests {
 
     #[test]
     fn mov_to_rsp_changes_where_ret_reads() {
-        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r4 3T\n0000000000400001 RET\n";
-        let memory = [0u8, 0, 0, 0, 0, 0, 0, 0, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0];
+        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r4 10\n0000000000400001 RET\n";
+        let memory = [0u8, 0, 0, 0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let mut machine = state(&memory);
 
         let result = execute_tir(input, &mut machine, 10).unwrap();
@@ -374,7 +374,7 @@ mod tests {
         machine.memory_base = u64::MAX - 3;
         assert_eq!(
             execute_tir(input, &mut machine, 1),
-            Err(RuntimeError::StackAddressOutOfBounds)
+            Err(RuntimeError::StackPointerOverflow)
         );
     }
 
