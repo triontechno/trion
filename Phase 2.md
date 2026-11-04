@@ -23,7 +23,7 @@ The Phase 2 deliverable is not a claim that commodity processors execute ternary
 - Selection tests and CI.
 
 ### Stage B — Packed ternary logical memory
-**Status: implementation in progress.**
+**Status: implemented and CI-verified in main.**
 
 - Define a version-independent in-memory packed-trit buffer.
 - Pack five balanced trits into each byte using the explicit mapping B3 {-1,0,+1} → U3 {0,1,2}.
@@ -35,6 +35,7 @@ The Phase 2 deliverable is not a claim that commodity processors execute ternary
 Stage B is a logical storage abstraction, not a kernel physical-memory allocator and not physical ternary RAM.
 
 ### Stage C — TIR execution foundation
+**Status: bounded interpreter implementation in progress.**
 
 - Define execution semantics for every TIR v1 operation.
 - Build a bounded, deterministic TIR interpreter for the exact supported subset.
