@@ -7,6 +7,28 @@
 
 #![forbid(unsafe_code)]
 
+use trion_ternary::{Ternary, TernaryError};
+
+/// Convert a signed binary integer into its canonical balanced-ternary value.
+pub fn binary_i128_to_balanced(value: i128) -> Ternary {
+    Ternary::from_i128(value)
+}
+
+/// Convert a balanced-ternary value to i128, reporting overflow explicitly.
+pub fn balanced_to_binary_i128(value: &Ternary) -> Result<i128, TernaryError> {
+    value.to_i128()
+}
+
+/// Convert an unsigned binary integer into its canonical balanced-ternary value.
+pub fn binary_u128_to_balanced(value: u128) -> Ternary {
+    Ternary::from_u128(value)
+}
+
+/// Convert a balanced-ternary value to u128, rejecting negative values and overflow.
+pub fn balanced_to_binary_u128(value: &Ternary) -> Result<u128, TernaryError> {
+    value.to_u128()
+}
+
 use core::fmt;
 
 /// A logical representation selected for a workload.
@@ -263,6 +285,22 @@ fn consider(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_binary_ternary_bridges_round_trip() {
+        for value in [i128::MIN, -100, -1, 0, 1, 100, i128::MAX] {
+            let ternary = binary_i128_to_balanced(value);
+            assert_eq!(balanced_to_binary_i128(&ternary).unwrap(), value);
+        }
+        for value in [0, 1, 2, u64::MAX as u128, u128::MAX] {
+            let ternary = binary_u128_to_balanced(value);
+            assert_eq!(balanced_to_binary_u128(&ternary).unwrap(), value);
+        }
+        assert_eq!(
+            balanced_to_binary_u128(&binary_i128_to_balanced(-1)),
+            Err(TernaryError::NegativeUnsigned)
+        );
+    }
 
     fn metrics(cost: u128) -> CandidateMetrics {
         CandidateMetrics::new(cost, true, true, true)
