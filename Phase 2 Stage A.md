@@ -17,6 +17,7 @@ Stage A is a host-side Rust library plus specification and tests. It does not pr
 - A typed model for Binary, BalancedTernary, and Hybrid representation choices.
 - Boundary classes for internal computation, conventional hardware, network wire, persistent binary formats, and cryptographic operations.
 - Candidate metrics describing support, semantic validation, compatibility, and total comparable cost.
+- Checked i128/u128 binary-to-balanced-ternary and balanced-ternary-to-binary bridge helpers built on the Phase 1 core API.
 - A deterministic selector:
   - internal workloads choose the lowest-cost supported and validated path;
   - conventional binary boundaries prefer a compatible hybrid path when it is no more costly than the binary path, otherwise binary;
