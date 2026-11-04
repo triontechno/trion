@@ -15,6 +15,7 @@ on:
     paths:
       - "ternary/adaptive/**"
       - "ternary/memory/**"
+      - "ternary/runtime/**"
       - "ternary/core/**"
       - ".github/workflows/adaptive.yml"
   workflow_dispatch:
