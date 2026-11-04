@@ -39,10 +39,16 @@ impl fmt::Display for PackedTritError {
                 write!(f, "packed byte length {actual}; expected {expected}")
             }
             Self::InvalidPackedByte { index, value } => {
-                write!(f, "invalid packed byte {value} at byte index {index}; maximum is 242")
+                write!(
+                    f,
+                    "invalid packed byte {value} at byte index {index}; maximum is 242"
+                )
             }
             Self::NonCanonicalPadding { index } => {
-                write!(f, "noncanonical padding in final packed byte at index {index}")
+                write!(
+                    f,
+                    "noncanonical padding in final packed byte at index {index}"
+                )
             }
         }
     }
@@ -85,10 +91,7 @@ impl PackedTritBuffer {
     ///
     /// Bytes must be in 0..=242. Unused trits in the final byte must encode
     /// logical zero, ensuring one canonical byte representation per value.
-    pub fn from_packed_bytes(
-        len: usize,
-        bytes: &[u8],
-    ) -> Result<Self, PackedTritError> {
+    pub fn from_packed_bytes(len: usize, bytes: &[u8]) -> Result<Self, PackedTritError> {
         let expected = packed_byte_len(len)?;
         if bytes.len() != expected {
             return Err(PackedTritError::WrongByteLength {
@@ -107,7 +110,7 @@ impl PackedTritBuffer {
         if remainder != 0 {
             let last_index = bytes.len() - 1;
             let last = u16::from(bytes[last_index]);
-            for (position, power) in POW3.iter().enumerate().skip(remainder) {
+            for power in POW3.iter().skip(remainder) {
                 let digit = (last / *power) % 3;
                 if digit != 1 {
                     return Err(PackedTritError::NonCanonicalPadding { index: last_index });
