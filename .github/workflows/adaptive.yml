@@ -1,4 +1,5 @@
 name: TRION adaptive policy
+# CI coverage: Stage A adaptive selection and Stage B packed logical memory.
 
 on:
   push:
