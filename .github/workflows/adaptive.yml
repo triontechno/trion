@@ -8,6 +8,7 @@ on:
       - "ternary/adaptive/**"
       - "ternary/memory/**"
       - "ternary/runtime/**"
+      - "ternary/executable/**"
       - "ternary/core/**"
       - ".github/workflows/adaptive.yml"
   pull_request:
@@ -16,6 +17,7 @@ on:
       - "ternary/adaptive/**"
       - "ternary/memory/**"
       - "ternary/runtime/**"
+      - "ternary/executable/**"
       - "ternary/core/**"
       - ".github/workflows/adaptive.yml"
   workflow_dispatch:
@@ -34,13 +36,17 @@ jobs:
         run: cargo test --manifest-path ternary/memory/Cargo.toml
       - name: Test TIR runtime
         run: cargo test --manifest-path ternary/runtime/Cargo.toml
+      - name: Test TRIONEX container
+        run: cargo test --manifest-path ternary/executable/Cargo.toml
       - name: Check formatting
         run: |
           cargo fmt --manifest-path ternary/adaptive/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/memory/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/runtime/Cargo.toml -- --check
+          cargo fmt --manifest-path ternary/executable/Cargo.toml -- --check
       - name: Run clippy
         run: |
           cargo clippy --manifest-path ternary/adaptive/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/memory/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/runtime/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path ternary/executable/Cargo.toml --all-targets -- -D warnings
