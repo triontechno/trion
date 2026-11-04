@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+use core::fmt;
 use trion_ternary::{Ternary, TernaryError};
 
 /// Convert a signed binary integer into its canonical balanced-ternary value.
@@ -28,8 +29,6 @@ pub fn binary_u128_to_balanced(value: u128) -> Ternary {
 pub fn balanced_to_binary_u128(value: &Ternary) -> Result<u128, TernaryError> {
     value.to_u128()
 }
-
-use core::fmt;
 
 /// A logical representation selected for a workload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
