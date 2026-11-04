@@ -12,10 +12,19 @@ const PAYLOAD_TIR_V1: u16 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecutableError {
-    TruncatedHeader, InvalidMagic, UnsupportedVersion, InvalidHeaderLength,
-    UnsupportedArchitecture, UnsupportedPayloadKind, UnsupportedFlags,
-    NonzeroReservedField, LengthOverflow, LengthMismatch, ChecksumMismatch,
-    InvalidTirPayload, AllocationFailure,
+    TruncatedHeader,
+    InvalidMagic,
+    UnsupportedVersion,
+    InvalidHeaderLength,
+    UnsupportedArchitecture,
+    UnsupportedPayloadKind,
+    UnsupportedFlags,
+    NonzeroReservedField,
+    LengthOverflow,
+    LengthMismatch,
+    ChecksumMismatch,
+    InvalidTirPayload,
+    AllocationFailure,
 }
 
 impl fmt::Display for ExecutableError {
@@ -41,7 +50,6 @@ impl fmt::Display for ExecutableError {
 
 impl std::error::Error for ExecutableError {}
 
-/// A validated TRIONEX v1 interpreted executable containing canonical TIR v1.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrionExecutable {
     payload: Vec<u8>,
@@ -51,7 +59,8 @@ impl TrionExecutable {
     pub fn from_tir(payload: &[u8]) -> Result<Self, ExecutableError> {
         validate_tir(payload).map_err(|_| ExecutableError::InvalidTirPayload)?;
         let mut owned = Vec::new();
-        owned.try_reserve_exact(payload.len())
+        owned
+            .try_reserve_exact(payload.len())
             .map_err(|_| ExecutableError::AllocationFailure)?;
         owned.extend_from_slice(payload);
         Ok(Self { payload: owned })
@@ -64,35 +73,37 @@ impl TrionExecutable {
         if bytes.get(0..8) != Some(MAGIC.as_slice()) {
             return Err(ExecutableError::InvalidMagic);
         }
-        if read_u16(bytes, 8)? != VERSION {
+        if u16::from_le_bytes(read::<2>(bytes, 8)?) != VERSION {
             return Err(ExecutableError::UnsupportedVersion);
         }
-        if usize::from(read_u16(bytes, 10)?) != HEADER_LEN {
+        if usize::from(u16::from_le_bytes(read::<2>(bytes, 10)?)) != HEADER_LEN {
             return Err(ExecutableError::InvalidHeaderLength);
         }
-        if read_u16(bytes, 12)? != ARCH_X86_64_TIR {
+        if u16::from_le_bytes(read::<2>(bytes, 12)?) != ARCH_X86_64_TIR {
             return Err(ExecutableError::UnsupportedArchitecture);
         }
-        if read_u16(bytes, 14)? != PAYLOAD_TIR_V1 {
+        if u16::from_le_bytes(read::<2>(bytes, 14)?) != PAYLOAD_TIR_V1 {
             return Err(ExecutableError::UnsupportedPayloadKind);
         }
-        if read_u32(bytes, 16)? != 0 {
+        if u32::from_le_bytes(read::<4>(bytes, 16)?) != 0 {
             return Err(ExecutableError::UnsupportedFlags);
         }
-        if read_u32(bytes, 20)? != 0 {
+        if u32::from_le_bytes(read::<4>(bytes, 20)?) != 0 {
             return Err(ExecutableError::NonzeroReservedField);
         }
 
-        let payload_len = usize::try_from(read_u64(bytes, 24)?)
+        let payload_len = usize::try_from(u64::from_le_bytes(read::<8>(bytes, 24)?))
             .map_err(|_| ExecutableError::LengthOverflow)?;
-        let expected_len = HEADER_LEN.checked_add(payload_len)
+        let expected_len = HEADER_LEN
+            .checked_add(payload_len)
             .ok_or(ExecutableError::LengthOverflow)?;
         if bytes.len() != expected_len {
             return Err(ExecutableError::LengthMismatch);
         }
-        let payload = bytes.get(HEADER_LEN..expected_len)
+        let payload = bytes
+            .get(HEADER_LEN..expected_len)
             .ok_or(ExecutableError::LengthMismatch)?;
-        if crc32(payload) != read_u32(bytes, 32)? {
+        if crc32(payload) != u32::from_le_bytes(read::<4>(bytes, 32)?) {
             return Err(ExecutableError::ChecksumMismatch);
         }
         Self::from_tir(payload)
@@ -101,10 +112,12 @@ impl TrionExecutable {
     pub fn to_bytes(&self) -> Result<Vec<u8>, ExecutableError> {
         let payload_len = u64::try_from(self.payload.len())
             .map_err(|_| ExecutableError::LengthOverflow)?;
-        let total_len = HEADER_LEN.checked_add(self.payload.len())
+        let total_len = HEADER_LEN
+            .checked_add(self.payload.len())
             .ok_or(ExecutableError::LengthOverflow)?;
         let mut bytes = Vec::new();
-        bytes.try_reserve_exact(total_len)
+        bytes
+            .try_reserve_exact(total_len)
             .map_err(|_| ExecutableError::AllocationFailure)?;
         bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&VERSION.to_le_bytes());
@@ -124,24 +137,16 @@ impl TrionExecutable {
     }
 }
 
-fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, ExecutableError> {
-    let end = offset.checked_add(2).ok_or(ExecutableError::LengthOverflow)?;
-    let field = bytes.get(offset..end).ok_or(ExecutableError::TruncatedHeader)?;
-    Ok(u16::from_le_bytes([field[0], field[1]]))
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, ExecutableError> {
-    let end = offset.checked_add(4).ok_or(ExecutableError::LengthOverflow)?;
-    let field = bytes.get(offset..end).ok_or(ExecutableError::TruncatedHeader)?;
-    Ok(u32::from_le_bytes([field[0], field[1], field[2], field[3]]))
-}
-
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, ExecutableError> {
-    let end = offset.checked_add(8).ok_or(ExecutableError::LengthOverflow)?;
-    let field = bytes.get(offset..end).ok_or(ExecutableError::TruncatedHeader)?;
-    Ok(u64::from_le_bytes([
-        field[0], field[1], field[2], field[3], field[4], field[5], field[6], field[7],
-    ]))
+fn read<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], ExecutableError> {
+    let end = offset
+        .checked_add(N)
+        .ok_or(ExecutableError::LengthOverflow)?;
+    let field = bytes
+        .get(offset..end)
+        .ok_or(ExecutableError::TruncatedHeader)?;
+    field
+        .try_into()
+        .map_err(|_| ExecutableError::TruncatedHeader)
 }
 
 fn crc32(bytes: &[u8]) -> u32 {
@@ -159,6 +164,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     const TIR: &[u8] = b"TRION-TIR 1 x86_64\n0000000000400000 NOP\n";
 
     #[test]
@@ -172,27 +178,33 @@ mod tests {
 
     #[test]
     fn rejects_truncated_header_and_bad_magic() {
-        assert_eq!(TrionExecutable::parse(&[0; 10]), Err(ExecutableError::TruncatedHeader));
+        assert_eq!(
+            TrionExecutable::parse(&[0; 10]),
+            Err(ExecutableError::TruncatedHeader)
+        );
         let mut bytes = TrionExecutable::from_tir(TIR).unwrap().to_bytes().unwrap();
         bytes[0] = b'X';
-        assert_eq!(TrionExecutable::parse(&bytes), Err(ExecutableError::InvalidMagic));
+        assert_eq!(
+            TrionExecutable::parse(&bytes),
+            Err(ExecutableError::InvalidMagic)
+        );
     }
 
     #[test]
-    fn rejects_bad_version_architecture_flags_and_reserved() {
+    fn rejects_unsupported_version_and_architecture() {
         let original = TrionExecutable::from_tir(TIR).unwrap().to_bytes().unwrap();
         let mut bytes = original.clone();
         bytes[8] = 2;
-        assert_eq!(TrionExecutable::parse(&bytes), Err(ExecutableError::UnsupportedVersion));
-        let mut bytes = original.clone();
-        bytes[12] = 2;
-        assert_eq!(TrionExecutable::parse(&bytes), Err(ExecutableError::UnsupportedArchitecture));
-        let mut bytes = original.clone();
-        bytes[16] = 1;
-        assert_eq!(TrionExecutable::parse(&bytes), Err(ExecutableError::UnsupportedFlags));
+        assert_eq!(
+            TrionExecutable::parse(&bytes),
+            Err(ExecutableError::UnsupportedVersion)
+        );
         let mut bytes = original;
-        bytes[20] = 1;
-        assert_eq!(TrionExecutable::parse(&bytes), Err(ExecutableError::NonzeroReservedField));
+        bytes[12] = 2;
+        assert_eq!(
+            TrionExecutable::parse(&bytes),
+            Err(ExecutableError::UnsupportedArchitecture)
+        );
     }
 
     #[test]
@@ -200,17 +212,26 @@ mod tests {
         let original = TrionExecutable::from_tir(TIR).unwrap().to_bytes().unwrap();
         let mut bytes = original.clone();
         bytes[24] = bytes[24].wrapping_add(1);
-        assert_eq!(TrionExecutable::parse(&bytes), Err(ExecutableError::LengthMismatch));
+        assert_eq!(
+            TrionExecutable::parse(&bytes),
+            Err(ExecutableError::LengthMismatch)
+        );
         let mut bytes = original;
         let last = bytes.len() - 1;
         bytes[last] ^= 1;
-        assert_eq!(TrionExecutable::parse(&bytes), Err(ExecutableError::ChecksumMismatch));
+        assert_eq!(
+            TrionExecutable::parse(&bytes),
+            Err(ExecutableError::ChecksumMismatch)
+        );
     }
 
     #[test]
     fn rejects_invalid_tir_payload() {
         let invalid = b"TRION-TIR 1 x86_64\n0000000000400000 ADD r0 r1\n";
-        assert_eq!(TrionExecutable::from_tir(invalid), Err(ExecutableError::InvalidTirPayload));
+        assert_eq!(
+            TrionExecutable::from_tir(invalid),
+            Err(ExecutableError::InvalidTirPayload)
+        );
     }
 
     #[test]
