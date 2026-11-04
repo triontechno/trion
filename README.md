@@ -9,3 +9,9 @@ The repository has **three primary directories** — TRION = 3:
 - `ternary/` — TRION's balanced-ternary core and binary/ternary translator.
 
 Automation lives in `.github/` and helper scripts live in `scripts/`. See [MONOREPO.md](MONOREPO.md) for the target layout and migration status. Imported upstream components retain their own licenses and copyright notices.
+
+## Adaptive binary/ternary architecture
+
+- [TRION OS architecture specification](TRION-ARCHITECTURE.md)
+- [Phase 2 Stage A specification](Phase%202%20Stage%20A.md)
+- [Adaptive representation policy crate](ternary/adaptive/README.md)
