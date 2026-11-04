@@ -132,8 +132,8 @@ pub fn execute_tir(
                 let offset = rsp
                     .checked_sub(state.memory_base)
                     .ok_or(RuntimeError::StackAddressBeforeMemory)?;
-                let offset = usize::try_from(offset)
-                    .map_err(|_| RuntimeError::StackAddressOutOfBounds)?;
+                let offset =
+                    usize::try_from(offset).map_err(|_| RuntimeError::StackAddressOutOfBounds)?;
                 let end = offset
                     .checked_add(8)
                     .ok_or(RuntimeError::StackAddressOutOfBounds)?;
@@ -184,9 +184,9 @@ fn parse_tir(bytes: &[u8]) -> Result<Vec<Operation>, RuntimeError> {
         }
 
         let mut fields = line.split(' ');
-        let address = fields.next().ok_or(RuntimeError::InvalidRecord {
-            line: line_number,
-        })?;
+        let address = fields
+            .next()
+            .ok_or(RuntimeError::InvalidRecord { line: line_number })?;
         if address.len() != 16
             || !address
                 .bytes()
@@ -196,9 +196,9 @@ fn parse_tir(bytes: &[u8]) -> Result<Vec<Operation>, RuntimeError> {
             return Err(RuntimeError::InvalidAddress { line: line_number });
         }
 
-        let mnemonic = fields.next().ok_or(RuntimeError::InvalidRecord {
-            line: line_number,
-        })?;
+        let mnemonic = fields
+            .next()
+            .ok_or(RuntimeError::InvalidRecord { line: line_number })?;
         let operation = match mnemonic {
             "NOP" => {
                 if fields.next().is_some() {
@@ -213,12 +213,12 @@ fn parse_tir(bytes: &[u8]) -> Result<Vec<Operation>, RuntimeError> {
                 Operation::Ret
             }
             "MOV_IMM64" => {
-                let register_text = fields.next().ok_or(RuntimeError::InvalidRecord {
-                    line: line_number,
-                })?;
-                let immediate_text = fields.next().ok_or(RuntimeError::InvalidRecord {
-                    line: line_number,
-                })?;
+                let register_text = fields
+                    .next()
+                    .ok_or(RuntimeError::InvalidRecord { line: line_number })?;
+                let immediate_text = fields
+                    .next()
+                    .ok_or(RuntimeError::InvalidRecord { line: line_number })?;
                 if fields.next().is_some() {
                     return Err(RuntimeError::InvalidRecord { line: line_number });
                 }
@@ -334,7 +334,8 @@ mod tests {
 
     #[test]
     fn instruction_limit_is_enforced_without_partial_commit() {
-        let input = b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 1TTT0\n0000000000400001 RET\n";
+        let input =
+            b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 1TTT0\n0000000000400001 RET\n";
         let memory = stack();
         let mut machine = state(&memory);
         let before = machine.registers;
@@ -385,7 +386,11 @@ mod tests {
         let mut machine = state(&memory);
 
         assert_eq!(
-            execute_tir(b"TRION-TIR 2 x86_64\n0000000000000000 NOP\n", &mut machine, 2),
+            execute_tir(
+                b"TRION-TIR 2 x86_64\n0000000000000000 NOP\n",
+                &mut machine,
+                2
+            ),
             Err(RuntimeError::InvalidHeader)
         );
         assert_eq!(
