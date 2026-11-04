@@ -162,6 +162,14 @@ pub fn execute_tir(
     })
 }
 
+/// Validate a complete TIR v1 stream without executing it.
+///
+/// Returns the number of validated instructions. The same parser and limits
+/// are used by the interpreter and executable-container loader.
+pub fn validate_tir(bytes: &[u8]) -> Result<usize, RuntimeError> {
+    Ok(parse_tir(bytes)?.len())
+}
+
 fn parse_tir(bytes: &[u8]) -> Result<Vec<Operation>, RuntimeError> {
     if bytes.len() > MAX_TIR_BYTES {
         return Err(RuntimeError::InputTooLarge);
