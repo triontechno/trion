@@ -216,21 +216,21 @@ fn select_cryptographic(
         candidates.binary,
         Representation::Binary,
         SelectionReason::ValidatedCryptographicCandidate,
-        false,
+        true,
     );
     consider(
         &mut best,
         candidates.ternary,
         Representation::BalancedTernary,
         SelectionReason::ValidatedCryptographicCandidate,
-        false,
+        true,
     );
     consider(
         &mut best,
         candidates.hybrid,
         Representation::Hybrid,
         SelectionReason::ValidatedCryptographicCandidate,
-        false,
+        true,
     );
     best.ok_or(SelectionError::NoSupportedValidatedCandidate)
 }
@@ -397,6 +397,21 @@ mod tests {
             selected.reason,
             SelectionReason::ValidatedCryptographicCandidate
         );
+    }
+
+    #[test]
+    fn crypto_rejects_unvalidated_or_incompatible_ternary_candidates() {
+        let selected = select_representation(SelectionRequest {
+            boundary: Boundary::Cryptographic,
+            candidates: CandidateSet {
+                binary: Some(metrics(40)),
+                ternary: Some(CandidateMetrics::new(1, true, true, false)),
+                hybrid: None,
+            },
+        })
+        .unwrap();
+
+        assert_eq!(selected.representation, Representation::Binary);
     }
 
     #[test]
