@@ -15,3 +15,11 @@ Automation lives in `.github/` and helper scripts live in `scripts/`. See [MONOR
 - [TRION OS architecture specification](TRION-ARCHITECTURE.md)
 - [Phase 2 Stage A specification](Phase%202%20Stage%20A.md)
 - [Adaptive representation policy crate](ternary/adaptive/README.md)
+
+## Binary/ternary computing
+
+- [TRION adaptive architecture](TRION-ARCHITECTURE.md)
+- [Phase 2 implementation plan](Phase%202.md)
+- [Phase 2 Stage A](Phase%202%20Stage%20A.md)
+- [Phase 2 Stage B](Phase%202%20Stage%20B.md)
+- [Packed ternary memory crate](ternary/memory/README.md)
