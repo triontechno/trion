@@ -35,7 +35,7 @@ The Phase 2 deliverable is not a claim that commodity processors execute ternary
 Stage B is a logical storage abstraction, not a kernel physical-memory allocator and not physical ternary RAM.
 
 ### Stage C — TIR execution foundation
-**Status: bounded interpreter implementation in progress.**
+**Status: bounded interpreter implemented and CI-verified in main.**
 
 - Define execution semantics for every TIR v1 operation.
 - Build a bounded, deterministic TIR interpreter for the exact supported subset.
