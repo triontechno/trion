@@ -6,6 +6,8 @@ on:
     paths:
       - "ternary/translator/**"
       - "ternary/core/**"
+      - "ternary/runtime/**"
+      - "ternary/executable/**"
       - ".github/workflows/translator.yml"
   pull_request:
     branches: [main]
