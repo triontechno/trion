@@ -70,11 +70,16 @@ impl CapabilityReport {
             HostArchitecture::Aarch64 => "aarch64",
             HostArchitecture::Other => "other",
         };
-        let operations = self.tir_operations.iter().map(|op| match op {
-            TirOperation::Nop => "NOP",
-            TirOperation::MovImm64 => "MOV_IMM64",
-            TirOperation::Ret => "RET",
-        }).collect::<Vec<_>>().join(",");
+        let operations = self
+            .tir_operations
+            .iter()
+            .map(|op| match op {
+                TirOperation::Nop => "NOP",
+                TirOperation::MovImm64 => "MOV_IMM64",
+                TirOperation::Ret => "RET",
+            })
+            .collect::<Vec<_>>()
+            .join(",");
         format!(
             "TRION-CAPABILITIES {}\narchitecture={}\nbinary_execution={}\nnative_ternary_hardware={}\nsoftware_tir_runtime={}\ntir_operations={}\nbinary_external_boundaries={}\n",
             self.schema_version,
