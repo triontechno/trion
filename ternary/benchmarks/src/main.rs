@@ -65,7 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("logical_trits={TRIT_COUNT}");
     println!("binary_i8_bytes={binary_copy_bytes}");
     println!("packed_backing_bytes={packed_bytes}");
-    println!("packed_storage_ratio={:.4}", packed_bytes as f64 / binary_copy_bytes.max(1) as f64);
+    println!(
+        "packed_storage_ratio={:.4}",
+        packed_bytes as f64 / binary_copy_bytes.max(1) as f64
+    );
     println!("binary_copy_total_ns={binary_copy_ns}");
     println!("balanced_pack_total_ns={pack_ns}");
     println!("balanced_unpack_total_ns={unpack_ns}");
