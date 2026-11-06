@@ -97,7 +97,7 @@ fn package_cli_wraps_validated_tir_and_refuses_overwrite() {
     let base = std::env::temp_dir().join(format!("trion-package-{}-{nonce}", std::process::id()));
     let input = base.with_extension("tir");
     let output_path = base.with_extension("trx");
-    let tir = b"TRION-TIR 1 x86_64\\n0000000000400000 NOP\\n";
+    let tir = b"TRION-TIR 1 x86_64\n0000000000400000 NOP\n";
     fs::write(&input, tir).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
@@ -112,7 +112,7 @@ fn package_cli_wraps_validated_tir_and_refuses_overwrite() {
         String::from_utf8_lossy(&output.stderr)
     );
     let container = fs::read(&output_path).unwrap();
-    assert_eq!(&container[..8], b"TRIONEX\\0");
+    assert_eq!(&container[..8], b"TRIONEX\0");
     assert_eq!(u16::from_le_bytes([container[8], container[9]]), 1);
     assert_eq!(&container[36..], tir);
 
