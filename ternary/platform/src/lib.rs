@@ -42,7 +42,7 @@ pub struct CapabilityReport {
 
 impl CapabilityReport {
     /// Report capabilities guaranteed by this build, not guessed hardware features.
-    pub const fn for_build_target() -> Self {
+    pub fn for_build_target() -> Self {
         let architecture = match std::env::consts::ARCH {
             "x86_64" => HostArchitecture::X86_64,
             "aarch64" => HostArchitecture::Aarch64,
