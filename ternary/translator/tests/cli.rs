@@ -87,3 +87,45 @@ fn translate_cli_writes_valid_tir_without_overwriting_existing_output() {
     fs::remove_file(input).unwrap();
     fs::remove_file(output_path).unwrap();
 }
+
+#[test]
+fn package_cli_wraps_validated_tir_and_refuses_overwrite() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let base = std::env::temp_dir().join(format!("trion-package-{}-{nonce}", std::process::id()));
+    let input = base.with_extension("tir");
+    let output_path = base.with_extension("trx");
+    let tir = b"TRION-TIR 1 x86_64\n0000000000400000 NOP\n";
+    fs::write(&input, tir).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("package")
+        .arg(&input)
+        .arg(&output_path)
+        .output()
+        .expect("run TRIONEX packager");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let container = fs::read(&output_path).unwrap();
+    assert_eq!(&container[..8], b"TRIONEX\0");
+    assert_eq!(u16::from_le_bytes([container[8], container[9]]), 1);
+    assert_eq!(&container[36..], tir);
+
+    fs::write(&output_path, b"preserve").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("package")
+        .arg(&input)
+        .arg(&output_path)
+        .output()
+        .expect("run packager against existing output");
+    assert!(!output.status.success());
+    assert_eq!(fs::read(&output_path).unwrap(), b"preserve");
+
+    fs::remove_file(input).unwrap();
+    fs::remove_file(output_path).unwrap();
+}

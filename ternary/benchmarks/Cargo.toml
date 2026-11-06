@@ -1,0 +1,9 @@
+[package]
+name = "trion-phase2-benchmarks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+trion-ternary = { path = "../core" }
+trion-ternary-memory = { path = "../memory" }

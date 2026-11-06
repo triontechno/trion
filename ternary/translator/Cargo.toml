@@ -3,7 +3,7 @@ name = "trion-binary-translator"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "x86-64 ELF inspection front-end for Trion's binary-to-ternary translator"
+description = "x86-64 ELF inspection and translation front-end for TRION"
 
 [[bin]]
 name = "trion-translate"
@@ -13,3 +13,4 @@ path = "src/main.rs"
 goblin = "0.9"
 iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel"] }
 trion-ternary = { path = "../core" }
+trion-executable = { path = "../executable" }

@@ -429,4 +429,19 @@ mod tests {
             }
         );
     }
+    #[test]
+    fn parser_rejects_deterministic_arbitrary_bytes_without_panicking() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        for length in 0..256usize {
+            let mut bytes = Vec::with_capacity(length);
+            for _ in 0..length {
+                seed ^= seed << 7;
+                seed ^= seed >> 9;
+                seed ^= seed << 8;
+                bytes.push(seed as u8);
+            }
+            let result = std::panic::catch_unwind(|| validate_tir(&bytes));
+            assert!(result.is_ok(), "parser panicked for {length} input bytes");
+        }
+    }
 }

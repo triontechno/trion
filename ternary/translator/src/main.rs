@@ -9,6 +9,7 @@ fn usage() {
     eprintln!("Usage:");
     eprintln!("  trion-translate inspect <x86-64-elf>");
     eprintln!("  trion-translate translate <x86-64-elf> <new-output.tir>");
+    eprintln!("  trion-translate package <validated-input.tir> <new-output.trx>");
 }
 
 fn inspect(path: &str) -> Result<(), String> {
@@ -76,8 +77,6 @@ fn inspect(path: &str) -> Result<(), String> {
             let name = format!("{:?}", instruction.mnemonic());
             *counts.entry(name).or_insert(0) += 1;
 
-            // Candidate first-pass integer/control-flow subset. This is only a
-            // triage classification, not a claim that these ops are translated.
             let candidate = matches!(
                 instruction.mnemonic(),
                 iced_x86::Mnemonic::Nop
@@ -167,11 +166,43 @@ fn translate(path: &str, output_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn package(input_path: &str, output_path: &str) -> Result<(), String> {
+    let payload =
+        fs::read(input_path).map_err(|error| format!("cannot read {input_path}: {error}"))?;
+    let executable = trion_executable::TrionExecutable::from_tir(&payload)
+        .map_err(|error| format!("input is not valid canonical TIR v1: {error}"))?;
+    let bytes = executable
+        .to_bytes()
+        .map_err(|error| format!("cannot encode TRIONEX container: {error}"))?;
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .map_err(|error| format!("cannot create {output_path} without overwriting: {error}"))?;
+    if let Err(error) = file.write_all(&bytes) {
+        drop(file);
+        return match fs::remove_file(output_path) {
+            Ok(()) => Err(format!("cannot write {output_path}: {error}")),
+            Err(cleanup_error) => Err(format!(
+                "cannot write {output_path}: {error}; also cannot remove partial output: {cleanup_error}"
+            )),
+        };
+    }
+    println!(
+        "Packaged {} validated TIR bytes into TRIONEX v1: {output_path}",
+        payload.len()
+    );
+    println!("TRIONEX is an interpreted TIR container, not native machine code.");
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     let result = match args.as_slice() {
         [command, path] if command == "inspect" => inspect(path),
         [command, input, output] if command == "translate" => translate(input, output),
+        [command, input, output] if command == "package" => package(input, output),
         _ => {
             usage();
             return ExitCode::from(2);

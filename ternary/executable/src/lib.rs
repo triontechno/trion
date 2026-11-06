@@ -110,8 +110,8 @@ impl TrionExecutable {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, ExecutableError> {
-        let payload_len = u64::try_from(self.payload.len())
-            .map_err(|_| ExecutableError::LengthOverflow)?;
+        let payload_len =
+            u64::try_from(self.payload.len()).map_err(|_| ExecutableError::LengthOverflow)?;
         let total_len = HEADER_LEN
             .checked_add(self.payload.len())
             .ok_or(ExecutableError::LengthOverflow)?;
@@ -237,5 +237,24 @@ mod tests {
     #[test]
     fn crc32_matches_standard_check_value() {
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
+    }
+
+    #[test]
+    fn container_parser_rejects_deterministic_arbitrary_bytes_without_panicking() {
+        let mut seed = 0xd1b5_4a32_d192_ed03u64;
+        for length in 0..512usize {
+            let mut bytes = Vec::with_capacity(length);
+            for _ in 0..length {
+                seed ^= seed << 7;
+                seed ^= seed >> 9;
+                seed ^= seed << 8;
+                bytes.push(seed as u8);
+            }
+            let result = std::panic::catch_unwind(|| TrionExecutable::parse(&bytes));
+            assert!(
+                result.is_ok(),
+                "container parser panicked for {length} bytes"
+            );
+        }
     }
 }
