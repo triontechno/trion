@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage E: Runtime and Platform Integration
 
-**Implementation status:** User-space capability-report foundation added; kernel integration remains gated.
+**Implementation status:** User-space capability-report foundation merged into `main`; kernel integration remains gated.
 
 ## Delivered in this stage slice
 
