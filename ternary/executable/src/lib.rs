@@ -238,6 +238,7 @@ mod tests {
     fn crc32_matches_standard_check_value() {
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
     }
+
     #[test]
     fn container_parser_rejects_deterministic_arbitrary_bytes_without_panicking() {
         let mut seed = 0xd1b5_4a32_d192_ed03u64;
@@ -256,5 +257,4 @@ mod tests {
             );
         }
     }
-
 }
