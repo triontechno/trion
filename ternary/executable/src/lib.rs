@@ -110,8 +110,8 @@ impl TrionExecutable {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, ExecutableError> {
-        let payload_len = u64::try_from(self.payload.len())
-            .map_err(|_| ExecutableError::LengthOverflow)?;
+        let payload_len =
+            u64::try_from(self.payload.len()).map_err(|_| ExecutableError::LengthOverflow)?;
         let total_len = HEADER_LEN
             .checked_add(self.payload.len())
             .ok_or(ExecutableError::LengthOverflow)?;
