@@ -444,5 +444,4 @@ mod tests {
             assert!(result.is_ok(), "parser panicked for {length} input bytes");
         }
     }
-
 }
