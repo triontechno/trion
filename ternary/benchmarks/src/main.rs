@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..ITERATIONS {
         for value in &integer_samples {
             let encoded = Ternary::from_i128(black_box(*value));
-            ternary_digits = black_box(ternary_digits.wrapping_add(encoded.len()));
+            ternary_digits = black_box(ternary_digits.wrapping_add(encoded.trits_lsf().len()));
             black_box(encoded.to_i128()?);
         }
     }
