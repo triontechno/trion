@@ -250,7 +250,10 @@ mod tests {
                 bytes.push(seed as u8);
             }
             let result = std::panic::catch_unwind(|| TrionExecutable::parse(&bytes));
-            assert!(result.is_ok(), "container parser panicked for {length} bytes");
+            assert!(
+                result.is_ok(),
+                "container parser panicked for {length} bytes"
+            );
         }
     }
 
