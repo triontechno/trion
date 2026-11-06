@@ -11,6 +11,7 @@ on:
       - "ternary/executable/**"
       - "ternary/translator/**"
       - "ternary/platform/**"
+      - "ternary/benchmarks/**"
       - "ternary/core/**"
       - ".github/workflows/adaptive.yml"
   pull_request:
@@ -45,6 +46,10 @@ jobs:
         run: cargo test --manifest-path ternary/translator/Cargo.toml
       - name: Test platform capability report
         run: cargo test --manifest-path ternary/platform/Cargo.toml
+      - name: Run representation benchmark smoke test
+        run: cargo run --manifest-path ternary/benchmarks/Cargo.toml --release
+      - name: Check platform capability CLI
+        run: cargo run --manifest-path ternary/platform/Cargo.toml
       - name: Check formatting
         run: |
           cargo fmt --manifest-path ternary/adaptive/Cargo.toml -- --check
@@ -53,6 +58,7 @@ jobs:
           cargo fmt --manifest-path ternary/executable/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/translator/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/platform/Cargo.toml -- --check
+          cargo fmt --manifest-path ternary/benchmarks/Cargo.toml -- --check
       - name: Run clippy
         run: |
           cargo clippy --manifest-path ternary/adaptive/Cargo.toml --all-targets -- -D warnings
@@ -61,3 +67,4 @@ jobs:
           cargo clippy --manifest-path ternary/executable/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/translator/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/platform/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path ternary/benchmarks/Cargo.toml --all-targets -- -D warnings
