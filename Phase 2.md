@@ -54,6 +54,8 @@ Stage B is a logical storage abstraction, not a kernel physical-memory allocator
 - Implement ternary-to-binary output only for a declared target ISA and ABI.
 - Require differential semantic tests and reject unsupported instructions rather than approximating them.
 
+See [Stage E]("Phase%202%20Stage%20E.md") for the capability-report contract and remaining kernel integration gates.
+
 ### Stage E — Runtime, kernel, and hardware integration
 
 - Add target capability discovery and a stable capability report.
@@ -62,6 +64,8 @@ Stage B is a logical storage abstraction, not a kernel physical-memory allocator
 - Only then integrate selected APIs into Redox kernel subsystems, with architecture-specific builds and boot tests.
 - Do not change physical frame allocation or page-table representation merely to label memory ternary.
 - Keep network protocols and conventional device interfaces binary-compatible.
+
+See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-validation gates.
 
 ### Stage F — Measurement, hardening, and release validation
 
