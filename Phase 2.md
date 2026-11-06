@@ -57,6 +57,7 @@ Stage B is a logical storage abstraction, not a kernel physical-memory allocator
 See [Stage E]("Phase%202%20Stage%20E.md") for the capability-report contract and remaining kernel integration gates.
 
 ### Stage E — Runtime, kernel, and hardware integration
+**Status:** User-space capability-report foundation implemented and CI-verified; Redox kernel, driver, DMA/MMIO, syscall/ABI, and verified hardware integration remain open.
 
 - Add target capability discovery and a stable capability report.
 - Integrate adaptive decisions first in user-space libraries and controlled runtime paths.
@@ -68,6 +69,7 @@ See [Stage E]("Phase%202%20Stage%20E.md") for the capability-report contract and
 See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-validation gates.
 
 ### Stage F — Measurement, hardening, and release validation
+**Status:** Initial representation benchmark harness and deterministic malformed-input regression tests implemented and CI-verified; sustained fuzzing, comparative result publication, full OS build, and QEMU boot validation remain open.
 
 - Benchmark binary, ternary, and hybrid implementations on equivalent workloads.
 - Include conversion, memory, metadata, and compatibility overhead.
