@@ -167,8 +167,8 @@ fn translate(path: &str, output_path: &str) -> Result<(), String> {
 }
 
 fn package(input_path: &str, output_path: &str) -> Result<(), String> {
-    let payload = fs::read(input_path)
-        .map_err(|error| format!("cannot read {input_path}: {error}"))?;
+    let payload =
+        fs::read(input_path).map_err(|error| format!("cannot read {input_path}: {error}"))?;
     let executable = trion_executable::TrionExecutable::from_tir(&payload)
         .map_err(|error| format!("input is not valid canonical TIR v1: {error}"))?;
     let bytes = executable
