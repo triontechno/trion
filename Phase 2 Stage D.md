@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage D: Translator and Executable Compatibility
 
-**Status:** TRIONEX v1 container implementation in progress  
+**Status:** TRIONEX v1 container library and validated TIR packaging CLI implemented; instruction expansion and executable/runtime integration remain in progress.  
 **Prerequisites:** Stage C validated TIR interpreter
 
 ## 1. First deliverable: TRIONEX v1
@@ -27,12 +27,14 @@ The total file length must equal 36 plus payload length. The payload must pass t
 
 ## 2. Later Stage D work
 
-- Add a translator command to package validated TIR into TRIONEX.
+- [x] Add `trion-translate package input.tir output.trx` to package validated TIR into TRIONEX.
 - Add a runtime command to inspect and execute TRIONEX with an explicitly supplied test stack.
 - Expand instruction support only in complete semantic groups, including required flags and control-flow behavior.
 - Preserve existing ELF input support and reject unsupported instructions with exact diagnostics.
 - Specify a separate native machine-code executable ABI and loader contract before claiming kernel-loadable native binaries.
 - Add reverse translation only for declared target instructions and ABIs; preserve semantics or reject.
+
+The package command validates TIR through the shared runtime parser, writes a TRIONEX v1 container, refuses to overwrite existing output files, and removes partial output after write failures. CLI tests cover valid packaging and overwrite protection.
 
 ## 3. Safety and compatibility
 
