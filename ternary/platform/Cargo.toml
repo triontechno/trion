@@ -4,6 +4,3 @@ version = "0.1.0"
 edition = "2024"
 description = "Explicit TRION host capability reporting and binary boundary contracts"
 license = "MIT"
-
-[dependencies]
-trion-tir-runtime = { path = "../runtime" }
