@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage F: Measurement, Hardening, and Release Validation
 
-**Implementation status:** CI regression coverage is active; benchmark, fuzz-campaign, and boot evidence remain required.
+**Implementation status:** Initial benchmark harness and deterministic parser robustness regression tests merged into `main`; sustained fuzzing, comparative measurements, and boot evidence remain required.
 
 ## Required evidence
 
