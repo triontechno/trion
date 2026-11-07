@@ -257,12 +257,12 @@ fn parse_program(bytes: &[u8]) -> Result<Vec<Instruction>, RuntimeError> {
             | Operation::Call { target } => Some(target),
             _ => None,
         };
-        if let Some(target) = target {
-            if !seen.contains_key(&target) {
-                return Err(RuntimeError::InvalidTarget {
-                    line: instruction.line,
-                });
-            }
+        if let Some(target) = target
+            && !seen.contains_key(&target)
+        {
+            return Err(RuntimeError::InvalidTarget {
+                line: instruction.line,
+            });
         }
     }
     Ok(program)
