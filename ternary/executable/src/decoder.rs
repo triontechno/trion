@@ -37,6 +37,15 @@ pub fn decode(bytes:&[u8])->Result<Decoded,Error>{
         0xf4=>simple(Instruction::Hlt),
         0x50..=0x57=>simple(Instruction::PushReg(b-0x50)),
         0x58..=0x5f=>simple(Instruction::PopReg(b-0x58)),
+        0x40..=0x4f=>{
+            let opcode=*bytes.get(1).ok_or(Error::Truncated("REX register opcode"))?;
+            let extension=(b&1)<<3;
+            match opcode {
+                0x50..=0x57=>Ok(Decoded{instruction:Instruction::PushReg((opcode-0x50)|extension),length:2}),
+                0x58..=0x5f=>Ok(Decoded{instruction:Instruction::PopReg((opcode-0x58)|extension),length:2}),
+                _=>Err(Error::Unsupported("REX-prefixed opcode outside declared decoder subset")),
+            }
+        }
         0xe8=>Ok(Decoded{instruction:Instruction::RelativeCall(read_i32(bytes,1)?),length:5}),
         0xe9=>Ok(Decoded{instruction:Instruction::RelativeJump(read_i32(bytes,1)?),length:5}),
         0x0f=>{
