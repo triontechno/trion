@@ -2,13 +2,13 @@
 
 TRION is an operating-system project exploring balanced-ternary computing and a polished desktop experience.
 
-The repository has **three primary directories** — TRION = 3:
+The repository has three primary directories — TRION = 3:
 
-- `build/` — Redox-derived build system, recipes, toolchain setup, and image generation. The build tool's own source belongs in `build/code/`.
-- `src/` — actual OS source trees, vendored as ordinary tracked files rather than Git submodules.
-- `ternary/` — TRION's balanced-ternary core and adaptive binary/ternary runtime components.
+- build/ — Redox-derived build system, recipes, toolchain setup, and image generation. The build tool's own source belongs in build/code/.
+- src/ — actual OS source trees, vendored as ordinary tracked files rather than Git submodules.
+- ternary/ — TRION's balanced-ternary core and adaptive binary/ternary runtime components.
 
-Automation lives in `.github/` and helper scripts live in `scripts/`. See [MONOREPO.md](MONOREPO.md) for the target layout and migration status. Imported upstream components retain their own licenses and copyright notices.
+Automation lives in .github/ and helper scripts live in scripts/. See MONOREPO.md for the target layout and migration status. Imported upstream components retain their own licenses and copyright notices.
 
 ## Adaptive binary/ternary architecture
 
@@ -27,6 +27,7 @@ Automation lives in `.github/` and helper scripts live in `scripts/`. See [MONOR
 - [Phase 2 Stage C](Phase%202%20Stage%20C.md)
 - [Phase 2 Stage D](Phase%202%20Stage%20D.md)
 - [Phase 2 Stage G — Direct Executable Engine](Phase%202%20Stage%20G.md)
+- [Direct executable engine foundation](ternary/executable/README.md)
 
 ## Final project phase
 

@@ -3,7 +3,7 @@
 **Status:** Active implementation  
 **Parent:** [TRION-ARCHITECTURE.md](TRION-ARCHITECTURE.md)  
 **Prerequisite:** Phase 1 ternary core  
-**Rule:** Work directly on `main` where practical; merge all completed and verified temporary-branch work into `main`.
+**Rule:** Work directly on main where practical; merge all completed and verified temporary-branch work into main.
 
 ## 1. Objective
 
@@ -26,8 +26,8 @@ Phase 2 develops an adaptive binary/ternary architecture that preserves conventi
 ### Stage E — Runtime, kernel, and hardware integration
 **Status: implementation delivered; testing deferred until Phase 2 completion.**
 
-- Versioned target capability reporting in `ternary/platform`.
-- Redox boot-time read-only capability scheme at `/scheme/trion`.
+- Versioned target capability reporting in ternary/platform.
+- Redox boot-time read-only capability scheme at /scheme/trion.
 - Measured, correctness-checked adaptive integer workload published as runtime policy evidence.
 - PCI and ACPI inventory evidence, with unprobed optional device features reported honestly.
 - Existing Redox scheme/driver interfaces and byte-preserving binary MMIO, DMA, syscall, network, and storage boundaries.
@@ -47,16 +47,17 @@ See [Stage E](Phase%202%20Stage%20E.md) for implementation details and deferred 
 See [Stage F](Phase%202%20Stage%20F.md).
 
 ### Stage G — Direct executable engine
-**Status: planned; not implemented.**
+**Status: partial implementation delivered; execution backend and platform compatibility remain unimplemented.**
 
-- Directly load supported Windows PE32+ `.exe` files and macOS `.app` bundles.
-- Load and validate original images; do not convert to TIR or create `.trx` files.
-- No translator or TRIONEX fallback.
-- Implement format-specific loaders, bounded instruction decoding/execution, platform compatibility services, process isolation, and resource/security controls.
-- Treat instruction execution and Windows/macOS API compatibility as separate problems; advertise only tested compatibility.
-- Reject unsupported instructions, imports, relocations, architectures, and malformed files safely.
+- Added isolated ternary/executable crate with bounded PE32+ x86-64 and little-endian Mach-O 64 x86-64 metadata inspection.
+- Added PE section validation and inert preferred-base image mapping; import-library enumeration.
+- Added Mach-O segment/dependency/LC_MAIN validation and XML Info.plist executable selection.
+- Added explicit launch assessment that reports missing execution and ABI components.
+- Added manual fuzz targets for PE32+, Mach-O 64, and app-bundle metadata; campaigns are deferred.
+- Not yet implemented: relocation application, dynamic linking, instruction decoding/execution, guest process isolation, Windows/macOS ABI and system APIs, bundle filesystem integration, or launcher dispatch.
+- No .exe or .app launch support is claimed.
 
-See [Stage G](Phase%202%20Stage%20G.md) for architecture and completion gates.
+See [Stage G](Phase%202%20Stage%20G.md).
 
 ## 3. Global engineering gates
 
@@ -67,8 +68,8 @@ See [Stage G](Phase%202%20Stage%20G.md) for architecture and completion gates.
 5. Ternary candidates require support and semantic validation.
 6. Conventional hardware, network, file, and ABI boundaries retain their specified binary layouts.
 7. Keep new crates isolated until APIs and implementation are stable.
-8. Target `main`; merge any temporary branch after implementation.
+8. Target main; merge any temporary branch after implementation.
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 implementation is complete only when Stages A–G are implemented to their stated scope. After implementation is complete, run the consolidated testing and validation pass, including automated checks, fuzz campaigns, comparative benchmarks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.
+Phase 2 implementation is complete only when Stages A–G are implemented to their stated scope. Stage G is not complete until its process executor, decoder, dynamic linkers, Windows/macOS compatibility layers, launcher integration and security controls exist. After implementation is complete, run the consolidated testing and validation pass, including automated checks, fuzz campaigns, comparative benchmarks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.

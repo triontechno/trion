@@ -1,6 +1,6 @@
 name: TRION adaptive policy
 # CI covers adaptive policy, packed memory, TIR research runtime, platform integration,
-# and the Redox boot-time capability service.
+# the Redox capability service, and the Stage G executable-format foundation.
 
 on:
   workflow_dispatch:
@@ -19,6 +19,8 @@ jobs:
         run: cargo test --manifest-path ternary/memory/Cargo.toml
       - name: Test TIR research runtime
         run: cargo test --manifest-path ternary/runtime/Cargo.toml
+      - name: Test executable format foundation
+        run: cargo test --manifest-path ternary/executable/Cargo.toml
       - name: Test platform capability and adaptive workload
         run: cargo test --manifest-path ternary/platform/Cargo.toml
       - name: Run representation benchmark smoke test
@@ -30,6 +32,7 @@ jobs:
           cargo fmt --manifest-path ternary/adaptive/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/memory/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/runtime/Cargo.toml -- --check
+          cargo fmt --manifest-path ternary/executable/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/platform/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/benchmarks/Cargo.toml -- --check
       - name: Run clippy
@@ -37,6 +40,7 @@ jobs:
           cargo clippy --manifest-path ternary/adaptive/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/memory/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/runtime/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path ternary/executable/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/platform/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/benchmarks/Cargo.toml --all-targets -- -D warnings
 
@@ -58,8 +62,8 @@ jobs:
       - name: Lint capability services
         run: cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets --no-deps -- -D warnings
 
-  packed-memory-fuzz:
-    # Intentionally manual: run only in the consolidated post-Phase-2 test pass.
+  phase2-fuzz:
+    # Manual only: campaigns belong to the consolidated post-Phase-2 test pass.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +72,7 @@ jobs:
         run: cargo install cargo-fuzz --locked
       - name: Check fuzz target formatting
         run: cargo fmt --manifest-path ternary/fuzz/Cargo.toml -- --check
-      - name: Build packed-memory and TRN3 fuzz targets
+      - name: Build all fuzz targets
         working-directory: ternary/fuzz
         run: cargo fuzz build
       - name: Fuzz packed ternary memory
@@ -77,3 +81,12 @@ jobs:
       - name: Fuzz TRN3 deserialization
         working-directory: ternary/fuzz
         run: cargo fuzz run trn3_deserialize -- -max_total_time=60 -max_len=1048576
+      - name: Fuzz PE32+ loader
+        working-directory: ternary/fuzz
+        run: cargo fuzz run pe32_plus -- -max_total_time=60 -max_len=1048576
+      - name: Fuzz Mach-O loader
+        working-directory: ternary/fuzz
+        run: cargo fuzz run macho64 -- -max_total_time=60 -max_len=1048576
+      - name: Fuzz app bundle metadata
+        working-directory: ternary/fuzz
+        run: cargo fuzz run app_bundle_plist -- -max_total_time=60 -max_len=1048576

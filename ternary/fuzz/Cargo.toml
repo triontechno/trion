@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 trion-ternary = { path = "../core" }
 trion-ternary-memory = { path = "../memory" }
+trion-executable = { path = "../executable" }
 
 [[bin]]
 name = "packed_trit_buffer"
@@ -22,6 +23,27 @@ bench = false
 [[bin]]
 name = "trn3_deserialize"
 path = "fuzz_targets/trn3_deserialize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pe32_plus"
+path = "fuzz_targets/pe32_plus.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "macho64"
+path = "fuzz_targets/macho64.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "app_bundle_plist"
+path = "fuzz_targets/app_bundle_plist.rs"
 test = false
 doc = false
 bench = false
