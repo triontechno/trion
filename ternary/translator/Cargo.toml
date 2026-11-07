@@ -14,3 +14,4 @@ goblin = "0.9"
 iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "intel"] }
 trion-ternary = { path = "../core" }
 trion-executable = { path = "../executable" }
+trion-tir-runtime = { path = "../runtime" }
