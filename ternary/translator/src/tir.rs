@@ -697,7 +697,7 @@ mod tests {
         bytes[coff + 18..coff + 20].copy_from_slice(&0x0022u16.to_le_bytes());
         let optional = coff + 20;
         bytes[optional..optional + 2].copy_from_slice(&0x20bu16.to_le_bytes());
-        bytes[optional + 24..optional + 32].copy_from_slice(&0x1400_0000_0u64.to_le_bytes());
+        bytes[optional + 24..optional + 32].copy_from_slice(&0x0001_4000_0000_u64.to_le_bytes());
         bytes[optional + 32..optional + 36].copy_from_slice(&0x1000u32.to_le_bytes());
         bytes[optional + 36..optional + 40].copy_from_slice(&0x200u32.to_le_bytes());
         bytes[optional + 56..optional + 60].copy_from_slice(&0x2000u32.to_le_bytes());
