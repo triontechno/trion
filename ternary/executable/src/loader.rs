@@ -53,7 +53,8 @@ pub fn rebase_pe32_plus(image:&mut InertImage, actual_base:u64)->Result<(),Error
     let delta=actual_base as i128-preferred as i128;
     let mut at=rva;
     let mut count=0usize;
-    let mut writes:Vec<(usize,u64)>=Vec::new();\n    let mut seen=BTreeSet::new();
+    let mut writes:Vec<(usize,u64)>=Vec::new();
+    let mut seen=BTreeSet::new();
     while at<end {
         if end-at<8 { return Err(Error::Invalid("partial PE relocation block")); }
         let page=u32le(bytes,at)? as usize;
@@ -82,7 +83,8 @@ pub fn rebase_pe32_plus(image:&mut InertImage, actual_base:u64)->Result<(),Error
             let old=u64le(bytes,target)?;
             let adjusted=if delta>=0 { old.checked_add(delta as u64) } else { old.checked_sub((-delta) as u64) }
                 .ok_or(Error::Overflow)?;
-            writes.try_reserve(1).map_err(|_|Error::Limit("PE relocation write set allocation"))?;\n            writes.push((target,adjusted));
+            writes.try_reserve(1).map_err(|_|Error::Limit("PE relocation write set allocation"))?;
+            writes.push((target,adjusted));
         }
         at=at.checked_add(block_size).ok_or(Error::Overflow)?;
     }
