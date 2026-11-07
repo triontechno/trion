@@ -208,7 +208,10 @@ fn translate(path: &str, output_path: &str) -> Result<(), String> {
     let (actual, bytes, is_app) = input_bytes(path)?;
     let output = tir::translate_object_to_tir(&bytes)?;
     if is_app {
-        println!("Imported macOS application bundle executable: {}", actual.display());
+        println!(
+            "Imported macOS application bundle executable: {}",
+            actual.display()
+        );
     }
     let count = tir::validate_tir(&output)?;
     let mut file = fs::OpenOptions::new()
@@ -237,7 +240,8 @@ fn import(path: &str, output_path: &str) -> Result<(), String> {
     let tir_bytes = tir::translate_object_to_tir(&bytes)?;
     let executable = trion_executable::TrionExecutable::from_tir(&tir_bytes)
         .map_err(|error| format!("translated program failed TRIONEX validation: {error}"))?;
-    let container = executable.to_bytes()
+    let container = executable
+        .to_bytes()
         .map_err(|error| format!("cannot encode TRIONEX container: {error}"))?;
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -248,12 +252,23 @@ fn import(path: &str, output_path: &str) -> Result<(), String> {
         drop(file);
         return match fs::remove_file(output_path) {
             Ok(()) => Err(format!("cannot write {output_path}: {error}")),
-            Err(cleanup_error) => Err(format!("cannot write {output_path}: {error}; also cannot remove partial output: {cleanup_error}")),
+            Err(cleanup_error) => Err(format!(
+                "cannot write {output_path}: {error}; also cannot remove partial output: {cleanup_error}"
+            )),
         };
     }
-    println!("Imported {} executable instructions into TRIONEX v1: {output_path}", tir::validate_tir(&tir_bytes)?);
-    println!("Source: {}{}", actual.display(), if is_app { " (macOS .app bundle)" } else { "" });
-    println!("Only the translated x86-64 instruction subset is supported; OS APIs and platform ABIs are not emulated.");
+    println!(
+        "Imported {} executable instructions into TRIONEX v1: {output_path}",
+        tir::validate_tir(&tir_bytes)?
+    );
+    println!(
+        "Source: {}{}",
+        actual.display(),
+        if is_app { " (macOS .app bundle)" } else { "" }
+    );
+    println!(
+        "Only the translated x86-64 instruction subset is supported; OS APIs and platform ABIs are not emulated."
+    );
     Ok(())
 }
 
