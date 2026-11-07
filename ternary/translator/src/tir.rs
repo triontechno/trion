@@ -161,8 +161,9 @@ pub fn translate_pe_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
         let code = bytes
             .get(start..end)
             .ok_or_else(|| format!("PE section {index} lies outside file"))?;
-        let base = pe
-            .image_base
+        let image_base = u64::try_from(pe.image_base)
+            .map_err(|_| "PE image base exceeds 64-bit address space")?;
+        let base = image_base
             .checked_add(u64::from(section.virtual_address))
             .ok_or("PE section virtual address overflow")?;
         sections.push((base, code.to_vec()));
