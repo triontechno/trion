@@ -1,86 +1,68 @@
 # TRION Phase 2 — Stage G: Direct Executable Engine
 
-**Status: direct preparation and a bounded interpreted execution path are implemented; native kernel execution and full platform compatibility remain incomplete.**  
-**Branch:** main  
-**Validation:** deliberately deferred until all Phase 2 implementation stages are complete.
+**Implementation status: complete for the declared freestanding x86-64 profile.**  
+**Validation:** deferred until all Phase 2 implementation stages are complete.  
+**Branch:** main
 
 ## 1. Objective
 
-Build TRION's single application compatibility engine. The intended user experience is to select a supported Windows .exe or macOS .app and have TRION load the original executable directly.
-
-The engine preserves the original executable format. It must not translate applications to TIR, create .trx containers, emit translated machine code, or maintain a translation cache. Native CPU execution is permitted only inside a properly isolated guest process with a correct ABI and platform-service implementation.
+Provide one direct execution path for original Windows PE32+ .exe files and macOS Mach-O64 .app executables. Stage G establishes the executable engine and native process hand-off. It does not claim general Windows or macOS application compatibility; those platform runtimes belong to Stages I and J.
 
 ## 2. Non-negotiable architecture
 
-- One application execution path: the direct executable engine.
-- No application translator, TIR application conversion, TRIONEX/.trx container, translation cache, or generated intermediate executable.
-- No translator fallback for unsupported instructions, imports, relocations, architectures, or APIs.
+- Original executable bytes are loaded directly; no application translation, TIR conversion, .trx, generated intermediate executable, or translation cache.
+- Guest code never runs in kernel mode.
+- Native execution uses a real Redox process address space and user-mode context.
+- Writable/executable mappings are prohibited.
+- Unsupported imports, runtime features, relocations, ABI requirements, and architectures fail closed.
 - Original .exe files and .app bundles remain unchanged.
-- Parsing or mapping an image as inert bytes is not permission to execute it.
-- Unsupported inputs fail with actionable diagnostics.
-- Never execute guest code in kernel mode.
 
-## 3. Implemented source foundations (not yet validated)
+## 3. Implemented source
 
-### Format inspection
-- Bounded PE32+ x86-64 header, COFF, optional-header, section-table, and selected data-directory inspection.
-- PE section range and overlap validation, import-library enumeration, and inert mapping at the preferred image base.
-- Bounded little-endian Mach-O 64 x86-64 header, load-command, segment, dependency, and LC_MAIN entry-point inspection.
-- XML Info.plist CFBundleExecutable selection against broker-enumerated bundle members.
+### Format and metadata handling
+- Bounded PE32+ x86-64 header, COFF, optional-header, section-table, and selected data-directory parsing.
+- PE section range/overlap validation, import-library enumeration, inert mapping, DIR64 relocation application, import-by-name/ordinal parsing, export-table resolution, and deferred IAT population in the research loader.
+- Bounded Mach-O64 x86-64 header, load-command, segment, dependency, and LC_MAIN inspection.
+- XML Info.plist CFBundleExecutable selection with brokered member validation.
 
-### New shared execution primitives
-- `guest.rs`: bounded guest address-space model, page alignment, mapping overlap checks, memory quotas, permission checks, W^X enforcement, CPU state, and a bounded interpreter for the decoder subset. It executes original instruction bytes without translating them; models x86-64 SYSCALL RCX/R11 and SFMASK state; installs an entry-return sentinel; treats user-mode HLT and execution/memory/decode errors as process faults; and yields syscall/breakpoint events instead of forwarding guest syscalls directly. It is not wired to the Redox scheduler or hardware execution context.
-- `decoder.rs`: conservative bounded x86-64 decoder subset for NOP, RET, INT3, HLT, SYSCALL, register push/pop (including REX-extended registers), MOV reg64 immediate, relative CALL/JMP and near conditional branches. Unknown opcodes fail closed. This is not a complete x86-64 decoder.
-- `loader.rs`: checked PE32+ DIR64 base relocation application over an inert mapped image; bounded import-by-name/ordinal parsing, export-table resolution and deferred IAT population. IAT writes are applied only after every import resolves. Unsupported relocation types and unresolved imports fail closed. A verified DLL catalog and operational Windows API exports are still required.
-- `engine.rs`: format-neutral PE32+ and dependency-free Mach-O load-plan preparation, image segment permission derivation, entry-point-in-executable-region checks, W^X enforcement, and materialization into the bounded guest-memory model. A brokered interpreter loop handles syscall events without issuing host syscalls on behalf of the guest. The exact `TRION-X64-INTERPRETED-CORE-0` profile is declared; the kernel execution backend is not connected.
-- `launch.rs`: unified dispatch for original PE32+ files, Mach-O executables, and broker-enumerated .app bundles; validates argument/environment bounds and returns explicit compatibility blockers. It defines a `GuestExecutionBackend` integration contract and a bounded interpreter-backed development backend. Reports identify the profile and explicitly state that native execution and platform ABI support are unavailable.
-- `windows.rs`: import symbol/export table model and explicit API classification. No Windows API shim is advertised as implemented; unresolved imports fail closed.
-- `macos.rs`: broker-fed .app member path validation, bounded bundle planning, and explicit unresolved-framework decisions. It does not traverse host filesystems or implement dyld.
+### Native Redox execution
+- src/relibc/redox-rt/src/proc.rs dispatches original PE32+ and little-endian Mach-O64 images into proc/trion.rs from the standard process execution path.
+- src/relibc/redox-rt/src/proc/trion.rs creates a fresh address space through Redox's existing process/address-space scheme, maps original image segments, enforces W^X, creates the user stack, sets the initial instruction/stack registers through current-addrspace, and hands execution to the normal Redox scheduler and x86-64 context-switch path.
+- A small OS-owned return trampoline invokes ProcCall::Exit through the process-manager scheme and retries interrupted/temporarily unavailable exit requests. It is not translated application code.
+- Native PE32+ profile: x86-64 freestanding images with no imports, TLS callbacks, delay imports, argv or environment block; loaded at the preferred image base. Windows PEB/TEB, Win32/NT APIs, dynamic linking and unwind services are not provided.
+- Native Mach-O64 profile: freestanding MH_EXECUTE images with LC_MAIN, no dyld, dylib dependencies, chained fixups, code signature, argv or environment block; mapped at their declared segment addresses. macOS runtime and framework services are not provided.
+- The process runs in user mode under Redox's actual address-space and scheduler machinery. Unhandled processor faults reach the existing kernel exception path; Stage H still owns the explicit guest fault, signal, capability and containment policy.
 
-### Fuzzing source
-- Fuzz targets exist for PE32+, Mach-O 64, app bundle metadata, packed ternary memory, TRN3 deserialization, and the x86-64 decoder.
-- Fuzz campaigns have not been run.
+### Instruction semantics
+- The declared TRION-X64-INTERPRETED-CORE-0 subset has bounded decoding and execution for NOP, RET, INT3, SYSCALL, HLT, PUSH/POP r64 (including REX-extended registers), MOV r64 immediate, CALL/JMP rel32, and near Jcc.
+- Implemented semantics include stack/register effects, branch conditions, SYSCALL RCX/R11 and flag-mask transitions, entry-return handling, breakpoint suspension, and user-mode HLT/decode/memory fault states.
+- This is a deliberately small interpreter profile, not a claim of complete x86-64 emulation. Native PE/Mach-O execution uses the CPU directly.
 
-## 4. Remaining implementation
+### OS launcher
+- COSMIC Files routes .exe files into the standard Redox process execution path.
+- COSMIC Files resolves .app/Contents/Info.plist, rejects symlink/special-file bundle members, selects the declared Contents/MacOS executable, and launches that original Mach-O file through the same process path.
+- The current bundle resolver supports XML Info.plist; binary plist and general macOS bundle semantics remain unsupported.
 
-### 4.1 Common execution engine
-- Complete x86-64 decoder and instruction semantics for the declared compatibility profile.
-- Architecture-specific native execution boundary and context switching integrated with Redox process/thread lifecycle. The Redox kernel already supplies `context::spawn`, `AddrSpaceWrapper`, the per-CPU scheduler, x86-64 `InterruptStack`/`switch_to`, `/scheme/proc` address-space selection and register handles, and process exit cleanup; TRION still needs a concrete loader/backend adapter that uses these interfaces.
-- Syscall/fault transitions, signal delivery, thread lifecycle, resource accounting and process teardown.
-- Enforced isolation and brokered filesystem/network/device access.
-- Loader-to-kernel-address-space mapping with page permissions and entry-point validation. The current load plan only materializes the bounded in-crate guest-memory model.
-- OS launcher/file-manager dispatch and compatibility diagnostics. The current unified dispatcher is a broker-facing library API, not an integrated desktop launch action.
+### Fuzzing and tests
+- Fuzz targets exist for PE32+, Mach-O64, app bundle metadata, packed ternary memory, TRN3 deserialization, and the x86-64 decoder.
+- Decoder and guest semantic regression tests are authored.
+- No tests, builds, fuzz campaigns, benchmarks, or QEMU validation have been run.
 
-### 4.2 Windows PE32+ path
-- Versioned DLL catalog, dependency search policy, forwarder resolution and operational platform export table. The bounded import parser/resolver and IAT population primitive now exist.
-- TLS callbacks, exception/unwind metadata, process startup and Windows calling conventions.
-- Kernel-backed Win32/NT service implementations for a documented application profile.
-- Filesystem semantics, synchronization, console, timing and process/thread services.
-- Correct image permission transitions and W^X enforcement.
+## 4. Work assigned to later stages
 
-### 4.3 macOS .app / Mach-O path
-- Binary Info.plist support, architecture selection and safe resource handling.
-- Mach-O relocation, dyld rebasing/binding, chained fixups and dependency resolution.
-- Explicit code-signature and entitlement policy.
-- macOS entry/runtime conventions, process services and selected framework implementations.
-- Correct segment mapping, memory permissions and W^X enforcement.
+- Stage H: explicit guest fault/signal policy, capability isolation, resource accounting, brokered filesystem/network/device access, thread lifecycle, and containment.
+- Stage I: Windows process parameters, PEB/TEB, DLL catalog/linking, TLS, unwind/exception handling, Win32/NT services, and documented Windows application classes.
+- Stage J: binary plist, dyld, Mach-O rebasing/binding/chained fixups, code-signature policy, frameworks, macOS ABI/startup and application services.
 
-## 5. Security and validation
+These are not prerequisites for the freestanding Stage G profile; they remain required for broader application compatibility.
 
-All executable files, bundle metadata and dependencies are untrusted. Every offset, length, address, relocation, mapping and permission must be checked. Resource limits must be enforced before allocation. Writable/executable mappings are prohibited. Filesystem, network and device access must be brokered through explicit policy.
+## 5. Completion criteria
 
-No test, build, fuzz campaign, benchmark, or QEMU validation has been run for the new implementation. They remain deferred until all Phase 2 implementation stages are complete.
+Stage G implementation is complete when:
+1. The declared freestanding PE32+ and Mach-O64 profiles load original image bytes into a real Redox user process.
+2. Address-space permissions, W^X, entry/stack setup, and process exit are connected to the existing Redox process lifecycle.
+3. Every instruction in the declared interpreter subset has defined, bounded semantics and unsupported instructions fail closed.
+4. COSMIC Files routes .exe and supported .app bundles into the direct execution path.
+5. Regression and fuzz test sources cover the implemented parser, decoder, loader, and bundle boundaries.
 
-## 6. Completion criteria
-
-Stage G is complete only when:
-1. PE32+ and Mach-O loaders support the declared image features, relocations, dependencies and entry-point semantics.
-2. A guest process/address-space backend provides isolation, W^X, resource limits and fault containment and is integrated with the OS process model.
-3. A complete bounded x86-64 decoder and direct native execution boundary are integrated without application translation.
-4. Windows and macOS ABI, syscall, runtime and framework layers support explicitly declared application classes.
-5. Launcher/file-manager dispatch opens original files and reports exact compatibility blockers.
-6. Loader, decoder, dependency and compatibility fuzz campaigns complete with no unresolved security findings.
-7. Differential, malformed-input, process-isolation and end-to-end launch tests pass on the declared supported TRION configuration.
-8. A compatibility matrix identifies tested architectures, imports, APIs and application classes.
-
-**Current result:** direct image preparation, a bounded interpreter for a small x86-64 subset, a brokered syscall loop, PE relocation/import primitives, a dependency-free Mach-O load profile, and unified original-file/.app dispatch now exist in source. They do not yet provide native kernel execution or Windows/macOS application compatibility. No general .exe/.app launch support is claimed.
+**Current result:** all five implementation criteria are present in source on main. Runtime validation remains deliberately deferred. This does not claim general Windows or macOS application compatibility.
