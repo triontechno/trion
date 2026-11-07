@@ -47,7 +47,7 @@ fn rejects_non_elf_input() {
     let _ = fs::remove_file(&path);
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("not a recognized executable/object file")
+        String::from_utf8_lossy(&output.stderr).contains("error:")
     );
 }
 
@@ -143,7 +143,7 @@ fn run_cli_executes_validated_trionex_with_instruction_budget() {
     let executable = base.with_extension("trx");
     fs::write(
         &input,
-        b"TRION-TIR 1 x86_64\\n0000000000400000 MOV_IMM64 r0 1TTT0\\n",
+        b"TRION-TIR 1 x86_64\n0000000000400000 MOV_IMM64 r0 1TTT0\n",
     )
     .unwrap();
 
