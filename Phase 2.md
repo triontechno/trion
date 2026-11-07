@@ -2,7 +2,7 @@
 
 **Status:** Active implementation  
 **Parent:** [TRION-ARCHITECTURE.md](TRION-ARCHITECTURE.md)  
-**Prerequisite:** Phase 1 ternary core and translator foundation  
+**Prerequisite:** Phase 1 ternary core  
 **Rule:** All implementation work targets `main`. If direct work on `main` is unsuitable, use a temporary branch and merge verified work back into `main`.
 
 ## 1. Objective
@@ -44,15 +44,8 @@ Stage B is a logical storage abstraction, not a kernel physical-memory allocator
 - Keep parse, validation, execution, and executable generation as separate capabilities.
 - Do not execute untrusted TIR in the kernel.
 
-### Stage D — Translator expansion and executable compatibility
-**Status: Complete for the declared Stage D v1 scope; CI verified.** The user-space translator/runtime imports supported ELF64, PE32+ x86-64, and thin x86-64 Mach-O/.app inputs into TRIONEX, with bounded execution and defined ELF RELA handling. This is not general Windows/macOS application or kernel process compatibility; see the Stage D document for the exact supported subset. Kernel/OS process integration remains in Stage E.
-
-- Expand instruction support only in semantically complete, independently tested groups.
-- Add control-flow and relocation handling before accepting binaries that require them.
-- Specify a versioned native TRION executable container and loader contract before calling it executable.
-- Preserve ordinary ELF/binary support and provide explicit fallbacks for unsupported code.
-- Implement ternary-to-binary output only for a declared target ISA and ABI.
-- Require differential semantic tests and reject unsupported instructions rather than approximating them.
+### Stage D — Translator (retired)
+**Status: Discontinued by architecture decision.** The former translator, TIR conversion workflow, and TRIONEX application execution path are retired. See [Stage D](Phase%202%20Stage%20D.md) for the historical record. Stage G is the sole planned application execution engine.
 
 See [Stage E]("Phase%202%20Stage%20E.md") for the capability-report contract and remaining kernel integration gates.
 
@@ -73,7 +66,7 @@ See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-va
 
 - Benchmark binary, ternary, and hybrid implementations on equivalent workloads.
 - Include conversion, memory, metadata, and compatibility overhead.
-- Fuzz packed-memory decoders, TIR parsers, and translator input handling.
+- Fuzz packed-memory decoders and, when Stage G is implemented, direct PE/Mach-O loaders and instruction decoding.
 - Run tests, formatting, Clippy, architecture builds, and QEMU boot validation.
 - Publish measured results; do not claim speed, capacity, energy, or security gains without evidence.
 
@@ -83,7 +76,7 @@ See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-va
 - Add a direct execution path for supported Windows PE32+ `.exe` files and macOS `.app` bundles.
 - Load and validate the original executable image, then decode and interpret supported machine instructions at runtime.
 - Do not require conversion to TIR or creation of a `.trx` file for direct execution.
-- Keep the existing Stage D translation/TRIONEX path available as a separate option.
+- Do not add a translator or TRIONEX fallback; Stage G is the only application execution path.
 - Implement format-specific loaders, a bounded direct instruction decoder/interpreter, platform compatibility services, process isolation, and explicit resource/security controls.
 - Treat instruction decoding and Windows/macOS API compatibility as separate problems. Only advertise the tested instruction/import/platform-service matrix.
 - Reject unsupported instructions, imports, relocations, architectures, and malformed files safely.
@@ -104,6 +97,6 @@ See [Stage G]("Phase%202%20Stage%20G.md") for architecture, milestones, and comp
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 is complete only when Stages A–G have been implemented to their stated scope, automated checks pass, translator/runtime capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in the declared QEMU configurations.
+Phase 2 is complete only when Stages A–G have been implemented to their stated scope, automated checks pass, direct executable-engine capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in the declared QEMU configurations.
 
 A successful library test suite alone does not prove that the OS boots or that ternary hardware exists. The separate final project phase, Phase H — UI/UX/UC, follows Phase 2 and is not part of this stage sequence.
