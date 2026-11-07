@@ -1,0 +1,27 @@
+[package]
+name = "trion-phase2-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+trion-ternary = { path = "../core" }
+trion-ternary-memory = { path = "../memory" }
+
+[[bin]]
+name = "packed_trit_buffer"
+path = "fuzz_targets/packed_trit_buffer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "trn3_deserialize"
+path = "fuzz_targets/trn3_deserialize.rs"
+test = false
+doc = false
+bench = false
