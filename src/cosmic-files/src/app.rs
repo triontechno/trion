@@ -825,10 +825,27 @@ impl App {
                     Self::launch_desktop_entries(&paths);
                     continue;
                 }
-            } else if mime == "application/x-executable" || mime == "application/vnd.appimage" {
-                // Try opening executable
+            } else if mime == "application/x-executable"
+                || mime == "application/vnd.appimage"
+                || (!paths.is_empty()
+                    && paths.iter().all(|path| {
+                        path.extension()
+                            .and_then(|extension| extension.to_str())
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+                    }))
+            {
+                // Redox routes PE32+ files through relibc's native TRION loader.
+                // The initial freestanding profile requires an empty environment;
+                // Windows process parameters and API services are provided later.
                 for path in paths {
+                    let is_pe = path.extension()
+                        .and_then(|extension| extension.to_str())
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
                     let mut command = std::process::Command::new(&path);
+                    #[cfg(target_os = "redox")]
+                    if is_pe {
+                        command.env_clear();
+                    }
                     match spawn_detached(&mut command) {
                         Ok(()) => {}
                         Err(err) => match err.kind() {
