@@ -9,6 +9,14 @@ fn main() {
 }
 
 fn daemon(daemon: daemon::Daemon) -> ! {
+    common::setup_logging(
+        "misc",
+        "trion",
+        "trion-capd",
+        common::output_level(),
+        common::file_level(),
+    );
+
     let capability_report = trion_platform::CapabilityReport::for_build_target()
         .to_report_text();
     let adaptive_probe = trion_platform::run_adaptive_integer_probe(16_384)
@@ -28,7 +36,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     // optional features or native ternary support.
     let (pci_scheme_available, pci_function_entries) =
         match std::fs::read_dir("/scheme/pci") {
-            Ok(entries) => (true, entries.filter_map(Result::ok).count()),
+            Ok(entries) => (true, entries.filter_map(|entry| entry.ok()).count()),
             Err(_) => (false, 0),
         };
     let hardware_evidence = format!(
@@ -47,6 +55,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
     register_sync_scheme(handler.socket(), "trion", &mut capability_scheme)
         .expect("trion-capd: failed to register trion scheme");
+    log::info!("capability scheme registered at /scheme/trion");
     daemon.ready();
 
     libredox::call::setrens(0, 0)
