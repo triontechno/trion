@@ -2645,6 +2645,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
+name = "trion-adaptive"
+version = "0.1.0"
+dependencies = [
+ "trion-ternary",
+]
+
+[[package]]
+name = "trion-capd"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "daemon",
+ "libredox",
+ "log",
+ "redox-scheme",
+ "redox_syscall 0.9.5",
+ "scheme-utils",
+ "trion-platform",
+]
+
+[[package]]
+name = "trion-platform"
+version = "0.2.0"
+dependencies = [
+ "trion-adaptive",
+]
+
+[[package]]
+name = "trion-ternary"
+version = "0.1.0"
+
+[[package]]
 name = "twox-hash"
 version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
