@@ -58,7 +58,7 @@ pub mod pe{
     use super::*;
     const AMD64:u16=0x8664;
     pub fn inspect(d:&[u8])->Result<Description,Error>{
-        if d.get(0..2)!=Some(b"MZ"){return Err(Error::BadMagic("DOS MZ"))}
+        if !d.starts_with(b"MZ"){return Err(Error::BadMagic("DOS MZ"))}
         let pe=r32(d,0x3c,"e_lfanew")? as usize;
         if d.get(pe..pe.checked_add(4).ok_or(Error::Overflow)?)!=Some(b"PE\0\0"){return Err(Error::BadMagic("PE signature"))}
         let c=pe.checked_add(4).ok_or(Error::Overflow)?;
@@ -91,7 +91,7 @@ pub mod pe{
             let rs=r32(d,p+16,"section raw size")? as u64;
             let rp=r32(d,p+20,"section raw pointer")? as u64;
             let flags=r32(d,p+36,"section characteristics")?;
-            if va.checked_add(vs.max(rs)).ok_or(Error::Overflow)?>image{return Err(Error::Invalid("section outside SizeOfImage"))}
+            if va.checked_add(vs.max(rs)).ok_or(Error::Overflow)? > image{return Err(Error::Invalid("section outside SizeOfImage"))}
             if rs>0{range(d,rp,rs,"section bytes")?;}
             sections.push(Section{name,address:va,memory_size:vs.max(rs),file_offset:rp,file_size:rs,executable:flags&0x2000_0000!=0,writable:flags&0x8000_0000!=0});
         }
@@ -154,7 +154,7 @@ pub mod pe{
 pub mod macho{
     use super::*;
     const CPU_X86_64:u32=0x0100_0007;
-    const LC_SEGMENT_64:u32=0x19;const LC_LOAD_DYLIB:u32=0x0c;const LC_MAIN:u32=0x8000_0028;
+    const LC_SEGMENT_64:u32=0x19;const LC_LOAD_DYLIB:u32=0x0c;const LC_LOAD_WEAK_DYLIB:u32=0x8000_0018;const LC_REEXPORT_DYLIB:u32=0x8000_001f;const LC_LOAD_UPWARD_DYLIB:u32=0x8000_0023;const LC_MAIN:u32=0x8000_0028;
     pub fn inspect(d:&[u8])->Result<Description,Error>{
         if d.len()<32{return Err(Error::Truncated("Mach-O header"))}
         if r32(d,0,"magic")?!=0xfeed_facf{return Err(Error::Unsupported("only little-endian Mach-O 64 is supported"))}
@@ -179,7 +179,7 @@ pub mod macho{
                 if fs>0{range(d,fo,fs,"segment file bytes")?;}
                 va.checked_add(vs).ok_or(Error::Overflow)?;
                 sections.push(Section{name,address:va,memory_size:vs,file_offset:fo,file_size:fs,executable:prot&4!=0,writable:prot&2!=0});
-            }else if cmd==LC_LOAD_DYLIB{
+            }else if cmd==LC_LOAD_DYLIB||cmd==LC_LOAD_WEAK_DYLIB||cmd==LC_REEXPORT_DYLIB||cmd==LC_LOAD_UPWARD_DYLIB{
                 if size<24{return Err(Error::Truncated("dylib command"))}
                 let off=r32(d,at+8,"dylib name offset")? as usize;
                 if off<8||off>=size{return Err(Error::Invalid("dylib name offset"))}
@@ -207,7 +207,7 @@ pub mod macho{
 
 pub fn inspect(data:&[u8])->Result<Description,Error>{
     if data.starts_with(b"MZ"){pe::inspect(data)}
-    else if data.get(0..4)==Some(&[0xcf,0xfa,0xed,0xfe]){macho::inspect(data)}
+    else if data.starts_with(&[0xcf,0xfa,0xed,0xfe]){macho::inspect(data)}
     else{Err(Error::Unsupported("expected PE32+ or little-endian Mach-O 64"))}
 }
 
