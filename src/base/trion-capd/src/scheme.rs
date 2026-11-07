@@ -2,7 +2,7 @@ use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{CallerCtx, OpenResult};
 use scheme_utils::FpathWriter;
 use syscall::data::Stat;
-use syscall::dirent::{DirEntry, DirentBuf, DirentIter, DirentKind};
+use syscall::dirent::{DirEntry, DirentBuf, DirentKind};
 use syscall::error::{Error, Result, EACCES, EBADF, EISDIR, ENOENT, ENOTDIR};
 use syscall::flag::{MODE_DIR, MODE_FILE, O_DIRECTORY, O_RDWR, O_WRONLY};
 use syscall::schemev2::NewFdFlags;
@@ -20,11 +20,7 @@ pub struct CapabilityScheme {
 }
 
 impl CapabilityScheme {
-    pub fn new(
-        capabilities: String,
-        runtime_policy: String,
-        hardware_evidence: String,
-    ) -> Self {
+    pub fn new(capabilities: String, runtime_policy: String, hardware_evidence: String) -> Self {
         Self {
             capabilities: capabilities.into_bytes(),
             runtime_policy: runtime_policy.into_bytes(),
@@ -206,6 +202,7 @@ impl SchemeSync for CapabilityScheme {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use syscall::dirent::DirentIter;
 
     fn caller() -> CallerCtx {
         // Id wraps a u32; every bit pattern, including zero, is a valid request id.
