@@ -4,7 +4,7 @@ This crate reports verified build-target facts and connects the shared adaptive 
 
 ## Capability report
 
-`CapabilityReport::for_build_target()` reports architecture, OS, pointer width, endianness, declared atomic widths, the bounded legacy TIR test subset, and binary external-interface boundaries. It never infers native ternary hardware.
+`CapabilityReport::for_build_target()` reports architecture, OS, pointer width, endianness, declared atomic widths, the binary external-interface boundaries. It never infers native ternary hardware.
 
 ## Adaptive runtime workload
 
