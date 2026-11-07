@@ -80,9 +80,17 @@ fn main() {
         hardware.starts_with("TRION-HARDWARE-EVIDENCE 2\n"),
         "trion-cap-check: unsupported hardware-evidence schema"
     );
-    for (available_key, count_key) in [
-        ("pci_scheme_available=", "pci_function_entries="),
-        ("acpi_symbols_available=", "acpi_symbol_entries="),
+    for (available_key, count_key, attempts_key) in [
+        (
+            "pci_scheme_available=",
+            "pci_function_entries=",
+            "pci_inventory_attempts=",
+        ),
+        (
+            "acpi_symbols_available=",
+            "acpi_symbol_entries=",
+            "acpi_inventory_attempts=",
+        ),
     ] {
         let available = required_field(&hardware, available_key)
             .parse::<bool>()
@@ -90,6 +98,10 @@ fn main() {
         let count = required_field(&hardware, count_key)
             .parse::<usize>()
             .expect("trion-cap-check: invalid hardware inventory count");
+        let attempts = required_field(&hardware, attempts_key)
+            .parse::<usize>()
+            .expect("trion-cap-check: invalid inventory retry count");
+        assert!((1..=10).contains(&attempts));
         assert!(
             available || count == 0,
             "trion-cap-check: inventory entries reported while scheme is unavailable"
