@@ -45,7 +45,7 @@ Stage B is a logical storage abstraction, not a kernel physical-memory allocator
 - Do not execute untrusted TIR in the kernel.
 
 ### Stage D — Translator expansion and executable compatibility
-**Status:** TRIONEX v1 container and validated TIR packaging CLI implemented; instruction expansion and executable/runtime compatibility remain in progress.
+**Status:** TRIONEX v1 packaging and bounded user-space execution CLI implemented; PE/Mach-O and `.app` format inspection added. Control flow, relocation application, broad translation, platform execution compatibility, and OS loader integration remain in progress.
 
 - Expand instruction support only in semantically complete, independently tested groups.
 - Add control-flow and relocation handling before accepting binaries that require them.
