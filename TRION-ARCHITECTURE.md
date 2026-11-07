@@ -74,7 +74,7 @@ A hybrid path means that a workload can use ternary internally and convert at a 
 | Languages | Continue supporting existing binary-oriented languages (including C, C++, and Rust) and develop/support a native ternary language |
 | Compiler | Adaptive compiler that analyzes target, workload, semantics, and measured costs |
 | Application execution | Direct executable engine for supported binary application formats; no application translation pipeline |
-| Executables | Support existing binary executable formats and a native TRION ternary executable representation |
+| Executables | Load supported existing binary executable formats directly through the application engine |
 | RAM | Ternary-oriented logical memory where beneficial, with explicit binary backing/bridges on conventional RAM |
 | Storage | Explore ternary encodings and packing for efficiency; preserve ordinary binary device and file interfaces |
 | Internal data structures | Adaptive representation by data type, workload, and hardware |
@@ -94,17 +94,15 @@ The CPU strategy MUST query or receive declared target capabilities. Software-em
 
 TRION MUST preserve support for established binary-oriented languages and provide a path for a native ternary language. The compiler MUST retain source-language semantics and select representations only where legal and beneficial.
 
-TRION MUST preserve support for established binary-oriented languages and provide a path for a native ternary language. The compiler MUST retain source-language semantics and select representations only where legal and beneficial.
-
 Application compatibility uses one direct executable engine. It loads supported source executable formats, validates their native image structures, decodes source machine instructions at runtime, and executes them under a controlled guest process model. It MUST NOT require application-to-TIR translation, TRIONEX packaging, or generated intermediate executables. Windows PE and macOS Mach-O compatibility services remain separate platform layers over shared execution primitives.
 
 The former binary/ternary application translator and TRIONEX execution path are retired. The Stage C TIR runtime may remain as an isolated research/test component, but it is not an application loader or application execution fallback.
 
 ### 5.3 Executable formats and compatibility
 
-The OS MUST retain support for existing binary executables appropriate to its supported architecture and ABI. It MUST also define a versioned native TRION ternary executable format before claiming native ternary program loading.
+The OS MUST load supported existing binary executables appropriate to its supported architecture and ABI through the direct executable engine. TRION does not require a translated intermediate or TRIONEX container for application execution.
 
-The loader MUST identify formats explicitly, validate headers/sections/lengths, and reject unsupported or malformed inputs. A ternary intermediate representation is not automatically an executable format. Compatibility shims MUST NOT claim success unless the program's behavior is preserved.
+The loader MUST identify formats explicitly, validate headers/sections/lengths, and reject unsupported or malformed inputs. TIR is not an application executable format. Compatibility services MUST NOT claim success unless the program's behavior is preserved.
 
 ### 5.4 Memory and RAM
 
@@ -170,13 +168,13 @@ Stage A is the first adaptive execution foundation built on Phase 1. It MUST del
 3. a capability/cost input contract for binary, ternary, and hybrid candidates;
 4. conservative selection rules for conventional hardware, network, storage, and cryptographic boundaries;
 5. deterministic tests proving that selection never chooses unsupported, incompatible, or unvalidated candidates;
-6. integration documentation describing how kernel, compiler, loader, memory, drivers, and translator can consume the policy.
+6. integration documentation describing how kernel, compiler, direct executable engine, memory, and drivers can consume the policy.
 
 Stage A MUST NOT claim:
 - physical ternary CPU, RAM, GPU, or storage hardware;
 - a full OS-wide adaptive scheduler or runtime;
 - a binary-to-ternary or ternary-to-binary application translation pipeline;
-- runnable TIR or a completed native ternary executable format;
+- TIR as an application executable or a TRIONEX application container;
 - automatic conversion of all OS memory;
 - proven storage compression or energy savings;
 - production cryptography based on unreviewed ternary primitives.
@@ -184,7 +182,7 @@ Stage A MUST NOT claim:
 ## 9. Decisions intentionally deferred
 
 - Long-term adoption sequence and when/where ternary becomes the default (Q19: deferred for later review).
-- Native ternary executable file format details and loader ABI.
+- Native ternary application executable format details and loader ABI.
 - Native ternary language syntax and compiler frontend.
 - Direct executable engine architecture, guest ISA scope, and platform compatibility milestones.
 - Physical ternary CPU, RAM, GPU, and storage designs.
