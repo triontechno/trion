@@ -1,0 +1,7 @@
+[unit]
+description = "TRION adaptive platform capability service"
+requires_weak = ["40_hwd.service"]
+
+[service]
+cmd = "trion-capd"
+type = "notify"
