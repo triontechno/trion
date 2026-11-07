@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn report_text_exposes_target_and_boundary_facts() {
         let text = CapabilityReport::for_build_target().to_report_text();
-        assert!(text.starts_with("TRION-CAPABILITIES 2\n"));
+        assert!(text.starts_with("TRION-CAPABILITIES 3\n"));
         assert!(text.contains("native_ternary_hardware=false\n"));
         assert!(text.contains("binary_external_boundaries=true\n"));
         assert!(text.contains("pointer_width="));
