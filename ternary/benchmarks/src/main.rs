@@ -12,7 +12,9 @@ use trion_ternary_memory::PackedTritBuffer;
 const VALUES: usize = 20_000;
 const SAMPLES: usize = 7;
 
-fn measure(mut workload: impl FnMut() -> Result<i128, Box<dyn std::error::Error>>) -> Result<(Vec<u128>, i128), Box<dyn std::error::Error>> {
+fn measure(
+    mut workload: impl FnMut() -> Result<i128, Box<dyn std::error::Error>>,
+) -> Result<(Vec<u128>, i128), Box<dyn std::error::Error>> {
     let mut samples = Vec::with_capacity(SAMPLES);
     let mut expected_result = None;
     for _ in 0..SAMPLES {
@@ -73,16 +75,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let inputs: Vec<i128> = (0..VALUES)
         .map(|index| (index as i128 % 2_001) - 1_000)
         .collect();
-    let trits: Vec<i8> = inputs.iter().map(|value| match value.rem_euclid(3) {
-        0 => -1,
-        1 => 0,
-        _ => 1,
-    }).collect();
+    let trits: Vec<i8> = inputs
+        .iter()
+        .map(|value| match value.rem_euclid(3) {
+            0 => -1,
+            1 => 0,
+            _ => 1,
+        })
+        .collect();
 
     let binary = measure(|| {
         let mut total = 0i128;
         for value in &inputs {
-            total = total.checked_add(black_box(*value))
+            total = total
+                .checked_add(black_box(*value))
                 .ok_or("binary accumulator overflow")?;
         }
         Ok(total)
@@ -97,8 +103,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(total.to_i128()?)
     })?;
 
-    // Hybrid path: pack logical balanced trits into conventional bytes,
-    // unpack at the binary boundary, then perform the external accumulation.
+    // Hybrid path: use ternary as an internal value representation and
+    // convert explicitly at the conventional binary accumulation boundary.
     let hybrid = measure(|| {
         let mut total = 0i128;
         for value in &inputs {
@@ -106,7 +112,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // conversion before the conventional accumulator.
             let internal = Ternary::from_i128(black_box(*value));
             let boundary_value = internal.to_i128()?;
-            total = total.checked_add(black_box(boundary_value))
+            total = total
+                .checked_add(black_box(boundary_value))
                 .ok_or("hybrid accumulator overflow")?;
         }
         Ok(total)
@@ -135,12 +142,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("binary_i128_storage_bytes={binary_storage_bytes}");
     println!("balanced_i8_storage_bytes={logical_i8_storage_bytes}");
     println!("packed_balanced_storage_bytes={packed_storage_bytes}");
-    println!("packed_vs_i8_ratio={:.6}", packed_storage_bytes as f64 / logical_i8_storage_bytes.max(1) as f64);
-    println!("packed_vs_i128_ratio={:.6}", packed_storage_bytes as f64 / binary_storage_bytes.max(1) as f64);
+    println!(
+        "packed_vs_i8_ratio={:.6}",
+        packed_storage_bytes as f64 / logical_i8_storage_bytes.max(1) as f64
+    );
+    println!(
+        "packed_vs_i128_ratio={:.6}",
+        packed_storage_bytes as f64 / binary_storage_bytes.max(1) as f64
+    );
     let (binary_samples, binary_result) = binary;
     let (ternary_samples, ternary_result) = ternary;
     let (hybrid_samples, hybrid_result) = hybrid;
     let (packed_samples, packed_result) = packed_roundtrip;
+    if binary_result != ternary_result || binary_result != hybrid_result {
+        return Err("binary, ternary, and hybrid semantic results differ".into());
+    }
     println!("binary_samples_ns={}", binary_samples.iter().map(u128::to_string).collect::<Vec<_>>().join(","));
     println!("ternary_samples_ns={}", ternary_samples.iter().map(u128::to_string).collect::<Vec<_>>().join(","));
     println!("hybrid_samples_ns={}", hybrid_samples.iter().map(u128::to_string).collect::<Vec<_>>().join(","));
