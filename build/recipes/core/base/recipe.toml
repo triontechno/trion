@@ -1,5 +1,5 @@
 [source]
-path = "../src/base"
+path = "src/base"
 
 [build]
 template = "custom"
@@ -9,7 +9,7 @@ dependencies = [
 script = """
 # The vendored base tree is copied into the recipe source directory. Rebase
 # its TRION platform-crate path dependency to the monorepo's ternary workspace.
-sed -i 's|path = "../../../ternary/platform"|path = "../../../../../../ternary/platform"|' \
+sed -i 's|path = "../../../ternary/platform"|path = "../../../../../ternary/platform"|' \
     "${COOKBOOK_SOURCE}/trion-capd/Cargo.toml"
 
 cd "${COOKBOOK_SOURCE}" && make install-base \
