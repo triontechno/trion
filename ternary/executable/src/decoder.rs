@@ -63,3 +63,45 @@ pub fn decode(bytes:&[u8])->Result<Decoded,Error>{
         _=>Err(Error::Unsupported("x86-64 opcode outside declared decoder subset")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_rex_extended_register_operations() {
+        assert_eq!(
+            decode(&[0x49, 0xB8, 1, 0, 0, 0, 0, 0, 0, 0]).unwrap(),
+            Decoded {
+                instruction: Instruction::MovRegImm64 { register: 8, value: 1 },
+                length: 10,
+            }
+        );
+        assert_eq!(
+            decode(&[0x41, 0x50]).unwrap(),
+            Decoded { instruction: Instruction::PushReg(8), length: 2 }
+        );
+        assert_eq!(
+            decode(&[0x41, 0x5F]).unwrap(),
+            Decoded { instruction: Instruction::PopReg(15), length: 2 }
+        );
+    }
+
+    #[test]
+    fn rejects_rex_prefixed_32_bit_immediate_move() {
+        assert!(decode(&[0x41, 0xB8, 1, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn decodes_all_near_conditional_jump_conditions() {
+        for condition in 0x80..=0x8F {
+            let decoded = decode(&[0x0F, condition, 0, 0, 0, 0]).unwrap();
+            assert!(matches!(
+                decoded.instruction,
+                Instruction::ConditionalJump { condition: decoded_condition, displacement: 0 }
+                    if decoded_condition == condition - 0x80
+            ));
+            assert_eq!(decoded.length, 6);
+        }
+    }
+}
