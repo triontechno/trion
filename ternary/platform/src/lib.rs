@@ -49,7 +49,6 @@ pub struct CapabilityReport {
     pub atomic_16: bool,
     pub atomic_32: bool,
     pub atomic_64: bool,
-    pub atomic_128: bool,
 }
 
 impl CapabilityReport {
@@ -77,7 +76,6 @@ impl CapabilityReport {
             atomic_16: cfg!(target_has_atomic = "16"),
             atomic_32: cfg!(target_has_atomic = "32"),
             atomic_64: cfg!(target_has_atomic = "64"),
-            atomic_128: cfg!(target_has_atomic = "128"),
         }
     }
 
@@ -113,7 +111,7 @@ impl CapabilityReport {
             self.schema_version, architecture, self.operating_system, self.pointer_width,
             self.little_endian, self.binary_execution, self.native_ternary_hardware,
             self.software_tir_runtime, operations, self.binary_external_boundaries,
-            self.atomic_8, self.atomic_16, self.atomic_32, self.atomic_64, self.atomic_128,
+            self.atomic_8, self.atomic_16, self.atomic_32, self.atomic_64,
         )
     }
 }
