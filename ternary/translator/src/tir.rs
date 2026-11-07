@@ -220,14 +220,6 @@ fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
         .ok_or("truncated ELF u16 field")?;
     Ok(u16::from_le_bytes([field[0], field[1]]))
 }
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
-    let field = bytes
-        .get(offset..offset.checked_add(4).ok_or("ELF offset overflow")?)
-        .ok_or("truncated ELF u32 field")?;
-    Ok(u32::from_le_bytes(
-        field.try_into().map_err(|_| "invalid ELF u32")?,
-    ))
-}
 fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
     let field = bytes
         .get(offset..offset.checked_add(8).ok_or("ELF offset overflow")?)
@@ -555,6 +547,24 @@ mod tests {
              000000000040000b RET\n"
         );
         assert_eq!(validate_tir(&tir).unwrap(), 3);
+    }
+
+    #[test]
+    fn translates_register_arithmetic_and_direct_conditional_branches() {
+        let code = [
+            0x48, 0xb8, 42, 0, 0, 0, 0, 0, 0, 0,
+            0x48, 0xb9, 42, 0, 0, 0, 0, 0, 0, 0,
+            0x48, 0x39, 0xc8,
+            0x74, 0x01,
+            0x90,
+            0xc3,
+        ];
+        let tir = translate_elf_to_tir(&minimal_elf(&code)).unwrap();
+        let text = std::str::from_utf8(&tir).unwrap();
+        assert!(text.contains("CMP r0 r1"));
+        assert!(text.contains("JZ 000000000040001a"));
+        assert!(text.contains("RET"));
+        assert_eq!(validate_tir(&tir).unwrap(), 6);
     }
 
     #[test]
