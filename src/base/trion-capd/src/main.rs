@@ -54,8 +54,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     log::info!("capability scheme registered at /scheme/trion");
     daemon.ready();
 
-    libredox::call::setrens(0, 0)
-        .expect("trion-capd: failed to enter null namespace");
+    libredox::call::setrens(0, 0).expect("trion-capd: failed to enter null namespace");
 
     handler
         .process_requests_blocking(capability_scheme)
