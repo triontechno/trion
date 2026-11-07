@@ -129,3 +129,46 @@ fn package_cli_wraps_validated_tir_and_refuses_overwrite() {
     fs::remove_file(input).unwrap();
     fs::remove_file(output_path).unwrap();
 }
+
+#[test]
+fn run_cli_executes_validated_trionex_with_instruction_budget() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let base = std::env::temp_dir().join(format!("trion-run-{}-{nonce}", std::process::id()));
+    let input = base.with_extension("tir");
+    let executable = base.with_extension("trx");
+    fs::write(
+        &input,
+        b"TRION-TIR 1 x86_64\\n0000000000400000 MOV_IMM64 r0 1TTT0\\n",
+    )
+    .unwrap();
+
+    let packaged = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("package")
+        .arg(&input)
+        .arg(&executable)
+        .output()
+        .expect("package TRIONEX");
+    assert!(packaged.status.success(), "{}", String::from_utf8_lossy(&packaged.stderr));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("run")
+        .arg(&executable)
+        .output()
+        .expect("run TRIONEX");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("r0=42"));
+
+    let limited = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("run")
+        .arg(&executable)
+        .arg("1")
+        .output()
+        .expect("run TRIONEX with budget");
+    assert!(limited.status.success(), "{}", String::from_utf8_lossy(&limited.stderr));
+
+    fs::remove_file(input).unwrap();
+    fs::remove_file(executable).unwrap();
+}
