@@ -96,15 +96,13 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     // A registered but empty scheme is distinct from an unavailable scheme.
     let (pci_scheme_available, pci_function_entries, pci_inventory_attempts) =
         pci_inventory_with_retry(
-            || inventory("/scheme/pci").then_some(inventory("/scheme/pci").unwrap_or_default()),
+            || inventory("/scheme/pci"),
             10,
             std::time::Duration::from_millis(100),
         );
     let (acpi_symbols_available, acpi_symbol_entries, acpi_inventory_attempts) =
         pci_inventory_with_retry(
-            || inventory("/scheme/acpi/symbols").then_some(
-                inventory("/scheme/acpi/symbols").unwrap_or_default(),
-            ),
+            || inventory("/scheme/acpi/symbols"),
             10,
             std::time::Duration::from_millis(100),
         );
