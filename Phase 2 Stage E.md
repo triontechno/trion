@@ -41,7 +41,7 @@ At service startup, a bounded integer workload runs through two paths:
 - Binary integer accumulation.
 - Balanced-ternary encode/decode followed by accumulation.
 
-Both paths process the same bounded values. Their results must match before measured elapsed costs are passed to the shared adaptive selector. The selected representation and measured costs are published through the runtime-policy endpoint. The workload is capped at 100,000 iterations.
+Both paths process the same bounded values. Their results must match before measured elapsed costs are passed to the shared adaptive selector. Five interleaved samples are measured and the median cost is used for each candidate. The selected representation and measured costs are published through the runtime-policy endpoint. The workload is capped at 100,000 iterations.
 
 This is a concrete measured software workload, not a claim that the CPU executes native ternary instructions.
 
@@ -59,7 +59,8 @@ This is a concrete measured software workload, not a claim that the CPU executes
 - Adaptive-policy CI tests the platform probe and all existing ternary crates.
 - A nightly CI job tests, checks, formats, and lints both `trion-capd` and `trion-cap-check`.
 - The initfs one-shot `trion-cap-check` reads all three published endpoints and validates schema versions, measured costs, selected representation, and conservative hardware claims.
-- The Redox initfs Makefile builds and packages the daemon.
+- The Redox initfs Makefile builds and packages both the daemon and one-shot integration checker.
+- The base build recipe now builds from the repository's vendored `src/base` tree and rebases the platform crate path into the monorepo ternary workspace, so the image build actually includes these changes.
 - The image-release workflow builds the OS and its QEMU smoke test requires kernel entry, capability-daemon readiness, and successful user-space reads/validation of all three endpoints.
 
 ## Verification commands
@@ -80,9 +81,9 @@ The repository image workflow additionally runs the full Redox image build and Q
 
 ## Scope and limitations
 
-- The current boot integration is validated against the repository's x86_64 QEMU image target. Other architecture targets must not be advertised as boot-verified until their own builds and boots pass.
+- The automated boot integration check targets the repository's x86_64 QEMU image. Other architecture targets must not be advertised as boot-verified until their own builds and boots pass.
 - PCI enumeration reports only what the existing PCI scheme exposes. It does not probe arbitrary device features, benchmark devices, or infer ternary capability.
-- A missing PCI scheme is reported as unavailable rather than causing service failure.
+- A missing PCI scheme is reported as unavailable rather than causing service failure. The three report endpoints are public read-only metadata; the scheme exposes no write or device-control operations.
 - There is no ternary physical-memory allocator, page-table encoding, kernel TIR execution, translator, TRIONEX path, or application executable engine in Stage E.
 - Direct `.exe` and `.app` loading/execution remain Stage G work.
 
