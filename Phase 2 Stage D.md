@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage D: Translator and Executable Compatibility
 
-**Status:** User-space v1 implemented for a bounded x86-64 instruction and executable-format subset; final CI verification pending.  
+**Status: Complete for the declared Stage D v1 scope; CI verified.**  
 **Prerequisites:** Stage C bounded TIR runtime.
 
 ## 1. TRION native executable format
@@ -46,6 +46,6 @@ Kernel/Redox ELF-loader integration, process ABI, syscalls, memory mapping, dyna
 
 ## 5. Verification gates
 
-Tests cover instruction semantics, branches, calls/returns, instruction-budget exhaustion, invalid branch targets, duplicate addresses, malformed TIR, executable-format import, and ELF relocation resolution/rejection. CI must pass formatting, translator/runtime/container tests, and Clippy before this stage is marked complete.
+Tests cover instruction semantics, branches, calls/returns, instruction-budget exhaustion, invalid branch targets, duplicate addresses, malformed TIR, executable-format import, and ELF relocation resolution/rejection. CI verified formatting, translator/runtime/container tests, and Clippy for the Stage D implementation.
 
 No claim is made that arbitrary Windows/macOS applications run on TRION. Compatibility is limited to the explicit subset above.
