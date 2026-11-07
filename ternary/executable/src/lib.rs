@@ -56,7 +56,7 @@ pub enum Format{Pe32Plus,MachO64}
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum Architecture{X86_64}
 #[derive(Clone,Debug,PartialEq,Eq)]
-pub struct Section{pub name:String,pub address:u64,pub memory_size:u64,pub file_offset:u64,pub file_size:u64,pub executable:bool,pub writable:bool}
+pub struct Section{pub name:String,pub address:u64,pub memory_size:u64,pub file_offset:u64,pub file_size:u64,pub readable:bool,pub executable:bool,pub writable:bool}
 #[derive(Clone,Debug,PartialEq,Eq)]
 pub struct Description{pub format:Format,pub architecture:Architecture,pub preferred_base:u64,pub entry_point:u64,pub image_size:u64,pub sections:Vec<Section>,pub dependencies:Vec<String>}
 #[derive(Clone,Debug,PartialEq,Eq)]
@@ -101,7 +101,7 @@ pub mod pe{
             let flags=r32(d,p+36,"section characteristics")?;
             if va.checked_add(vs.max(rs)).ok_or(Error::Overflow)? > image{return Err(Error::Invalid("section outside SizeOfImage"))}
             if rs>0{range(d,rp,rs,"section bytes")?;}
-            sections.push(Section{name,address:va,memory_size:vs.max(rs),file_offset:rp,file_size:rs,executable:flags&0x2000_0000!=0,writable:flags&0x8000_0000!=0});
+            sections.push(Section{name,address:va,memory_size:vs.max(rs),file_offset:rp,file_size:rs,readable:flags&0x4000_0000!=0,executable:flags&0x2000_0000!=0,writable:flags&0x8000_0000!=0});
         }
         for i in 0..sections.len(){for b in sections.iter().skip(i+1){
             let a=&sections[i];let ae=a.address.checked_add(a.memory_size).ok_or(Error::Overflow)?;
@@ -186,7 +186,7 @@ pub mod macho{
                 if 72usize.checked_add(ns.checked_mul(80).ok_or(Error::Overflow)?).ok_or(Error::Overflow)?>size{return Err(Error::Invalid("segment section table"))}
                 if fs>0{range(d,fo,fs,"segment file bytes")?;}
                 va.checked_add(vs).ok_or(Error::Overflow)?;
-                sections.push(Section{name,address:va,memory_size:vs,file_offset:fo,file_size:fs,executable:prot&4!=0,writable:prot&2!=0});
+                sections.push(Section{name,address:va,memory_size:vs,file_offset:fo,file_size:fs,readable:prot&1!=0,executable:prot&4!=0,writable:prot&2!=0});
             }else if cmd==LC_LOAD_DYLIB||cmd==LC_LOAD_WEAK_DYLIB||cmd==LC_REEXPORT_DYLIB||cmd==LC_LOAD_UPWARD_DYLIB{
                 if size<24{return Err(Error::Truncated("dylib command"))}
                 let off=r32(d,at+8,"dylib name offset")? as usize;
