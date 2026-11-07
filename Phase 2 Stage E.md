@@ -14,7 +14,7 @@ The `trion-platform` crate provides a versioned schema-v3 capability report cont
 - Pointer width and target endianness.
 - Compiler-declared atomic widths.
 - Ordinary binary execution support.
-- The exact bounded TIR research/test subset.
+- No claim that the standalone Stage C TIR runtime is integrated into this OS capability service.
 - Explicit binary external-interface boundaries.
 - Native ternary hardware remains false unless a future hardware-specific adapter verifies it.
 
@@ -28,7 +28,7 @@ It registers a read-only Redox scheme at `/scheme/trion` and exposes:
 
 | Endpoint | Contents |
 |---|---|
-| `/scheme/trion/capabilities` | Schema-v2 target capability report |
+| `/scheme/trion/capabilities` | Schema-v3 target capability report |
 | `/scheme/trion/runtime-policy` | Measured adaptive workload costs, correctness checksum, and selected representation |
 | `/scheme/trion/hardware-evidence` | PCI scheme availability and enumerated function count, with explicit unknown/unprobed feature status |
 
@@ -57,9 +57,10 @@ This is a concrete measured software workload, not a claim that the CPU executes
 ### 5. Build and verification automation
 
 - Adaptive-policy CI tests the platform probe and all existing ternary crates.
-- A nightly CI job tests, checks, formats, and lints `trion-capd`.
+- A nightly CI job tests, checks, formats, and lints both `trion-capd` and `trion-cap-check`.
+- The initfs one-shot `trion-cap-check` reads all three published endpoints and validates schema versions, measured costs, selected representation, and conservative hardware claims.
 - The Redox initfs Makefile builds and packages the daemon.
-- The image-release workflow builds the OS and its QEMU smoke test requires both kernel entry and the capability daemon's readiness log.
+- The image-release workflow builds the OS and its QEMU smoke test requires kernel entry, capability-daemon readiness, and successful user-space reads/validation of all three endpoints.
 
 ## Verification commands
 
@@ -69,9 +70,10 @@ Host-side tests:
 cargo test --manifest-path ternary/adaptive/Cargo.toml
 cargo test --manifest-path ternary/platform/Cargo.toml
 cargo test --manifest-path src/base/Cargo.toml -p trion-capd
-cargo check --manifest-path src/base/Cargo.toml -p trion-capd
-cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -- --check
-cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd --all-targets -- -D warnings
+cargo test --manifest-path src/base/Cargo.toml -p trion-cap-check
+cargo check --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
+cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -- --check
+cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets -- -D warnings
 ```
 
 The repository image workflow additionally runs the full Redox image build and QEMU boot smoke test. Stage E may be marked fully verified only after those required workflow jobs pass on `main`.
@@ -86,4 +88,4 @@ The repository image workflow additionally runs the full Redox image build and Q
 
 ## Completion criteria
 
-Stage E implementation is delivered. Verification is complete when the adaptive-policy tests, Redox capability-service tests/checks/lints, full x86_64 image build, and QEMU service-readiness smoke test all pass. A failed or unavailable verification run must remain visible as incomplete; documentation alone is not proof of a successful boot.
+Stage E implementation is delivered. Verification is complete when the adaptive-policy tests, Redox capability-service tests/checks/lints, full x86_64 image build, and QEMU user-space endpoint-validation smoke test all pass. A failed or unavailable verification run must remain visible as incomplete; documentation alone is not proof of a successful boot.
