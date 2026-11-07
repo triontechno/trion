@@ -179,7 +179,6 @@ pub fn execute_tir(bytes: &[u8], state: &mut MachineState<'_>, max_instructions:
         let instruction = program[pc];
         let next = pc + 1;
         let mut next_pc = next;
-        let mut returned = None;
         match instruction.operation {
             Operation::Nop => {},
             Operation::MovImm64 {dst,value} => regs[dst]=value,
