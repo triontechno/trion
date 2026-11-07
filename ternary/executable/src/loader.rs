@@ -1,6 +1,7 @@
 //! Checked PE32+ relocation application over an inert mapped image.
 
-use crate::{Error, InertImage, Format};\nuse std::collections::BTreeSet;
+use crate::{Error, InertImage, Format};
+use std::collections::BTreeSet;
 
 fn u16le(b:&[u8],o:usize)->Result<u16,Error>{
     let e=o.checked_add(2).ok_or(Error::Overflow)?;
