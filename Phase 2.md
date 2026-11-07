@@ -7,96 +7,66 @@
 
 ## 1. Objective
 
-Phase 2 turns TRION's adaptive binary/ternary architecture into working software components. It must preserve conventional binary compatibility while making ternary representations usable, measurable, and independently testable.
-
-The Phase 2 deliverable is not a claim that commodity processors execute ternary instructions or contain ternary RAM. It is a layered system that can represent, convert, select, execute, and eventually integrate ternary-aware workloads without breaking existing hardware and software interfaces.
+Phase 2 turns TRION's adaptive binary/ternary architecture into working software components. It preserves conventional binary compatibility while making ternary representations usable, measurable, and independently testable. It does not claim commodity processors execute ternary instructions or contain ternary RAM.
 
 ## 2. Stage plan
 
 ### Stage A — Adaptive representation foundation
-**Status: merged into main.**
-
-- Binary, balanced-ternary, and hybrid representation choices.
-- Capability, semantic-validation, compatibility, and cost inputs.
-- Deterministic adaptive selection.
-- Checked i128/u128 binary ↔ balanced-ternary bridges.
-- Selection tests and CI.
+**Status: merged into main.** Binary, balanced-ternary, and hybrid choices; evidence-based deterministic selection; checked i128/u128 bridges; tests and CI.
 
 ### Stage B — Packed ternary logical memory
-**Status: implemented and CI-verified in main.**
-
-- Define a version-independent in-memory packed-trit buffer.
-- Pack five balanced trits into each byte using the explicit mapping B3 {-1,0,+1} → U3 {0,1,2}.
-- Validate all packed values and canonical zero padding.
-- Provide checked construction, read, write, and conversion APIs.
-- Test exhaustive one-byte encodings, boundaries, invalid data, and round trips.
-- Document that the backing bytes are still held in conventional binary RAM.
-
-Stage B is a logical storage abstraction, not a kernel physical-memory allocator and not physical ternary RAM.
+**Status: implemented and CI-verified in main.** Five balanced trits are packed per byte with checked construction, access, validation, and round-trip tests. Backing storage remains conventional binary RAM.
 
 ### Stage C — TIR execution foundation
-**Status: bounded interpreter implemented and CI-verified in main.**
-
-- Define execution semantics for every TIR v1 operation.
-- Build a bounded, deterministic TIR interpreter for the exact supported subset.
-- Validate register IDs, instruction count, stack accesses, addresses, and return behavior.
-- Add differential tests against equivalent native x86-64 snippets where safe test infrastructure permits.
-- Keep parse, validation, execution, and executable generation as separate capabilities.
-- Do not execute untrusted TIR in the kernel.
+**Status: bounded interpreter implemented and CI-verified in main.** TIR remains a standalone research/test runtime, not an application execution path.
 
 ### Stage D — Translator (retired)
-**Status: Discontinued by architecture decision.** The former translator, TIR conversion workflow, and TRIONEX application execution path are retired. See [Stage D](Phase%202%20Stage%20D.md) for the historical record. Stage G is the sole planned application execution engine.
-
-See [Stage E]("Phase%202%20Stage%20E.md") for the capability-report contract and remaining kernel integration gates.
+**Status: discontinued by architecture decision.** The former translator, TIR conversion workflow, and TRIONEX application path are retired. Stage G is the sole application execution engine. See [Stage D](Phase%202%20Stage%20D.md).
 
 ### Stage E — Runtime, kernel, and hardware integration
-**Status:** User-space capability-report foundation implemented and CI-verified; Redox kernel, driver, DMA/MMIO, syscall/ABI, and verified hardware integration remain open.
+**Status:** User-space target capability reporting, adaptive-policy delegation, and byte-preserving binary-boundary contracts implemented in `ternary/platform`; Redox boot-time service integration and QEMU verification remain open.
 
-- Add target capability discovery and a stable capability report.
-- Integrate adaptive decisions first in user-space libraries and controlled runtime paths.
-- Define memory, driver, DMA, MMIO, syscall, and ABI boundaries explicitly.
-- Only then integrate selected APIs into Redox kernel subsystems, with architecture-specific builds and boot tests.
-- Do not change physical frame allocation or page-table representation merely to label memory ternary.
-- Keep network protocols and conventional device interfaces binary-compatible.
+- Report build-target facts without guessing optional hardware capabilities.
+- Consume adaptive decisions using caller-supplied measured/validated evidence.
+- Preserve binary MMIO, DMA, driver ABI, syscall ABI, network, and storage boundaries.
+- Integrate a permission-controlled capability service into the Redox user-space boot path.
+- Validate supported Redox targets and QEMU boot behavior.
+- Do not alter physical frame allocation or page tables merely to label memory ternary.
 
-See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-validation gates.
+See [Stage E](Phase%202%20Stage%20E.md) for remaining completion gates.
 
 ### Stage F — Measurement, hardening, and release validation
-**Status:** Initial representation benchmark harness and deterministic malformed-input regression tests implemented and CI-verified; sustained fuzzing, comparative result publication, full OS build, and QEMU boot validation remain open.
+**Status:** Initial benchmark harness and deterministic malformed-input regression tests implemented; sustained fuzzing, comparative result publication, full OS build, and QEMU boot validation remain open.
 
-- Benchmark binary, ternary, and hybrid implementations on equivalent workloads.
-- Include conversion, memory, metadata, and compatibility overhead.
-- Fuzz packed-memory decoders and, when Stage G is implemented, direct PE/Mach-O loaders and instruction decoding.
+- Benchmark equivalent binary, ternary, and hybrid workloads including conversion and compatibility overhead.
+- Fuzz packed-memory decoders and, when Stage G exists, direct PE/Mach-O loaders and instruction decoding.
 - Run tests, formatting, Clippy, architecture builds, and QEMU boot validation.
-- Publish measured results; do not claim speed, capacity, energy, or security gains without evidence.
+- Publish measured results; make no unsupported performance, capacity, energy, or security claims.
 
-### Stage G — Direct executable decoding and execution
-**Status: Planned; not implemented.**
+### Stage G — Direct executable engine
+**Status: planned; not implemented.**
 
-- Add a direct execution path for supported Windows PE32+ `.exe` files and macOS `.app` bundles.
-- Load and validate the original executable image, then decode and interpret supported machine instructions at runtime.
-- Do not require conversion to TIR or creation of a `.trx` file for direct execution.
-- Do not add a translator or TRIONEX fallback; Stage G is the only application execution path.
-- Implement format-specific loaders, a bounded direct instruction decoder/interpreter, platform compatibility services, process isolation, and explicit resource/security controls.
-- Treat instruction decoding and Windows/macOS API compatibility as separate problems. Only advertise the tested instruction/import/platform-service matrix.
+- Directly load supported Windows PE32+ `.exe` files and macOS `.app` bundles.
+- Load and validate original images; do not convert to TIR or create `.trx` files.
+- No translator or TRIONEX fallback.
+- Implement format-specific loaders, bounded instruction decoding/execution, platform compatibility services, process isolation, and resource/security controls.
+- Treat instruction execution and Windows/macOS API compatibility as separate problems; advertise only tested compatibility.
 - Reject unsupported instructions, imports, relocations, architectures, and malformed files safely.
 
-See [Stage G]("Phase%202%20Stage%20G.md") for architecture, milestones, and completion gates.
+See [Stage G](Phase%202%20Stage%20G.md) for architecture and completion gates.
 
 ## 3. Global engineering gates
 
 1. Correctness and safety outrank representation choice.
-2. No unsupported hardware capability may be inferred.
-3. Every conversion is explicit, checked, and semantics-preserving.
-4. No malformed external input may cause an unchecked panic or out-of-bounds access in the new components.
-5. A ternary candidate is not selected without support and semantic validation.
-6. Conventional hardware, network, file, and ABI boundaries retain their specified binary layout.
-7. Tests must cover both success and rejection paths.
-8. New crates remain isolated until their APIs and tests are stable; kernel integration is a later stage.
-9. The default destination is `main`; temporary branches must be merged back after verification.
+2. Never infer unsupported hardware capabilities.
+3. Conversions are explicit, checked, and semantics-preserving.
+4. Malformed external input must not cause unchecked panics or out-of-bounds access in new components.
+5. Ternary candidates require support and semantic validation.
+6. Conventional hardware, network, file, and ABI boundaries retain their specified binary layouts.
+7. Test success and rejection paths.
+8. Keep new crates isolated until APIs and tests are stable.
+9. Target `main`; merge any temporary branch after verification.
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 is complete only when Stages A–G have been implemented to their stated scope, automated checks pass, direct executable-engine capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in the declared QEMU configurations.
-
-A successful library test suite alone does not prove that the OS boots or that ternary hardware exists. The separate final project phase, Phase H — UI/UX/UC, follows Phase 2 and is not part of this stage sequence.
+Phase 2 is complete only when Stages A–G are implemented to their stated scope, automated checks pass, direct executable capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in declared QEMU configurations. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.
