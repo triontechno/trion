@@ -181,13 +181,14 @@ pub fn materialize(plan: &LoadPlan, process_id: u64) -> Result<crate::guest::Gue
         let rounded = region.memory_size.checked_add(crate::guest::PAGE_SIZE - 1)
             .ok_or(Error::Overflow)? / crate::guest::PAGE_SIZE * crate::guest::PAGE_SIZE;
         let base = region.address / crate::guest::PAGE_SIZE * crate::guest::PAGE_SIZE;
-        if base != region.address || rounded != region.memory_size {
-            return Err(Error::Invalid("load-plan regions must be page aligned"));
+        if base != region.address {
+            return Err(Error::Invalid("load-plan region base must be page aligned"));
         }
-        process.address_space.map(base, rounded, region.permissions)?;
+        process.address_space.map(base, rounded, Permissions::READ_WRITE)?;
         if !region.initial_bytes.is_empty() {
             process.address_space.write(base, &region.initial_bytes)?;
         }
+        process.address_space.protect(base, region.permissions)?;
     }
     let stack_size = plan.stack_size.checked_add(crate::guest::PAGE_SIZE - 1)
         .ok_or(Error::Overflow)? / crate::guest::PAGE_SIZE * crate::guest::PAGE_SIZE;
