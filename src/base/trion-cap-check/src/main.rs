@@ -1,9 +1,7 @@
 use std::fs;
 
 fn field<'a>(report: &'a str, key: &str) -> Option<&'a str> {
-    report
-        .lines()
-        .find_map(|line| line.strip_prefix(key))
+    report.lines().find_map(|line| line.strip_prefix(key))
 }
 
 fn required_field<'a>(report: &'a str, key: &str) -> &'a str {
