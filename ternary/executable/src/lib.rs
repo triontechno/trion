@@ -288,7 +288,7 @@ pub fn assess_launch(data:&[u8])->Result<LaunchAssessment,Error>{
             blockers.push("standard macOS process startup, argument/environment blocks and framework services are not implemented");
         }
     }
-    blockers.push("this library only inspects and prepares images; actual process creation uses the x86-64 Redox execve/posix_spawn path");
+    blockers.push("this library only inspects and prepares images; it does not create OS processes");
     Ok(LaunchAssessment{description,blockers,launchable:false})
 }
 
