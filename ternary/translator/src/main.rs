@@ -14,7 +14,8 @@ fn usage() {
     eprintln!("Trion executable inspection, TIR translator and TRIONEX runtime");
     eprintln!("Usage:");
     eprintln!("  trion-translate inspect <ELF|PE .exe|Mach-O|macOS .app>");
-    eprintln!("  trion-translate translate <x86-64-elf> <new-output.tir>");
+    eprintln!("  trion-translate translate <ELF|PE .exe|Mach-O|macOS .app> <new-output.tir>");
+    eprintln!("  trion-translate import <ELF|PE .exe|Mach-O|macOS .app> <new-output.trx>");
     eprintln!("  trion-translate package <validated-input.tir> <new-output.trx>");
     eprintln!("  trion-translate run <input.trx> [max-instructions]");
 }
@@ -204,8 +205,11 @@ fn inspect_elf_code(bytes: &[u8], elf: &goblin::elf::Elf<'_>) -> Result<(), Stri
 }
 
 fn translate(path: &str, output_path: &str) -> Result<(), String> {
-    let bytes = fs::read(path).map_err(|error| format!("cannot read {path}: {error}"))?;
-    let output = tir::translate_elf_to_tir(&bytes)?;
+    let (actual, bytes, is_app) = input_bytes(path)?;
+    let output = tir::translate_object_to_tir(&bytes)?;
+    if is_app {
+        println!("Imported macOS application bundle executable: {}", actual.display());
+    }
     let count = tir::validate_tir(&output)?;
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -225,6 +229,31 @@ fn translate(path: &str, output_path: &str) -> Result<(), String> {
     }
     println!("Translated {count} instructions to validated TIR v1: {output_path}");
     println!("Output is an intermediate representation, not an executable binary.");
+    Ok(())
+}
+
+fn import(path: &str, output_path: &str) -> Result<(), String> {
+    let (actual, bytes, is_app) = input_bytes(path)?;
+    let tir_bytes = tir::translate_object_to_tir(&bytes)?;
+    let executable = trion_executable::TrionExecutable::from_tir(&tir_bytes)
+        .map_err(|error| format!("translated program failed TRIONEX validation: {error}"))?;
+    let container = executable.to_bytes()
+        .map_err(|error| format!("cannot encode TRIONEX container: {error}"))?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .map_err(|error| format!("cannot create {output_path} without overwriting: {error}"))?;
+    if let Err(error) = file.write_all(&container) {
+        drop(file);
+        return match fs::remove_file(output_path) {
+            Ok(()) => Err(format!("cannot write {output_path}: {error}")),
+            Err(cleanup_error) => Err(format!("cannot write {output_path}: {error}; also cannot remove partial output: {cleanup_error}")),
+        };
+    }
+    println!("Imported {} executable instructions into TRIONEX v1: {output_path}", tir::validate_tir(&tir_bytes)?);
+    println!("Source: {}{}", actual.display(), if is_app { " (macOS .app bundle)" } else { "" });
+    println!("Only the translated x86-64 instruction subset is supported; OS APIs and platform ABIs are not emulated.");
     Ok(())
 }
 
@@ -262,10 +291,12 @@ fn run(path: &str, max_instructions: usize) -> Result<(), String> {
     let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
     let executable = trion_executable::TrionExecutable::parse(&bytes)
         .map_err(|e| format!("invalid or unsupported TRIONEX executable: {e}"))?;
-    let memory: [u8; 0] = [];
+    let memory = [0u8; 8];
+    let mut registers = [0u64; 16];
+    registers[4] = 0x1000;
     let mut state = MachineState {
-        registers: [0u64; 16],
-        memory_base: 0,
+        registers,
+        memory_base: 0x1000,
         memory: &memory,
     };
     let outcome = execute_tir(executable.payload(), &mut state, max_instructions)
@@ -293,6 +324,7 @@ fn main() -> ExitCode {
         [command, path] if command == "inspect" => inspect(path),
         [command, input, output] if command == "translate" => translate(input, output),
         [command, input, output] if command == "package" => package(input, output),
+        [command, input, output] if command == "import" => import(input, output),
         [command, input] if command == "run" => run(input, 65_536),
         [command, input, limit] if command == "run" => match limit.parse::<usize>() {
             Ok(limit) if limit > 0 => run(input, limit),
