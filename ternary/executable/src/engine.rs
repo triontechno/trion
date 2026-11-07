@@ -77,11 +77,30 @@ pub fn prepare_pe32_plus(
     let _ = imports;
 
     let mut regions = Vec::new();
+    let pe_offset = u32::from_le_bytes(input.get(0x3c..0x40)
+        .ok_or(Error::Truncated("PE e_lfanew"))?.try_into()
+        .map_err(|_| Error::Truncated("PE e_lfanew"))?) as usize;
+    let optional = pe_offset.checked_add(24).ok_or(Error::Overflow)?;
+    let headers_size = u32::from_le_bytes(input.get(optional + 60..optional + 64)
+        .ok_or(Error::Truncated("PE SizeOfHeaders"))?.try_into()
+        .map_err(|_| Error::Truncated("PE SizeOfHeaders"))?) as usize;
+    let header_bytes = image.bytes.get(..headers_size)
+        .ok_or(Error::Truncated("mapped PE headers"))?.to_vec();
+    if headers_size > 0 {
+        regions.push(PlannedRegion {
+            address: base,
+            memory_size: headers_size as u64,
+            permissions: Permissions::READ,
+            initial_bytes: header_bytes,
+        });
+    }
     for section in &image.description.sections {
         if section.memory_size == 0 { continue; }
-        let writable = section.writable;
-        let executable = section.executable;
-        let permissions = Permissions { read: section.readable, write: writable, execute: executable };
+        let permissions = Permissions {
+            read: section.readable,
+            write: section.writable,
+            execute: section.executable,
+        };
         permissions.validate()?;
         let start = usize::try_from(section.address).map_err(|_| Error::Overflow)?;
         let file_len = usize::try_from(section.file_size).map_err(|_| Error::Overflow)?;
@@ -90,12 +109,7 @@ pub fn prepare_pe32_plus(
             .ok_or(Error::Truncated("mapped PE section"))?.to_vec();
         let address = base.checked_add(section.address).ok_or(Error::Overflow)?;
         validate_region(address, section.memory_size, initial_bytes.len(), permissions)?;
-        regions.push(PlannedRegion {
-            address,
-            memory_size: section.memory_size,
-            permissions,
-            initial_bytes,
-        });
+        regions.push(PlannedRegion { address, memory_size: section.memory_size, permissions, initial_bytes });
     }
     let entry = image.description.entry_point;
     check_entry(&regions, entry)?;
