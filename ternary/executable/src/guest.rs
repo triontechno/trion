@@ -270,7 +270,8 @@ impl GuestProcess {
                 let target=u64::from_le_bytes(data);
                 if target==0 && self.entry_return_slot==Some(return_slot) {
                     self.instruction_budget-=1;
-                    self.state=ProcessState::Exited(0);
+                    let status = (self.cpu.rax as u32 & 0xFF) as i32;
+                    self.state=ProcessState::Exited(status);
                     return Ok(ExecutionEvent::Halted);
                 }
                 self.cpu.rip=target;
