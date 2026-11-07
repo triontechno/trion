@@ -31,7 +31,7 @@ The engine preserves the original executable format. It must not translate appli
 ### New shared execution primitives
 - `guest.rs`: bounded guest address-space model, page alignment, mapping overlap checks, memory quotas, read/write permission checks, W^X enforcement, and process/CPU-state records. It is a safe model only; it is not wired to the Redox scheduler or hardware execution context.
 - `decoder.rs`: conservative bounded x86-64 decoder subset for NOP, RET, INT3, HLT, SYSCALL, register push/pop, MOV reg64 immediate, relative CALL/JMP and near conditional branches. Unknown opcodes fail closed. This is not a complete x86-64 decoder and does not execute instructions.
-- `loader.rs`: checked PE32+ DIR64 base relocation application over an inert mapped image. Unsupported relocation types and absent relocation tables during rebasing fail closed.
+- `loader.rs`: checked PE32+ DIR64 base relocation application over an inert mapped image; bounded import-by-name/ordinal parsing, export-table resolution and deferred IAT population. IAT writes are applied only after every import resolves. Unsupported relocation types and unresolved imports fail closed. A verified DLL catalog and operational Windows API exports are still required.
 - `windows.rs`: import symbol/export table model and explicit API classification. No Windows API shim is advertised as implemented; unresolved imports fail closed.
 - `macos.rs`: broker-fed .app member path validation, bounded bundle planning, and explicit unresolved-framework decisions. It does not traverse host filesystems or implement dyld.
 
@@ -50,7 +50,7 @@ The engine preserves the original executable format. It must not translate appli
 - Launcher/file-manager dispatch and compatibility diagnostics.
 
 ### 4.2 Windows PE32+ path
-- Complete import-by-name/ordinal parsing, dependency search policy, symbol resolution and IAT population.
+- Versioned DLL catalog, dependency search policy, forwarder resolution and operational platform export table. The bounded import parser/resolver and IAT population primitive now exist.
 - TLS callbacks, exception/unwind metadata, process startup and Windows calling conventions.
 - Kernel-backed Win32/NT service implementations for a documented application profile.
 - Filesystem semantics, synchronization, console, timing and process/thread services.
