@@ -355,3 +355,38 @@ pub fn execute_with_broker(
         }
     }
 }
+
+
+/// Exact current instruction/format envelope for the in-crate development
+/// backend. This is intentionally not advertised as Windows or macOS ABI
+/// compatibility.
+pub const INTERPRETED_PROFILE_ID: &str = "TRION-X64-INTERPRETED-CORE-0";
+pub const INTERPRETED_PROFILE_INSTRUCTIONS: &[&str] = &[
+    "NOP", "RET", "INT3", "HLT", "SYSCALL", "PUSH r64", "POP r64",
+    "MOV r64, imm64", "CALL rel32", "JMP rel32", "Jcc rel32",
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExecutionProfile {
+    pub id: &'static str,
+    pub architecture: crate::Architecture,
+    pub max_image_size: usize,
+    pub max_guest_memory: u64,
+    pub instruction_set: &'static [&'static str],
+    pub supports_pe32_plus: bool,
+    pub supports_macho64: bool,
+    pub supports_dynamic_linking: bool,
+    pub native_kernel_backend: bool,
+}
+
+pub const INTERPRETED_CORE_PROFILE: ExecutionProfile = ExecutionProfile {
+    id: INTERPRETED_PROFILE_ID,
+    architecture: crate::Architecture::X86_64,
+    max_image_size: crate::MAX_IMAGE_SIZE,
+    max_guest_memory: crate::guest::MAX_GUEST_MEMORY,
+    instruction_set: INTERPRETED_PROFILE_INSTRUCTIONS,
+    supports_pe32_plus: true,
+    supports_macho64: true,
+    supports_dynamic_linking: false,
+    native_kernel_backend: false,
+};
