@@ -24,6 +24,8 @@ use goblin::elf64::{
     program_header::program_header64::{PF_R, PF_W, PF_X, PT_INTERP, PT_LOAD, ProgramHeader},
 };
 
+mod trion;
+
 use syscall::{
     CallFlags, GrantDesc, GrantFlags, MAP_FIXED_NOREPLACE, MAP_SHARED, Map, PAGE_SIZE, PROT_EXEC,
     PROT_READ, PROT_WRITE, SetSighandlerData,
@@ -80,6 +82,23 @@ pub fn fexec_impl(
     extrainfo: &ExtraInfo,
     interp_override: Option<InterpOverride>,
 ) -> Result<Option<FexecResult>> {
+    // Dispatch native PE32+ images through the same Redox process/address-space
+    // machinery used by ELF. The PE loader itself rejects unsupported Windows ABI
+    // features rather than treating an image-format match as launch compatibility.
+    let mut format_magic = [0u8; 2];
+    pread_all(&image_file, 0, &mut format_magic)?;
+    if format_magic == *b"MZ" {
+        return trion::fexec_pe32_plus(
+            image_file,
+            thread_fd,
+            proc_fd,
+            path,
+            args,
+            envs,
+            extrainfo,
+        );
+    }
+
     // Here, we do the minimum part of loading an application, which is what the kernel used to do.
     // We load the executable into memory (albeit at different offsets in this executable), fix
     // some misalignments, and then switch address space.
