@@ -162,6 +162,7 @@ fn validate_dependency_free_macho(input: &[u8]) -> Result<(), Error> {
 }
 
 pub fn prepare_macho64(input: &[u8], load_base: Option<u64>) -> Result<LoadPlan, Error> {
+    validate_dependency_free_macho(input)?;
     let description = crate::macho::inspect(input)?;
     if !description.dependencies.is_empty() {
         return Err(Error::Unsupported("Mach-O dependencies require the dyld/framework runtime"));
