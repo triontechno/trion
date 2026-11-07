@@ -124,7 +124,7 @@ pub struct GuestProcess {
 impl GuestProcess {
     pub fn new(id: u64, instruction_budget: u64) -> Result<Self, Error> {
         if id == 0 || instruction_budget == 0 { return Err(Error::Invalid("guest process identity or budget")); }
-        Ok(Self { id, state: ProcessState::Created, address_space: AddressSpace::new(), cpu: CpuState::default(), instruction_budget })
+        Ok(Self { id, state: ProcessState::Created, address_space: AddressSpace::new(), cpu: CpuState::default(), instruction_budget, pending_syscall: false })
     }
     pub fn set_entry(&mut self, entry: u64, stack: u64) -> Result<(), Error> {
         if self.state != ProcessState::Created { return Err(Error::Invalid("entry can only be set before start")); }
