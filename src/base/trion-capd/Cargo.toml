@@ -6,7 +6,9 @@ edition = "2021"
 
 [dependencies]
 daemon = { path = "../daemon" }
+common = { path = "../drivers/common" }
 libredox.workspace = true
+log.workspace = true
 redox-scheme.workspace = true
 redox_syscall.workspace = true
 scheme-utils = { path = "../scheme-utils" }
