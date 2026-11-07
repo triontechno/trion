@@ -19,6 +19,7 @@ Automation lives in `.github/` and helper scripts live in `scripts/`. See [MONOR
 - [Adaptive representation policy crate](ternary/adaptive/README.md)
 - [Platform capability and runtime integration crate](ternary/platform/README.md)
 - [Redox boot-time capability service](src/base/trion-capd/README.md)
+- [Boot-time capability integration checker](src/base/trion-cap-check/README.md)
 
 ## Binary/ternary computing
 
