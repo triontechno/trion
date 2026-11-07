@@ -1453,6 +1453,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trash",
+ "trion-executable",
  "url",
  "uzers",
  "walkdir",
@@ -7560,6 +7561,10 @@ dependencies = [
  "tracing-core",
  "tracing-log",
 ]
+
+[[package]]
+name = "trion-executable"
+version = "0.1.0"
 
 [[package]]
 name = "trash"
