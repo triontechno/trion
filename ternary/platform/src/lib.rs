@@ -100,18 +100,33 @@ impl CapabilityReport {
             HostArchitecture::Riscv64 => "riscv64",
             HostArchitecture::Other => "other",
         };
-        let operations = self.tir_operations.iter().map(|op| match op {
-            TirOperation::Nop => "NOP",
-            TirOperation::MovImm64 => "MOV_IMM64",
-            TirOperation::Ret => "RET",
-        }).collect::<Vec<_>>().join(",");
+        let operations = self
+            .tir_operations
+            .iter()
+            .map(|op| match op {
+                TirOperation::Nop => "NOP",
+                TirOperation::MovImm64 => "MOV_IMM64",
+                TirOperation::Ret => "RET",
+            })
+            .collect::<Vec<_>>()
+            .join(",");
 
         format!(
             "TRION-CAPABILITIES {}\narchitecture={}\nos={}\npointer_width={}\nlittle_endian={}\nbinary_execution={}\nnative_ternary_hardware={}\nsoftware_tir_runtime={}\ntir_operations={}\nbinary_external_boundaries={}\natomic_8={}\natomic_16={}\natomic_32={}\natomic_64={}\n",
-            self.schema_version, architecture, self.operating_system, self.pointer_width,
-            self.little_endian, self.binary_execution, self.native_ternary_hardware,
-            self.software_tir_runtime, operations, self.binary_external_boundaries,
-            self.atomic_8, self.atomic_16, self.atomic_32, self.atomic_64,
+            self.schema_version,
+            architecture,
+            self.operating_system,
+            self.pointer_width,
+            self.little_endian,
+            self.binary_execution,
+            self.native_ternary_hardware,
+            self.software_tir_runtime,
+            operations,
+            self.binary_external_boundaries,
+            self.atomic_8,
+            self.atomic_16,
+            self.atomic_32,
+            self.atomic_64,
         )
     }
 }
@@ -203,11 +218,22 @@ pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeRepo
     let selection = select_representation(SelectionRequest {
         boundary: Boundary::Internal,
         candidates: CandidateSet {
-            binary: Some(CandidateMetrics::new(binary_cost_ns.max(1), true, true, true)),
-            ternary: Some(CandidateMetrics::new(ternary_cost_ns.max(1), true, true, true)),
+            binary: Some(CandidateMetrics::new(
+                binary_cost_ns.max(1),
+                true,
+                true,
+                true,
+            )),
+            ternary: Some(CandidateMetrics::new(
+                ternary_cost_ns.max(1),
+                true,
+                true,
+                true,
+            )),
             hybrid: None,
         },
-    }).map_err(|_| "no validated runtime representation candidate")?;
+    })
+    .map_err(|_| "no validated runtime representation candidate")?;
 
     Ok(AdaptiveProbeReport {
         iterations,
@@ -233,8 +259,10 @@ mod tests {
         assert_eq!(report.checksum, -128);
         assert!(report.binary_cost_ns > 0);
         assert!(report.ternary_cost_ns > 0);
-        assert!(matches!(report.selection.representation,
-            Representation::Binary | Representation::BalancedTernary));
+        assert!(matches!(
+            report.selection.representation,
+            Representation::Binary | Representation::BalancedTernary
+        ));
     }
 
     #[test]
@@ -276,7 +304,8 @@ mod tests {
                 ternary: Some(metrics(50)),
                 hybrid: None,
             },
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(selected.representation, Representation::BalancedTernary);
     }
 
