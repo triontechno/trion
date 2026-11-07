@@ -25,3 +25,5 @@ path = "fuzz_targets/trn3_deserialize.rs"
 test = false
 doc = false
 bench = false
+
+[workspace]
