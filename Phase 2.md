@@ -30,16 +30,16 @@ Develop an adaptive binary/ternary architecture that preserves conventional hard
 **Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, manual validation workflow, and manual release/build/QEMU workflow. No measurements or validation have been run.
 
 ### Stage G — Executable format and loader completion
-**Status: foundational implementation expanded; not complete.** Existing code now includes PE/Mach-O inspection, inert PE mapping, PE DIR64 relocation application plus bounded PE import-by-name/ordinal parsing, export-table resolution and deferred IAT population; a conservative x86-64 decoder and interpreter subset with brokered syscall events; PE32+/dependency-free Mach-O load-plan preparation; bounded guest address-space/process models; unified original-file/.app dispatch; Windows import/export and API classification; macOS bundle planning; and decoder fuzz targets. Native execution, full decoding, complete dynamic linking, and platform service integration remain missing. See [Stage G](Phase%202%20Stage%20G.md).
+**Status: foundational implementation expanded; not complete.** Existing code now includes PE/Mach-O inspection, inert PE mapping, PE DIR64 relocation application plus bounded PE import-by-name/ordinal parsing, export-table resolution and deferred IAT population; a conservative x86-64 decoder and interpreter subset with brokered syscall events; PE32+/dependency-free Mach-O load-plan preparation; bounded guest address-space/process models; unified original-file/.app dispatch; Windows import/export and API classification; macOS bundle planning; and decoder fuzz targets. Native kernel execution, broader x86-64 decoding, complete dynamic linking, and platform service integration remain missing. See [Stage G](Phase%202%20Stage%20G.md).
 
 ### Stage H — Isolated guest process and execution backend
 **Status: foundational model implemented; OS integration incomplete.** Safe address-space and process/CPU-state models include checked mappings, quotas and W^X policy. Redox scheduler/page-table integration, native context switching, syscall/fault handling and containment remain. See [Stage H](Phase%202%20Stage%20H.md).
 
 ### Stage I — Windows compatibility runtime
-**Status: compatibility boundary implemented; runtime services incomplete.** Typed import/export resolution model and explicit API classification exist; no Windows API is marked operational. PE IAT integration, process startup, ABI and kernel-backed Win32/NT services remain. See [Stage I](Phase%202%20Stage%20I.md).
+**Status: compatibility boundary implemented; runtime services incomplete.** Typed import/export resolution model and explicit API classification exist; no Windows API is marked operational. Process startup, ABI and kernel-backed Win32/NT services remain; bounded PE import parsing and IAT population are now present. See [Stage I](Phase%202%20Stage%20I.md).
 
 ### Stage J — macOS compatibility runtime and unified dispatch
-**Status: bundle-planning foundation implemented; runtime and dispatch incomplete.** Broker-fed member path validation, bounded XML bundle planning and explicit unresolved-framework diagnostics exist. Binary plist, Mach-O dyld linking, process startup, framework services and unified launcher remain. See [Stage J](Phase%202%20Stage%20J.md).
+**Status: bundle-planning foundation implemented; runtime and dispatch incomplete.** Broker-fed member path validation, bounded XML bundle planning and explicit unresolved-framework diagnostics exist. Binary plist, Mach-O dyld linking, process startup, framework services and OS launcher/file-manager integration remain; a library-level unified dispatcher now exists. See [Stage J](Phase%202%20Stage%20J.md).
 
 ## 3. Global engineering gates
 
