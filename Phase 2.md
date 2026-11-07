@@ -30,16 +30,16 @@ Develop an adaptive binary/ternary architecture that preserves conventional hard
 **Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, manual validation workflow, and manual release/build/QEMU workflow. No measurements or validation have been run.
 
 ### Stage G — Executable format and loader completion
-**Status: partial; not complete.** Existing code inspects PE32+ x86-64 and Mach-O 64 x86-64 metadata, validates selected ranges, maps PE bytes as inert memory, enumerates dependencies, and selects an app-bundle executable from bounded XML metadata. It does not apply relocations, resolve symbols, or execute code. Complete bounded PE/Mach-O loading, relocation handling, and instruction decoding without introducing translation.
+**Status: foundational implementation expanded; not complete.** Existing code now includes PE/Mach-O inspection, inert PE mapping, PE DIR64 relocation application, a conservative x86-64 decoder subset, bounded guest address-space/process data models, Windows import/export and API classification, macOS bundle planning, and a decoder fuzz target. Native execution, full decoding, complete dynamic linking, and platform service integration remain missing. See [Stage G](Phase%202%20Stage%20G.md).
 
 ### Stage H — Isolated guest process and execution backend
-**Status: not implemented.** Implement guest address-space ownership, process/thread lifecycle, page mapping, W^X, CPU state, direct execution boundary, syscall/fault transitions, resource accounting, and containment. Guest code must never execute in kernel mode.
+**Status: foundational model implemented; OS integration incomplete.** Safe address-space and process/CPU-state models include checked mappings, quotas and W^X policy. Redox scheduler/page-table integration, native context switching, syscall/fault handling and containment remain. See [Stage H](Phase%202%20Stage%20H.md).
 
 ### Stage I — Windows compatibility runtime
-**Status: not implemented.** Implement a declared, bounded Windows application compatibility profile: PE imports and IAT resolution, process startup, calling conventions, required runtime libraries, selected Win32/NT services, filesystem semantics, synchronization, and explicit unsupported-API diagnostics. No general Windows compatibility claim without evidence.
+**Status: compatibility boundary implemented; runtime services incomplete.** Typed import/export resolution model and explicit API classification exist; no Windows API is marked operational. PE IAT integration, process startup, ABI and kernel-backed Win32/NT services remain. See [Stage I](Phase%202%20Stage%20I.md).
 
 ### Stage J — macOS compatibility runtime and unified dispatch
-**Status: not implemented.** Implement a declared, bounded macOS profile: .app traversal, Info.plist handling, Mach-O relocations and dyld binding, dependency/framework resolution, process startup, selected system services, resource handling, launcher/file-manager dispatch, and actionable compatibility reporting. No general macOS compatibility claim without evidence.
+**Status: bundle-planning foundation implemented; runtime and dispatch incomplete.** Broker-fed member path validation, bounded XML bundle planning and explicit unresolved-framework diagnostics exist. Binary plist, Mach-O dyld linking, process startup, framework services and unified launcher remain. See [Stage J](Phase%202%20Stage%20J.md).
 
 ## 3. Global engineering gates
 
