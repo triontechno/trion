@@ -86,11 +86,15 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
         .try_into()
         .map_err(|_| Error::new(ENOEXEC))?;
     let proc_fd: u32 = proc_fd.try_into().map_err(|_| Error::new(EBADF))?;
+    let exit_verb: u32 = (ProcCall::Exit as u64)
+        .try_into()
+        .map_err(|_| Error::new(ENOEXEC))?;
     let mut code = vec![
         0x89, 0xC1,                         // mov ecx, eax (preserve entry return code)
         0xB8, 0, 0, 0, 0,                   // mov eax, SYS_CALL
         0xBF, 0, 0, 0, 0,                   // mov edi, proc fd
-        0x48, 0x8D, 0x35, 0, 0, 0, 0,       // lea rsi, [rip + exit request]
+        0x48, 0x8D, 0x74, 0x24, 0xF0,       // lea rsi, [rsp - 16] (writable stack request)
+        0xC7, 0x06, 0, 0, 0, 0,             // mov dword [rsi], ProcCall::Exit
         0xBA, 16, 0, 0, 0,                  // mov edx, request length
         0x45, 0x31, 0xD2,                   // xor r10d, r10d (flags)
         0x45, 0x31, 0xC0,                   // xor r8d, r8d (metadata pointer)
@@ -99,16 +103,9 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
         0x0F, 0x05,                         // syscall
         0x0F, 0x0B,                         // ud2 if process-manager exit unexpectedly returns
     ];
-    let data_offset = code.len();
-    let next_rip = 19usize; // offset immediately after the RIP-relative LEA
-    let displacement: i32 = (data_offset as i32)
-        .checked_sub(next_rip as i32)
-        .ok_or(Error::new(EOVERFLOW))?;
     code[3..7].copy_from_slice(&syscall_number.to_le_bytes());
     code[8..12].copy_from_slice(&proc_fd.to_le_bytes());
-    code[15..19].copy_from_slice(&displacement.to_le_bytes());
-    code.extend_from_slice(&(ProcCall::Exit as u64).to_ne_bytes());
-    code.extend_from_slice(&0u64.to_ne_bytes());
+    code[18..22].copy_from_slice(&exit_verb.to_le_bytes());
     Ok(code)
 }
 
