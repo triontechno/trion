@@ -89,7 +89,7 @@ pub fn fexec_impl(
     {
         let mut format_magic = [0u8; 4];
         pread_all(&image_file, 0, &mut format_magic)?;
-        if format_magic[..2] == *b"MZ" {
+        if format_magic.starts_with(b"MZ") {
             return trion::fexec_pe32_plus(
                 image_file,
                 thread_fd,
