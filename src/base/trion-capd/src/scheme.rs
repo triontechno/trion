@@ -252,20 +252,14 @@ mod tests {
     fn open_rejects_write_access_and_unknown_paths() {
         let mut scheme = CapabilityScheme::new(String::new(), String::new(), String::new());
         let ctx = caller();
-        assert_eq!(
-            scheme
-                .openat(ROOT_ID, "capabilities", O_WRONLY, 0, &ctx)
-                .unwrap_err()
-                .errno,
-            EACCES
-        );
-        assert_eq!(
-            scheme
-                .openat(ROOT_ID, "missing", 0, 0, &ctx)
-                .unwrap_err()
-                .errno,
-            ENOENT
-        );
+        assert!(matches!(
+            scheme.openat(ROOT_ID, "capabilities", O_WRONLY, 0, &ctx),
+            Err(error) if error.errno == EACCES
+        ));
+        assert!(matches!(
+            scheme.openat(ROOT_ID, "missing", 0, 0, &ctx),
+            Err(error) if error.errno == ENOENT
+        ));
     }
 
     #[test]
