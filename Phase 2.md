@@ -36,12 +36,15 @@ Phase 2 develops an adaptive binary/ternary architecture that preserves conventi
 See [Stage E](Phase%202%20Stage%20E.md) for implementation details and deferred verification.
 
 ### Stage F — Measurement, hardening, and release validation
-**Status: implementation in progress.** Benchmark harness and deterministic malformed-input regression tests exist; comparative result publication, fuzzing coverage, and release validation implementation remain open.
+**Status: implementation delivered; testing and measurements deferred until Phase 2 completion.**
 
-- Benchmark equivalent binary, ternary, and hybrid workloads including conversion and compatibility overhead.
-- Fuzz packed-memory decoders and, when Stage G exists, direct PE/Mach-O loaders and instruction decoding.
-- Prepare automated test, formatting, lint, architecture-build, and QEMU boot workflows for the post-implementation test pass.
-- Publish measured results; make no unsupported performance, capacity, energy, or security claims.
+- Equivalent binary, balanced-ternary, and hybrid workloads with semantic-result equality checks, raw timing samples, medians, host CPU/toolchain metadata, conversion overhead, and packed-memory storage/round-trip measurements.
+- Cargo-fuzz targets for packed balanced-trit decoding and TRN3 deserialization, with bounded attacker-controlled allocations.
+- Manual-dispatch-only adaptive validation workflow covering tests, formatting, Clippy, benchmarks, and fuzz campaigns.
+- Manual-dispatch-only release workflow for x86_64 image/ISO builds and QEMU checks of kernel entry, capability-service readiness, and report endpoint validation.
+- No benchmark or fuzz campaign is run during implementation; preserve raw output, corpus and crash artifacts during the post-Phase-2 validation pass.
+
+See [Stage F](Phase%202%20Stage%20F.md).
 
 ### Stage G — Direct executable engine
 **Status: planned; not implemented.**
@@ -68,4 +71,4 @@ See [Stage G](Phase%202%20Stage%20G.md) for architecture and completion gates.
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 implementation is complete only when Stages A–G are implemented to their stated scope. After implementation is complete, run the consolidated testing and validation pass, including automated checks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.
+Phase 2 implementation is complete only when Stages A–G are implemented to their stated scope. After implementation is complete, run the consolidated testing and validation pass, including automated checks, fuzz campaigns, comparative benchmarks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.
