@@ -84,7 +84,12 @@ jobs:
             echo "QEMU did not observe the TRION capability service becoming ready."
             exit 1
           fi
-          echo "QEMU reached kernel entry and the TRION capability service became ready."
+          if ! grep -Fq "capability reports validated from /scheme/trion" "$log"; then
+            cat "$log"
+            echo "QEMU did not validate all capability endpoints from user space."
+            exit 1
+          fi
+          echo "QEMU validated kernel entry, capability service readiness, and user-space report reads."
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
