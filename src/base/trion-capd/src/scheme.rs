@@ -241,8 +241,31 @@ mod tests {
         let buffer = DirentBuf::new(&mut bytes, header_size).unwrap();
         let entries = scheme.getdents(ROOT_ID, buffer, 0).unwrap();
         let written = entries.finalize();
-        let entry_count = DirentIter::new(&bytes[..written]).count();
+        let entry_count = DirentIter::new(&bytes[..written])
+            .map(|entry| entry.unwrap())
+            .count();
         assert_eq!(entry_count, FILE_NAMES.len());
+    }
+
+
+    #[test]
+    fn open_rejects_write_access_and_unknown_paths() {
+        let mut scheme = CapabilityScheme::new(String::new(), String::new(), String::new());
+        let ctx = caller();
+        assert_eq!(
+            scheme
+                .openat(ROOT_ID, "capabilities", O_WRONLY, 0, &ctx)
+                .unwrap_err()
+                .errno,
+            EACCES
+        );
+        assert_eq!(
+            scheme
+                .openat(ROOT_ID, "missing", 0, 0, &ctx)
+                .unwrap_err()
+                .errno,
+            ENOENT
+        );
     }
 
     #[test]
