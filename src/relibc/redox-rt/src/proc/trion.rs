@@ -5,7 +5,7 @@
 //! Windows API/PEB/TEB compatibility belongs to the later Windows runtime.
 
 use super::*;
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 const MAX_PE_IMAGE: usize = 256 * 1024 * 1024;
 const MAX_PE_HEADERS: usize = 16 * 1024 * 1024;
@@ -90,7 +90,7 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
     let exit_verb: u32 = (ProcCall::Exit as u64)
         .try_into()
         .map_err(|_| Error::new(ENOEXEC))?;
-    let mut code = vec![
+    let mut code = alloc::vec![
         0x89, 0xC1,                         // mov ecx, eax (preserve entry return code)
         0x81, 0xE1, 0xFF, 0, 0, 0,         // and ecx, 0xff (Redox process exit status)
         0xB8, 0, 0, 0, 0,                   // mov eax, SYS_CALL
