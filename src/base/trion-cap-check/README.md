@@ -6,7 +6,7 @@ The service runs after `trion-capd` during `40_drivers.target`. It opens and val
 
 - `/scheme/trion/capabilities` — schema-v3 target facts and conservative hardware-boundary claims.
 - `/scheme/trion/runtime-policy` — five-sample median costs, bounded iteration count, checksum, and adaptive selection.
-- `/scheme/trion/hardware-evidence` — PCI scheme availability/count and explicit unprobed/unknown device feature state.
+- `/scheme/trion/hardware-evidence` — PCI scheme availability/count, bounded probe-attempt count, and explicit unprobed/unknown device feature state (hardware-evidence schema v2).
 
 It exits nonzero if any endpoint is missing, malformed, inconsistent, or advertises unverified native ternary hardware. The release QEMU smoke test requires its success log, proving the service is not merely compiled or registered but readable from another user-space process.
 
