@@ -296,3 +296,51 @@ fn add_relative(next: u64, displacement: i32) -> Result<u64, Error> {
     if displacement>=0 {next.checked_add(displacement as u64).ok_or(Error::Overflow)}
     else {next.checked_sub(displacement.unsigned_abs() as u64).ok_or(Error::Overflow)}
 }
+
+
+#[cfg(test)]
+mod execution_tests {
+    use super::*;
+
+    #[test]
+    fn executes_original_x86_bytes_and_stops_at_hlt() {
+        let mut process = GuestProcess::new(7, 32).unwrap();
+        process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        // mov rax, 42; hlt
+        let code = [0x48,0xb8,42,0,0,0,0,0,0,0,0xf4];
+        process.address_space.write(0x400000, &code).unwrap();
+        process.address_space.protect(0x400000, Permissions::READ_EXECUTE).unwrap();
+        process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.set_entry(0x400000, 0x701000).unwrap();
+        assert_eq!(process.run().unwrap(), ExecutionEvent::Halted);
+        assert_eq!(process.cpu.rax, 42);
+        assert_eq!(process.state, ProcessState::Exited(0));
+    }
+
+    #[test]
+    fn syscall_is_a_broker_boundary_not_a_host_syscall() {
+        let mut process = GuestProcess::new(8, 8).unwrap();
+        process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.address_space.write(0x400000, &[0x0f,0x05]).unwrap();
+        process.address_space.protect(0x400000, Permissions::READ_EXECUTE).unwrap();
+        process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.set_entry(0x400000, 0x701000).unwrap();
+        process.cpu.rax = 0x1234;
+        assert_eq!(process.run().unwrap(), ExecutionEvent::Syscall {
+            number: 0x1234, arguments: [0;6], return_rip: 0x400002
+        });
+        process.resume_with_syscall_result(5).unwrap();
+        assert_eq!(process.cpu.rax, 5);
+    }
+
+    #[test]
+    fn instruction_fetch_requires_execute_permission() {
+        let mut process = GuestProcess::new(9, 8).unwrap();
+        process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.address_space.write(0x400000, &[0xf4]).unwrap();
+        process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.set_entry(0x400000, 0x701000).unwrap();
+        assert!(process.run().is_err());
+        assert_eq!(process.state, ProcessState::Faulted);
+    }
+}
