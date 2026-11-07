@@ -140,3 +140,34 @@ pub fn launch_with_backend<B: GuestExecutionBackend>(
     let request = prepare_application(input, arguments, environment)?;
     backend.launch(&request, arguments, environment)
 }
+
+
+/// Development execution backend for the bounded instruction subset. It is
+/// useful for deterministic bring-up, but is not a substitute for Stage H's
+/// kernel-isolated native process backend or the Stage I/J platform runtimes.
+pub struct InterpretedBackend<B> {
+    pub syscall_broker: B,
+    next_process_id: u64,
+}
+impl<B> InterpretedBackend<B> {
+    pub fn new(syscall_broker: B, first_process_id: u64) -> Result<Self, Error> {
+        if first_process_id == 0 { return Err(Error::Invalid("first guest process ID")); }
+        Ok(Self { syscall_broker, next_process_id: first_process_id })
+    }
+}
+impl<B: crate::engine::SyscallBroker> GuestExecutionBackend for InterpretedBackend<B> {
+    type Handle = crate::engine::ExecutionSummary;
+    fn launch(
+        &mut self,
+        request: &ApplicationLaunchPlan,
+        arguments: &[String],
+        environment: &[String],
+    ) -> Result<Self::Handle, Error> {
+        if !arguments.is_empty() || !environment.is_empty() {
+            return Err(Error::Unsupported("interpreter profile does not yet construct platform ABI argument/environment blocks"));
+        }
+        let id = self.next_process_id;
+        self.next_process_id = self.next_process_id.checked_add(1).ok_or(Error::Overflow)?;
+        crate::engine::execute_with_broker(&request.load_plan, id, &mut self.syscall_broker)
+    }
+}
