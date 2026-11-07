@@ -182,8 +182,8 @@ pub mod macho{
                 let name=String::from_utf8_lossy(&n[..nn]).into_owned();
                 let va=r64(d,at+24,"segment vmaddr")?;let vs=r64(d,at+32,"segment vmsize")?;
                 let fo=r64(d,at+40,"segment fileoff")?;let fs=r64(d,at+48,"segment filesize")?;
-                let prot=r32(d,at+56,"segment protections")?;
-                let maxprot=r32(d,at+60,"segment maximum protections")?;
+                let maxprot=r32(d,at+56,"segment maximum protections")?;
+                let prot=r32(d,at+60,"segment protections")?;
                 let ns=r32(d,at+64,"segment section count")? as usize;
                 if 72usize.checked_add(ns.checked_mul(80).ok_or(Error::Overflow)?).ok_or(Error::Overflow)?>size{return Err(Error::Invalid("segment section table"))}
                 if fs>vs || prot&!7!=0 || maxprot&!7!=0 || prot&!maxprot!=0 {
@@ -323,7 +323,8 @@ mod tests {
         put64(&mut d, seg+32, 0x1000);
         put64(&mut d, seg+40, 0);
         put64(&mut d, seg+48, 0x300);
-        put32(&mut d, seg+56, 7);\n        put32(&mut d, seg+60, 5);
+        put32(&mut d, seg+56, 7);
+        put32(&mut d, seg+60, 5);
         put32(&mut d, seg+64, 0);
         let main = seg+72;
         put32(&mut d, main, 0x8000_0028);
