@@ -31,17 +31,17 @@ fn daemon(daemon: daemon::Daemon) -> ! {
         adaptive_probe.selection.reason,
     );
 
-    // The PCI scheme is registered by pcid after the hardware manager starts.
-    // Enumeration is evidence of discovered functions, not a claim about their
-    // optional features or native ternary support.
-    let (pci_scheme_available, pci_function_entries) = match std::fs::read_dir("/scheme/pci") {
-        Ok(entries) => (true, entries.filter_map(|entry| entry.ok()).count()),
-        Err(_) => (false, 0),
-    };
+    // hwd owns ACPI/DeviceTree backend discovery. These read-only directory
+    // inventories record what its published schemes expose; they do not claim
+    // that optional device capabilities have been probed.
+    let (pci_scheme_available, pci_function_entries) = inventory("/scheme/pci");
+    let (acpi_symbols_available, acpi_symbol_entries) = inventory("/scheme/acpi/symbols");
     let hardware_evidence = format!(
-        "TRION-HARDWARE-EVIDENCE 1\npci_scheme_available={}\npci_function_entries={}\nacpi_device_tree_discovery=delegated_to_hwd\noptional_device_capabilities=not_probed\nnative_ternary_hardware=unverified\n",
+        "TRION-HARDWARE-EVIDENCE 2\npci_scheme_available={}\npci_function_entries={}\nacpi_symbols_available={}\nacpi_symbol_entries={}\nacpi_device_tree_discovery=delegated_to_hwd\noptional_device_capabilities=not_probed\nnative_ternary_hardware=unverified\n",
         pci_scheme_available,
         pci_function_entries,
+        acpi_symbols_available,
+        acpi_symbol_entries,
     );
 
     let mut capability_scheme =
@@ -59,4 +59,13 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     handler
         .process_requests_blocking(capability_scheme)
         .expect("trion-capd: failed to process scheme requests");
+}
+
+/// Return whether a Redox scheme directory is available and how many entries
+/// it currently publishes. A missing scheme is reported, never guessed.
+fn inventory(path: &str) -> (bool, usize) {
+    match std::fs::read_dir(path) {
+        Ok(entries) => (true, entries.filter_map(Result::ok).count()),
+        Err(_) => (false, 0),
+    }
 }
