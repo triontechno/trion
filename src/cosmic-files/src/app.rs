@@ -83,6 +83,94 @@ use crate::trash::{Trash, TrashExt};
 use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
 use crate::{FxOrderMap, context_action, fl, home_dir, menu, mime_icon};
 
+#[cfg(target_os = "redox")]
+fn resolve_trion_app_bundle(bundle: &Path) -> Result<PathBuf, String> {
+    use trion_executable::macos::{BundleMember, plan_bundle, MAX_BUNDLE_MEMBERS, MAX_PLIST_SIZE};
+    use trion_executable::MAX_IMAGE_SIZE;
+
+    let bundle_meta = fs::symlink_metadata(bundle).map_err(|error| error.to_string())?;
+    if bundle_meta.file_type().is_symlink() || !bundle_meta.is_dir() {
+        return Err("application bundle is not a real directory".into());
+    }
+    let contents = bundle.join("Contents");
+    let contents_meta = fs::symlink_metadata(&contents).map_err(|error| error.to_string())?;
+    if contents_meta.file_type().is_symlink() || !contents_meta.is_dir() {
+        return Err("application bundle has no safe Contents directory".into());
+    }
+    let macos = contents.join("MacOS");
+    let macos_meta = fs::symlink_metadata(&macos).map_err(|error| error.to_string())?;
+    if macos_meta.file_type().is_symlink() || !macos_meta.is_dir() {
+        return Err("application bundle has no safe Contents/MacOS directory".into());
+    }
+    let plist_path = contents.join("Info.plist");
+    let plist_meta = fs::symlink_metadata(&plist_path).map_err(|error| error.to_string())?;
+    if plist_meta.file_type().is_symlink()
+        || !plist_meta.is_file()
+        || plist_meta.len() > MAX_PLIST_SIZE as u64
+    {
+        return Err("application bundle Info.plist is unsafe or too large".into());
+    }
+    let plist = fs::read(&plist_path).map_err(|error| error.to_string())?;
+
+    let mut members = Vec::<BundleMember>::new();
+    for entry in walkdir::WalkDir::new(&contents)
+        .follow_links(false)
+        .max_depth(16)
+        .max_open(32)
+    {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
+        if metadata.file_type().is_symlink() {
+            return Err("application bundle contains a symlink".into());
+        }
+        if entry.path() == contents {
+            continue;
+        }
+        let relative = entry
+            .path()
+            .strip_prefix(&contents)
+            .map_err(|error| error.to_string())?;
+        let relative_text = relative
+            .to_str()
+            .ok_or_else(|| "application bundle contains a non-UTF-8 path".to_string())?
+            .replace('\\', "/");
+        let is_directory = metadata.is_dir();
+        let member_path = if relative.parent() == Some(Path::new("MacOS")) && !is_directory {
+            relative
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| "application executable name is not UTF-8".to_string())?
+                .to_owned()
+        } else if relative == Path::new("Resources") || relative.starts_with("Resources") {
+            relative_text
+        } else {
+            continue;
+        };
+        if metadata.len() > MAX_IMAGE_SIZE as u64 {
+            return Err("application bundle member exceeds the size limit".into());
+        }
+        members.push(BundleMember {
+            relative_path: member_path,
+            size: metadata.len(),
+            is_directory,
+        });
+        if members.len() > MAX_BUNDLE_MEMBERS {
+            return Err("application bundle contains too many members".into());
+        }
+    }
+
+    let plan = plan_bundle(&plist, &members).map_err(|error| error.to_string())?;
+    let executable = macos.join(plan.executable);
+    let executable_meta = fs::symlink_metadata(&executable).map_err(|error| error.to_string())?;
+    if executable_meta.file_type().is_symlink()
+        || !executable_meta.is_file()
+        || executable_meta.len() > MAX_IMAGE_SIZE as u64
+    {
+        return Err("selected application executable is unsafe or too large".into());
+    }
+    Ok(executable)
+}
+
 static PERMANENT_DELETE_BUTTON_ID: LazyLock<widget::Id> =
     LazyLock::new(|| widget::Id::new("permanent-delete-button"));
 
