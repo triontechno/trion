@@ -397,6 +397,9 @@ fn launch_pe(
     sections.try_reserve_exact(section_count).map_err(|_| Error::new(ENOMEM))?;
     let mut ranges = Vec::<(usize, usize)>::new();
     let header_map_size = page_align(headers_size)?;
+    if header_map_size > image_size {
+        return Err(Error::new(ENOEXEC));
+    }
     ranges.push((image_base, image_base.checked_add(header_map_size).ok_or(Error::new(EOVERFLOW))?));
     let mut entry_is_executable = false;
 
@@ -418,6 +421,7 @@ fn launch_pe(
             || virtual_address % section_alignment != 0
             || virtual_address % PAGE_SIZE != 0
             || raw_size > memory_size
+            || raw_size > 0 && raw_offset < headers_size as u64
             || raw_size > 0 && raw_offset % file_alignment as u64 != 0
         {
             return Err(Error::new(ENOEXEC));
