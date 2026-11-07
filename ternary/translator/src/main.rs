@@ -288,9 +288,27 @@ fn package(input_path: &str, output_path: &str) -> Result<(), String> {
 }
 
 fn run(path: &str, max_instructions: usize) -> Result<(), String> {
-    let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    let executable = trion_executable::TrionExecutable::parse(&bytes)
-        .map_err(|e| format!("invalid or unsupported TRIONEX executable: {e}"))?;
+    let (tir_payload, source_format) = {
+        let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+        match trion_executable::TrionExecutable::parse(&bytes) {
+            Ok(executable) => (executable.payload().to_vec(), "TRIONEX v1"),
+            Err(_) => {
+                let (actual, object_bytes, is_app) = input_bytes(path)?;
+                let translated = tir::translate_object_to_tir(&object_bytes)?;
+                let format = if is_app {
+                    "macOS .app x86-64 instruction subset"
+                } else {
+                    match goblin::Object::parse(&object_bytes) {
+                        Ok(goblin::Object::PE(_)) => "Windows PE x86-64 instruction subset",
+                        Ok(goblin::Object::Mach(_)) => "Mach-O x86-64 instruction subset",
+                        _ => "ELF x86-64 instruction subset",
+                    }
+                };
+                let _ = actual;
+                (translated, format)
+            }
+        }
+    };
     let memory = [0u8; 8];
     let mut registers = [0u64; 16];
     registers[4] = 0x1000;
@@ -299,7 +317,8 @@ fn run(path: &str, max_instructions: usize) -> Result<(), String> {
         memory_base: 0x1000,
         memory: &memory,
     };
-    let outcome = execute_tir(executable.payload(), &mut state, max_instructions)
+    println!("Loaded executable format: {source_format}");
+    let outcome = execute_tir(&tir_payload, &mut state, max_instructions)
         .map_err(|e| format!("TRIONEX execution failed: {e}"))?;
     match outcome {
         ExecutionOutcome::Completed {
