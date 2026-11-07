@@ -1,13 +1,14 @@
 # TRION Phase 2 — Stage G: Direct Executable Engine
 
-**Status: implementation partially delivered; direct execution is not implemented.**  
-**Prerequisites:** Stage E runtime/platform integration and Stage F security/validation gates.
+**Status: foundational implementation expanded; execution and compatibility remain incomplete.**  
+**Branch:** main  
+**Validation:** deliberately deferred until all Phase 2 implementation stages are complete.
 
 ## 1. Objective
 
 Build TRION's single application compatibility engine. The intended user experience is to select a supported Windows .exe or macOS .app and have TRION load the original executable directly.
 
-The engine must preserve the original executable format. It must not translate applications to TIR, create .trx containers, emit translated machine code, or maintain a translation cache. Native CPU execution is permitted only inside a properly isolated guest process with a correct ABI and platform-service implementation.
+The engine preserves the original executable format. It must not translate applications to TIR, create .trx containers, emit translated machine code, or maintain a translation cache. Native CPU execution is permitted only inside a properly isolated guest process with a correct ABI and platform-service implementation.
 
 ## 2. Non-negotiable architecture
 
@@ -19,73 +20,65 @@ The engine must preserve the original executable format. It must not translate a
 - Unsupported inputs fail with actionable diagnostics.
 - Never execute guest code in kernel mode.
 
-## 3. Implemented foundation
+## 3. Implemented source foundations (not yet validated)
 
-The isolated Rust crate at ternary/executable provides:
-
-- Bounded PE32+ x86-64 header, COFF, optional-header, section-table, and data-directory inspection.
+### Format inspection
+- Bounded PE32+ x86-64 header, COFF, optional-header, section-table, and selected data-directory inspection.
 - PE section range and overlap validation, import-library enumeration, and inert mapping at the preferred image base.
 - Bounded little-endian Mach-O 64 x86-64 header, load-command, segment, dependency, and LC_MAIN entry-point inspection.
-- XML Info.plist CFBundleExecutable selection against a caller-supplied bundle member listing.
-- Explicit launch assessment that reports missing runtime components and always refuses to claim launchability.
-- Dedicated cargo-fuzz targets for PE32+, Mach-O 64, and bundle metadata.
+- XML Info.plist CFBundleExecutable selection against broker-enumerated bundle members.
 
-The mapped PE bytes are inert memory. No executable permissions are assigned and no guest instruction is executed.
+### New shared execution primitives
+- `guest.rs`: bounded guest address-space model, page alignment, mapping overlap checks, memory quotas, read/write permission checks, W^X enforcement, and process/CPU-state records. It is a safe model only; it is not wired to the Redox scheduler or hardware execution context.
+- `decoder.rs`: conservative bounded x86-64 decoder subset for NOP, RET, INT3, HLT, SYSCALL, register push/pop, MOV reg64 immediate, relative CALL/JMP and near conditional branches. Unknown opcodes fail closed. This is not a complete x86-64 decoder and does not execute instructions.
+- `loader.rs`: checked PE32+ DIR64 base relocation application over an inert mapped image. Unsupported relocation types and absent relocation tables during rebasing fail closed.
+- `windows.rs`: import symbol/export table model and explicit API classification. No Windows API shim is advertised as implemented; unresolved imports fail closed.
+- `macos.rs`: broker-fed .app member path validation, bounded bundle planning, and explicit unresolved-framework decisions. It does not traverse host filesystems or implement dyld.
+
+### Fuzzing source
+- Fuzz targets exist for PE32+, Mach-O 64, app bundle metadata, packed ternary memory, TRN3 deserialization, and the x86-64 decoder.
+- Fuzz campaigns have not been run.
 
 ## 4. Remaining implementation
 
 ### 4.1 Common execution engine
-
-Still required:
-- Guest process creation, address-space ownership, page mapping and permission enforcement.
-- x86-64 instruction decoder with bounded input handling and a documented supported-instruction matrix.
-- Native execution boundary, CPU state, exception/fault delivery, syscall transitions, thread lifecycle and resource accounting.
-- A secure process isolation policy integrated with the Redox process model.
-- Launcher/file-manager dispatch and actionable compatibility reporting.
+- Complete x86-64 decoder and instruction semantics for the declared compatibility profile.
+- Architecture-specific native execution boundary and context switching integrated with Redox process/thread lifecycle.
+- Syscall/fault transitions, signal delivery, thread lifecycle, resource accounting and process teardown.
+- Enforced isolation and brokered filesystem/network/device access.
+- Loader-to-address-space mapping with page permissions and entry-point validation.
+- Launcher/file-manager dispatch and compatibility diagnostics.
 
 ### 4.2 Windows PE32+ path
-
-Still required:
-- Base-relocation application and rebasing.
-- Import-by-name/ordinal parsing, dependency search policy, symbol resolution and IAT population.
-- TLS callbacks, exception/unwind metadata, process startup, Windows calling conventions and runtime behavior.
-- Windows system-call/API compatibility services and selected application-class APIs.
+- Complete import-by-name/ordinal parsing, dependency search policy, symbol resolution and IAT population.
+- TLS callbacks, exception/unwind metadata, process startup and Windows calling conventions.
+- Kernel-backed Win32/NT service implementations for a documented application profile.
+- Filesystem semantics, synchronization, console, timing and process/thread services.
 - Correct image permission transitions and W^X enforcement.
 
 ### 4.3 macOS .app / Mach-O path
-
-Still required:
-- Filesystem bundle traversal, binary Info.plist support, architecture selection and resource handling.
-- Mach-O relocation, dyld rebasing/binding, chained fixups, dependency resolution and code-signature policy.
-- macOS entry/runtime conventions, process services, frameworks and selected application-class APIs.
+- Binary Info.plist support, architecture selection and safe resource handling.
+- Mach-O relocation, dyld rebasing/binding, chained fixups and dependency resolution.
+- Explicit code-signature and entitlement policy.
+- macOS entry/runtime conventions, process services and selected framework implementations.
 - Correct segment mapping, memory permissions and W^X enforcement.
-
-### 4.4 Compatibility boundary
-
-Instruction execution is not Windows/macOS compatibility. Each supported application class requires the relevant process/thread model, ABI, syscalls, dynamic libraries, filesystem semantics, synchronization, graphics, input, audio and networking services. No general Windows or macOS application compatibility is claimed.
 
 ## 5. Security and validation
 
-All executable files, bundle metadata and dependencies are untrusted. Every offset, length, address, relocation, mapping and permission must be checked. Resource limits must be enforced before allocation. Writable/executable mappings must be prevented unless a narrowly defined, reviewed policy requires them. Filesystem, network and device access must be brokered through explicit policy.
+All executable files, bundle metadata and dependencies are untrusted. Every offset, length, address, relocation, mapping and permission must be checked. Resource limits must be enforced before allocation. Writable/executable mappings are prohibited. Filesystem, network and device access must be brokered through explicit policy.
 
-The following fuzz targets have been added but have NOT been run:
-- pe32_plus
-- macho64
-- app_bundle_plist
+No test, build, fuzz campaign, benchmark, or QEMU validation has been run for the new implementation. They remain deferred until all Phase 2 implementation stages are complete.
 
-All tests, fuzz campaigns, builds, benchmarks and QEMU validation remain deferred until Phase 2 implementation is complete.
+## 6. Completion criteria
 
-## 6. Stage G completion criteria
-
-Stage G is complete only when all of the following exist and are validated:
-
+Stage G is complete only when:
 1. PE32+ and Mach-O loaders support the declared image features, relocations, dependencies and entry-point semantics.
-2. A guest process/address-space backend provides isolation, W^X, resource limits and fault containment.
-3. A bounded x86-64 decoder and direct native execution boundary are integrated without application translation.
+2. A guest process/address-space backend provides isolation, W^X, resource limits and fault containment and is integrated with the OS process model.
+3. A complete bounded x86-64 decoder and direct native execution boundary are integrated without application translation.
 4. Windows and macOS ABI, syscall, runtime and framework layers support explicitly declared application classes.
 5. Launcher/file-manager dispatch opens original files and reports exact compatibility blockers.
 6. Loader, decoder, dependency and compatibility fuzz campaigns complete with no unresolved security findings.
 7. Differential, malformed-input, process-isolation and end-to-end launch tests pass on the declared supported TRION configuration.
 8. A compatibility matrix identifies tested architectures, imports, APIs and application classes.
 
-**Current result:** the format-inspection foundation and fuzz-target source are implemented. The process executor, decoder, dynamic linkers and platform compatibility layers are not. Therefore Stage G is not complete, and no .exe/.app launch support is claimed. This is the only planned application execution engine in TRION.
+**Current result:** useful source foundations now exist for address-space policy, a conservative decoder subset, PE DIR64 relocation, Windows import modeling and macOS bundle planning. These are not a functioning executable runtime. No .exe/.app launch support is claimed.
