@@ -46,9 +46,7 @@ fn rejects_non_elf_input() {
         .expect("run CLI");
     let _ = fs::remove_file(&path);
     assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("error:")
-    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
 }
 
 #[test]
