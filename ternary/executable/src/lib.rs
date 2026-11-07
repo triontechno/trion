@@ -307,7 +307,7 @@ mod tests {
         let parsed = pe::inspect(&input).unwrap();
         assert_eq!(parsed.format, Format::Pe32Plus);
         assert_eq!(parsed.architecture, Architecture::X86_64);
-        assert_eq!(parsed.entry_point, 0x1400_001000);
+        assert_eq!(parsed.entry_point, 0x1_4000_1000);
         assert_eq!(parsed.sections[0].name, ".text");
         let mapped = pe::map_preferred(&input).unwrap();
         assert_eq!(mapped.bytes.len(), 0x2000);
