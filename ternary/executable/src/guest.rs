@@ -135,3 +135,164 @@ impl GuestProcess {
     /// Deliberately does not transition to Running: a host execution backend is not yet wired.
     pub fn execution_backend_available(&self) -> bool { false }
 }
+
+
+pub const RFLAGS_CF: u64 = 1 << 0;
+pub const RFLAGS_ZF: u64 = 1 << 6;
+pub const RFLAGS_SF: u64 = 1 << 7;
+pub const RFLAGS_OF: u64 = 1 << 11;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExecutionEvent {
+    Continue,
+    Syscall { number: u64, arguments: [u64; 6], return_rip: u64 },
+    Breakpoint { rip: u64 },
+    Halted,
+    BudgetExhausted,
+}
+
+impl AddressSpace {
+    /// Fetch a single instruction without crossing a mapping boundary. Execute
+    /// permission is checked independently from read permission.
+    pub fn fetch_instruction(&self, address: u64, output: &mut [u8]) -> Result<usize, Error> {
+        if output.is_empty() { return Err(Error::Invalid("empty instruction buffer")); }
+        let mapping = self.find(address, 1)?;
+        if !mapping.permissions.execute {
+            return Err(Error::Invalid("instruction fetch from non-executable mapping"));
+        }
+        let offset = usize::try_from(address - mapping.base).map_err(|_| Error::Overflow)?;
+        let available = mapping.bytes.len().saturating_sub(offset).min(output.len());
+        output[..available].copy_from_slice(&mapping.bytes[offset..offset + available]);
+        Ok(available)
+    }
+}
+
+impl CpuState {
+    fn register(&self, index: u8) -> Result<u64, Error> {
+        match index {
+            0=>Ok(self.rax),1=>Ok(self.rcx),2=>Ok(self.rdx),3=>Ok(self.rbx),
+            4=>Ok(self.rsp),5=>Ok(self.rbp),6=>Ok(self.rsi),7=>Ok(self.rdi),
+            8=>Ok(self.r8),9=>Ok(self.r9),10=>Ok(self.r10),11=>Ok(self.r11),
+            12=>Ok(self.r12),13=>Ok(self.r13),14=>Ok(self.r14),15=>Ok(self.r15),
+            _=>Err(Error::Invalid("x86 register index")),
+        }
+    }
+    fn set_register(&mut self, index: u8, value: u64) -> Result<(), Error> {
+        match index {
+            0=>self.rax=value,1=>self.rcx=value,2=>self.rdx=value,3=>self.rbx=value,
+            4=>self.rsp=value,5=>self.rbp=value,6=>self.rsi=value,7=>self.rdi=value,
+            8=>self.r8=value,9=>self.r9=value,10=>self.r10=value,11=>self.r11=value,
+            12=>self.r12=value,13=>self.r13=value,14=>self.r14=value,15=>self.r15=value,
+            _=>return Err(Error::Invalid("x86 register index")),
+        }
+        Ok(())
+    }
+    fn condition(&self, code: u8) -> bool {
+        let cf=self.rflags&RFLAGS_CF!=0;
+        let zf=self.rflags&RFLAGS_ZF!=0;
+        let sf=self.rflags&RFLAGS_SF!=0;
+        let of=self.rflags&RFLAGS_OF!=0;
+        match code {
+            0=>of,1=>!of,2=>cf,3=>!cf,4=>zf,5=>!zf,6=>cf||zf,7=>!cf&&!zf,
+            8=>sf,9=>!sf,10=>false,11=>true,12=>sf!=of,13=>sf==of,
+            14=>zf||(sf!=of),15=>!zf&&(sf==of),_=>false,
+        }
+    }
+}
+
+impl GuestProcess {
+    /// Execute one instruction from the original guest image. This is a bounded
+    /// interpreter for the explicitly decoded subset, not native host execution.
+    pub fn step(&mut self) -> Result<ExecutionEvent, Error> {
+        if !matches!(self.state, ProcessState::Ready | ProcessState::Running) {
+            return Err(Error::Invalid("guest process is not runnable"));
+        }
+        if self.instruction_budget == 0 { return Ok(ExecutionEvent::BudgetExhausted); }
+        let rip=self.cpu.rip;
+        let mut bytes=[0u8; crate::decoder::MAX_INSTRUCTION_BYTES];
+        let count=self.address_space.fetch_instruction(rip,&mut bytes)?;
+        let decoded=crate::decoder::decode(&bytes[..count])?;
+        let next=rip.checked_add(decoded.length as u64).ok_or(Error::Overflow)?;
+        use crate::decoder::Instruction as I;
+        match decoded.instruction {
+            I::Nop=>self.cpu.rip=next,
+            I::MovRegImm64{register,value}=>{self.cpu.set_register(register,value)?;self.cpu.rip=next;}
+            I::PushReg(register)=>{
+                let value=self.cpu.register(register)?;
+                let new_rsp=self.cpu.rsp.checked_sub(8).ok_or(Error::Overflow)?;
+                self.address_space.write(new_rsp,&value.to_le_bytes())?;
+                self.cpu.rsp=new_rsp;self.cpu.rip=next;
+            }
+            I::PopReg(register)=>{
+                let mut data=[0u8;8];self.address_space.read(self.cpu.rsp,&mut data)?;
+                let value=u64::from_le_bytes(data);
+                let new_rsp=self.cpu.rsp.checked_add(8).ok_or(Error::Overflow)?;
+                self.cpu.set_register(register,value)?;
+                if register!=4 {self.cpu.rsp=new_rsp;}
+                self.cpu.rip=next;
+            }
+            I::RelativeCall(displacement)=>{
+                let new_rsp=self.cpu.rsp.checked_sub(8).ok_or(Error::Overflow)?;
+                self.address_space.write(new_rsp,&next.to_le_bytes())?;
+                self.cpu.rsp=new_rsp;
+                self.cpu.rip=add_relative(next,displacement)?;
+            }
+            I::RelativeJump(displacement)=>self.cpu.rip=add_relative(next,displacement)?,
+            I::ConditionalJump{condition,displacement}=>{
+                self.cpu.rip=if self.cpu.condition(condition){add_relative(next,displacement)?}else{next};
+            }
+            I::Ret=>{
+                let mut data=[0u8;8];self.address_space.read(self.cpu.rsp,&mut data)?;
+                self.cpu.rsp=self.cpu.rsp.checked_add(8).ok_or(Error::Overflow)?;
+                self.cpu.rip=u64::from_le_bytes(data);
+            }
+            I::Syscall=>{
+                self.cpu.rip=next;
+                self.instruction_budget-=1;
+                self.state=ProcessState::Blocked;
+                return Ok(ExecutionEvent::Syscall{
+                    number:self.cpu.rax,
+                    arguments:[self.cpu.rdi,self.cpu.rsi,self.cpu.rdx,self.cpu.r10,self.cpu.r8,self.cpu.r9],
+                    return_rip:next,
+                });
+            }
+            I::Int3=>{
+                self.cpu.rip=next;
+                self.instruction_budget-=1;
+                self.state=ProcessState::Blocked;
+                return Ok(ExecutionEvent::Breakpoint{rip});
+            }
+            I::Hlt=>{
+                self.instruction_budget-=1;
+                self.state=ProcessState::Exited(0);
+                return Ok(ExecutionEvent::Halted);
+            }
+        }
+        self.instruction_budget-=1;
+        self.state=ProcessState::Running;
+        Ok(ExecutionEvent::Continue)
+    }
+
+    /// Run until a syscall, breakpoint, halt, fault, or budget exhaustion.
+    /// The caller must broker syscalls and explicitly resume a blocked process.
+    pub fn run(&mut self) -> Result<ExecutionEvent, Error> {
+        loop {
+            match self.step()? {
+                ExecutionEvent::Continue=>continue,
+                event=>return Ok(event),
+            }
+        }
+    }
+
+    pub fn resume_with_syscall_result(&mut self, result: i64) -> Result<(), Error> {
+        if self.state!=ProcessState::Blocked {return Err(Error::Invalid("guest is not blocked at a syscall boundary"));}
+        self.cpu.rax=result as u64;
+        self.state=ProcessState::Ready;
+        Ok(())
+    }
+}
+
+fn add_relative(next: u64, displacement: i32) -> Result<u64, Error> {
+    if displacement>=0 {next.checked_add(displacement as u64).ok_or(Error::Overflow)}
+    else {next.checked_sub(displacement.unsigned_abs() as u64).ok_or(Error::Overflow)}
+}
