@@ -212,6 +212,7 @@ mod tests {
             pid: 1,
             uid: 0,
             gid: 0,
+            id: 1,
         }
     }
 
@@ -243,7 +244,7 @@ mod tests {
         let mut scheme = CapabilityScheme::new(String::new(), String::new(), String::new());
         let mut bytes = [0u8; 256];
         let header_size = std::mem::size_of::<syscall::dirent::DirentHeader>() as u16;
-        let buffer = DirentBuf::new(&mut bytes, header_size).unwrap();
+        let buffer = DirentBuf::new(&mut bytes[..], header_size).unwrap();
         let entries = scheme.getdents(ROOT_ID, buffer, 0).unwrap();
         let written = entries.finalize();
         let entry_count = DirentIter::new(&bytes[..written])
