@@ -102,6 +102,7 @@ fn inspect(path: &str) -> Result<(), String> {
         goblin::Object::Unknown(magic) => {
             return Err(format!("unsupported executable magic: {magic:?}"));
         }
+        _ => return Err("unsupported executable object format".into()),
     }
     Ok(())
 }
