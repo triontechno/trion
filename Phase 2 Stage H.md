@@ -1,19 +1,21 @@
 # TRION Phase 2 — Stage H: Isolated Guest Process Backend
 
-**Status: bounded guest-memory model and interpreted instruction subset implemented; kernel isolation and native execution not implemented.**
+**Implementation status: partially implemented.** Native execution now uses Redox's real process/address-space interfaces for the restricted freestanding Stage G profiles. Full guest isolation policy and broker containment remain incomplete.  
+**Validation:** deferred until all Phase 2 implementation stages are complete.
 
 ## Implemented source
-- Guest address-space mapping model with page alignment, overlap rejection, checked arithmetic and bounded memory/mapping quotas.
-- Read/write permission enforcement and W^X rejection.
-- Explicit mapping protection and unmapping operations.
-- CPU register-state structure, process lifecycle states, entry/stack validation and instruction-budget metadata.\n- Bounded execution of the decoder subset against original instruction bytes, explicit syscall/breakpoint events, and fault-state transitions. This is an in-crate interpreter, not native CPU execution.
+
+- Bounded in-crate guest address-space model with page alignment, overlap rejection, checked arithmetic, memory/mapping quotas, and W^X policy.
+- CPU register state, process lifecycle states, stack/entry validation, instruction budget, bounded instruction execution, brokered syscall events, breakpoint suspension, and explicit fault-state transitions.
+- Native loader adapter in src/relibc/redox-rt/src/proc/trion.rs creates a fresh Redox address space, maps original PE32+/Mach-O64 segments, applies final page permissions, writes initial RIP/RSP through the process scheme, and lets the normal Redox scheduler/context switch enter user mode.
+- Process exit is handed to the existing process manager through the OS-owned return trampoline. Unhandled processor exceptions follow the existing kernel exception path.
 
 ## Remaining
-- Integrate address-space ownership with Redox kernel process structures and scheduler.
-- Implement page-table mappings and hardware permission transitions.
-- Implement architecture-specific context switching and direct native instruction execution.
-- Add syscall, exception, signal, fault and thread transitions.
-- Enforce process capabilities, filesystem/network/device brokers and resource accounting.
-- Implement safe teardown and recovery.
 
-**Important:** The current model is a Rust address-space/interpreter model. It is not a hardware address space and is not wired to Redox process scheduling, page tables, native context switching, or the syscall/signal/fault lifecycle. It does not enable native guest execution.
+- Explicit guest exception-to-signal policy and reliable fault reporting to the launcher.
+- Per-process capability policy and brokered filesystem, network, device and IPC access.
+- Resource accounting, memory/CPU limits tied to kernel process objects, thread lifecycle and safe cancellation.
+- Audited cleanup/recovery for every partial-load and process-failure path.
+- A native backend for broader Windows/macOS runtime profiles as those services are implemented in Stages I and J.
+
+**Important:** The bounded Rust interpreter model is not a hardware address space. Native freestanding images use actual Redox address spaces and user-mode contexts, but this does not yet provide the complete sandbox, resource broker or compatibility runtime required for general applications.
