@@ -201,8 +201,9 @@ impl SchemeSync for CapabilityScheme {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use syscall::dirent::DirentIter;
+
+    use super::*;
 
     fn caller() -> CallerCtx {
         // Id wraps a u32; every bit pattern, including zero, is a valid request id.
