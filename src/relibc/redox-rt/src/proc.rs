@@ -85,10 +85,22 @@ pub fn fexec_impl(
     // Dispatch native PE32+ images through the same Redox process/address-space
     // machinery used by ELF. The PE loader itself rejects unsupported Windows ABI
     // features rather than treating an image-format match as launch compatibility.
-    let mut format_magic = [0u8; 2];
+    let mut format_magic = [0u8; 4];
     pread_all(&image_file, 0, &mut format_magic)?;
-    if format_magic == *b"MZ" {
+    if format_magic[..2] == *b"MZ" {
         return trion::fexec_pe32_plus(
+            image_file,
+            thread_fd,
+            proc_fd,
+            path,
+            args,
+            envs,
+            extrainfo,
+        );
+    }
+
+    if format_magic == [0xCF, 0xFA, 0xED, 0xFE] {
+        return trion::fexec_macho64(
             image_file,
             thread_fd,
             proc_fd,
