@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage D: Translator and Executable Compatibility
 
-**Status:** TRIONEX v1 packaging and bounded user-space execution CLI implemented; PE/Mach-O and `.app` format inspection added. Control flow, relocation application, broad translation, platform execution compatibility, and OS loader integration remain in progress.  
+**Status:** TRIONEX v1 packaging and bounded user-space execution CLI implemented; PE/Mach-O and `.app` format inspection added. Control flow, relocation application, broad translation, platform execution compatibility, and OS loader integration are being implemented.  
 **Prerequisites:** Stage C validated TIR interpreter
 
 ## 1. First deliverable: TRIONEX v1
