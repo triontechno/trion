@@ -1,0 +1,10 @@
+[package]
+name = "trion-executable"
+version = "0.1.0"
+edition = "2024"
+description = "Bounded native executable-format inspection foundations for TRION"
+license = "MIT"
+
+[lib]
+name = "trion_executable"
+path = "src/lib.rs"
