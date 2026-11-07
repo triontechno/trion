@@ -17,7 +17,8 @@ impl ExportTable {
         if library.is_empty() || library.len()>MAX_SYMBOL_NAME { return Err(Error::Invalid("Windows import library name")); }
         if let ImportSymbol::Name(n)=&symbol { if n.is_empty()||n.len()>MAX_SYMBOL_NAME { return Err(Error::Invalid("Windows import symbol name")); } }
         if address==0 { return Err(Error::Invalid("null Windows export address")); }
-        if self.symbols.insert((library,symbol),address).is_some(){return Err(Error::Invalid("duplicate Windows export"));} Ok(())
+        let key = (library.to_ascii_lowercase(), symbol);
+        if self.symbols.insert(key,address).is_some(){return Err(Error::Invalid("duplicate Windows export"));} Ok(())
     }
     pub fn resolve(&self, import:&Import)->Result<u64,Error>{
         self.symbols.get(&(import.library.to_ascii_lowercase(),import.symbol.clone()))
