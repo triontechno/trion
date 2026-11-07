@@ -3,7 +3,7 @@ use redox_scheme::{CallerCtx, OpenResult};
 use scheme_utils::FpathWriter;
 use syscall::data::Stat;
 use syscall::error::{Error, Result, EACCES, EBADF, ENOENT};
-use syscall::flag::{MODE_REG, O_DIRECTORY};
+use syscall::flag::{MODE_FILE, O_DIRECTORY};
 use syscall::schemev2::NewFdFlags;
 
 const ROOT_ID: usize = 1;
@@ -122,7 +122,7 @@ impl SchemeSync for CapabilityScheme {
 
     fn fstat(&mut self, id: usize, stat: &mut Stat, _ctx: &CallerCtx) -> Result<()> {
         let content = self.content(id)?;
-        stat.st_mode = MODE_REG | 0o444;
+        stat.st_mode = MODE_FILE | 0o444;
         stat.st_size = content.len() as u64;
         stat.st_blocks = content.len().div_ceil(512) as u64;
         stat.st_blksize = 4096;
