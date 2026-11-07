@@ -1,0 +1,16 @@
+[package]
+name = "trion-capd"
+description = "TRION adaptive platform capability service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+daemon = { path = "../daemon" }
+libredox.workspace = true
+redox-scheme.workspace = true
+redox_syscall.workspace = true
+scheme-utils = { path = "../scheme-utils" }
+trion-platform = { path = "../../../ternary/platform" }
+
+[lints]
+workspace = true
