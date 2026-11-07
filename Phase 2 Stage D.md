@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage D: Translator and Executable Compatibility
 
-**Status:** TRIONEX v1 container library and validated TIR packaging CLI implemented; instruction expansion and executable/runtime integration remain in progress.  
+**Status:** TRIONEX v1 packaging and bounded user-space execution CLI implemented; PE/Mach-O and `.app` format inspection added. Control flow, relocation application, broad translation, platform execution compatibility, and OS loader integration remain in progress.  
 **Prerequisites:** Stage C validated TIR interpreter
 
 ## 1. First deliverable: TRIONEX v1
@@ -28,13 +28,15 @@ The total file length must equal 36 plus payload length. The payload must pass t
 ## 2. Later Stage D work
 
 - [x] Add `trion-translate package input.tir output.trx` to package validated TIR into TRIONEX.
-- Add a runtime command to inspect and execute TRIONEX with an explicitly supplied test stack.
+- [x] Add a bounded user-space `trion-translate run <input.trx> [max-instructions]` command for validated TRIONEX v1 programs. It uses the shared TIR runtime and an empty memory region; programs requiring a return stack are rejected safely.
 - Expand instruction support only in complete semantic groups, including required flags and control-flow behavior.
+- [x] Extend `inspect` to identify ELF64, PE/COFF, and Mach-O objects; inspect a `.app` bundle only when it contains exactly one regular executable under `Contents/MacOS`.
+- [ ] Implement execution compatibility for PE/COFF `.exe` and Mach-O executables inside `.app` bundles. Current support is format inspection only, not Windows/macOS application execution.
 - Preserve existing ELF input support and reject unsupported instructions with exact diagnostics.
 - Specify a separate native machine-code executable ABI and loader contract before claiming kernel-loadable native binaries.
 - Add reverse translation only for declared target instructions and ABIs; preserve semantics or reject.
 
-The package command validates TIR through the shared runtime parser, writes a TRIONEX v1 container, refuses to overwrite existing output files, and removes partial output after write failures. CLI tests cover valid packaging and overwrite protection.
+The package command validates TIR through the shared runtime parser, writes a TRIONEX v1 container, refuses to overwrite existing output files, and removes partial output after write failures. The `run` command validates the container before executing it with a strict instruction budget. CLI tests cover packaging, overwrite protection, execution, and format-inspection error paths.
 
 ## 3. Safety and compatibility
 
