@@ -423,11 +423,18 @@ mod tests {
         let relocation_section = 192;
         elf[relocation_section + 4..relocation_section + 8]
             .copy_from_slice(&section_header::SHT_RELA.to_le_bytes());
-        elf[relocation_section + 32..relocation_section + 40].copy_from_slice(&0u64.to_le_bytes());
+        elf[relocation_section + 32..relocation_section + 40]
+            .copy_from_slice(&24u64.to_le_bytes());
+        elf[relocation_section + 40..relocation_section + 44]
+            .copy_from_slice(&0u32.to_le_bytes());
+        elf[relocation_section + 44..relocation_section + 48]
+            .copy_from_slice(&1u32.to_le_bytes());
+        elf[relocation_section + 56..relocation_section + 64]
+            .copy_from_slice(&24u64.to_le_bytes());
         assert!(
             translate_elf_to_tir(&elf)
                 .unwrap_err()
-                .contains("relocation section")
+                .contains("symbol table")
         );
     }
 
