@@ -188,14 +188,16 @@ fn finish_native_exec(
         CallFlags::empty(),
         &[ProcCall::DisableSetpgid as u64],
     );
-    if let Ok(sighandler_fd) = thread_fd.dup_into_upper(b"sighandler") {
-        let _ = sighandler_fd.write(&SetSighandlerData {
-            user_handler: 0,
-            excp_handler: 0,
-            thread_control_addr: 0,
-            proc_control_addr: 0,
-        });
-    }
+    // Native images have no registered Redox signal runtime. Clear inherited
+    // user/exception handlers before entering untrusted guest code so faults
+    // follow the kernel's ordinary process signal/termination path.
+    let sighandler_fd = thread_fd.dup_into_upper(b"sighandler")?;
+    sighandler_fd.write(&SetSighandlerData {
+        user_handler: 0,
+        excp_handler: 0,
+        thread_control_addr: 0,
+        proc_control_addr: 0,
+    })?;
 
     if extrainfo.same_process {
         let _siglock = crate::signal::tmp_disable_signals();
