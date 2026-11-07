@@ -202,18 +202,8 @@ pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeRepo
     let selection = select_representation(SelectionRequest {
         boundary: Boundary::Internal,
         candidates: CandidateSet {
-            binary: Some(CandidateMetrics::new(
-                binary_cost_ns,
-                true,
-                true,
-                true,
-            )),
-            ternary: Some(CandidateMetrics::new(
-                ternary_cost_ns,
-                true,
-                true,
-                true,
-            )),
+            binary: Some(CandidateMetrics::new(binary_cost_ns, true, true, true)),
+            ternary: Some(CandidateMetrics::new(ternary_cost_ns, true, true, true)),
             hybrid: None,
         },
     })
