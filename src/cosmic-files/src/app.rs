@@ -838,6 +838,7 @@ impl App {
                 // The initial freestanding profile requires an empty environment;
                 // Windows process parameters and API services are provided later.
                 for path in paths {
+                    #[cfg(target_os = "redox")]
                     let is_pe = path.extension()
                         .and_then(|extension| extension.to_str())
                         .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
