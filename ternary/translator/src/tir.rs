@@ -520,7 +520,13 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
                     })?;
                     let src = register_id(instruction.op_register(1))
                         .ok_or_else(|| format!("unsupported arithmetic source at 0x{ip:016x}"))?;
-                    format!("{:?} r{dst} r{src}", instruction.mnemonic()).to_ascii_uppercase()
+                    let mnemonic = match instruction.mnemonic() {
+                        Mnemonic::Add => "ADD",
+                        Mnemonic::Sub => "SUB",
+                        Mnemonic::Cmp => "CMP",
+                        _ => unreachable!(),
+                    };
+                    format!("{mnemonic} r{dst} r{src}")
                 }
                 Mnemonic::Jmp
                 | Mnemonic::Je
