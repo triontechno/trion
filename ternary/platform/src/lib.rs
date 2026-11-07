@@ -156,7 +156,9 @@ pub struct AdaptiveProbeReport {
 /// Run the same integer workload through binary and balanced-ternary
 /// representations, measure five interleaved samples, validate equal results,
 /// then select using median measured costs. Iterations are capped at 100,000.
-pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeReport, &'static str> {
+pub fn run_adaptive_integer_probe(
+    iterations: usize,
+) -> Result<AdaptiveProbeReport, &'static str> {
     use std::hint::black_box;
     use std::time::Instant;
 
