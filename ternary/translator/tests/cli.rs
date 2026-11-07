@@ -46,7 +46,9 @@ fn rejects_non_elf_input() {
         .expect("run CLI");
     let _ = fs::remove_file(&path);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("not a recognized executable/object file"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("not a recognized executable/object file")
+    );
 }
 
 #[test]
