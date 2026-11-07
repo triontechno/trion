@@ -29,7 +29,8 @@ Retain raw output and host/toolchain metadata for every comparison. Repeat on qu
 The standalone `ternary/fuzz` cargo-fuzz package contains:
 
 - `packed_trit_buffer`: arbitrary packed-byte streams, logical lengths, reserved byte values, padding validation, and canonical decode/re-encode invariants. Fuzzer-controlled allocations are capped at one million logical trits.
-- `trn3_deserialize`: arbitrary TRN3 input, malformed headers/counts/payloads, and canonical deserialize/serialize round trips.\n- Stage G adds `pe32_plus`, `macho64`, and `app_bundle_plist` for untrusted executable and bundle metadata.
+- `trn3_deserialize`: arbitrary TRN3 input, malformed headers/counts/payloads, and canonical deserialize/serialize round trips.
+- Stage G adds `pe32_plus`, `macho64`, and `app_bundle_plist` for untrusted executable and bundle metadata.
 
 Run after Phase 2 implementation:
 
@@ -37,7 +38,10 @@ Run after Phase 2 implementation:
 cargo install cargo-fuzz --locked
 cd ternary/fuzz
 cargo fuzz run packed_trit_buffer -- -max_total_time=60 -max_len=1048584
-cargo fuzz run trn3_deserialize -- -max_total_time=60 -max_len=1048576\ncargo fuzz run pe32_plus -- -max_total_time=60 -max_len=1048576\ncargo fuzz run macho64 -- -max_total_time=60 -max_len=1048576\ncargo fuzz run app_bundle_plist -- -max_total_time=60 -max_len=1048576
+cargo fuzz run trn3_deserialize -- -max_total_time=60 -max_len=1048576
+cargo fuzz run pe32_plus -- -max_total_time=60 -max_len=1048576
+cargo fuzz run macho64 -- -max_total_time=60 -max_len=1048576
+cargo fuzz run app_bundle_plist -- -max_total_time=60 -max_len=1048576
 ```
 
 Preserve corpus, crash artifacts, toolchain versions, campaign duration, and coverage. Stage G has added PE32+, Mach-O 64, and app-bundle metadata fuzz targets; campaigns remain deferred. Instruction-decoder fuzzing is to be added when a decoder exists.
