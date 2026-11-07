@@ -3,11 +3,11 @@
 **Status:** Active implementation  
 **Parent:** [TRION-ARCHITECTURE.md](TRION-ARCHITECTURE.md)  
 **Prerequisite:** Phase 1 ternary core  
-**Rule:** All implementation work targets `main`. If direct work on `main` is unsuitable, use a temporary branch and merge verified work back into `main`.
+**Rule:** Work directly on `main` where practical; merge all completed and verified temporary-branch work into `main`.
 
 ## 1. Objective
 
-Phase 2 turns TRION's adaptive binary/ternary architecture into working software components. It preserves conventional binary compatibility while making ternary representations usable, measurable, and independently testable. It does not claim commodity processors execute ternary instructions or contain ternary RAM.
+Phase 2 develops an adaptive binary/ternary architecture that preserves conventional hardware and software compatibility. It does not claim commodity processors execute ternary instructions or contain ternary RAM.
 
 ## 2. Stage plan
 
@@ -15,28 +15,28 @@ Phase 2 turns TRION's adaptive binary/ternary architecture into working software
 **Status: merged into main.** Binary, balanced-ternary, and hybrid choices; evidence-based deterministic selection; checked i128/u128 bridges; tests and CI.
 
 ### Stage B — Packed ternary logical memory
-**Status: implemented and CI-verified in main.** Five balanced trits are packed per byte with checked construction, access, validation, and round-trip tests. Backing storage remains conventional binary RAM.
+**Status: implemented and CI-verified.** Five balanced trits per byte with checked construction, access, validation, and round-trip tests. Backing storage remains conventional binary RAM.
 
 ### Stage C — TIR execution foundation
-**Status: bounded interpreter implemented and CI-verified in main.** TIR remains a standalone research/test runtime, not an application execution path.
+**Status: bounded interpreter implemented and CI-verified.** TIR remains a standalone research/test runtime, not an application execution path.
 
 ### Stage D — Translator (retired)
 **Status: discontinued by architecture decision.** The former translator, TIR conversion workflow, and TRIONEX application path are retired. Stage G is the sole application execution engine. See [Stage D](Phase%202%20Stage%20D.md).
 
 ### Stage E — Runtime, kernel, and hardware integration
-**Status:** User-space target capability reporting, adaptive-policy delegation, and byte-preserving binary-boundary contracts implemented in `ternary/platform`; Redox boot-time service integration and QEMU verification remain open.
+**Status:** Implementation delivered; automated build and QEMU verification pending.
 
-- Report build-target facts without guessing optional hardware capabilities.
-- Consume adaptive decisions using caller-supplied measured/validated evidence.
-- Preserve binary MMIO, DMA, driver ABI, syscall ABI, network, and storage boundaries.
-- Integrate a permission-controlled capability service into the Redox user-space boot path.
-- Validate supported Redox targets and QEMU boot behavior.
-- Do not alter physical frame allocation or page tables merely to label memory ternary.
+- Versioned target capability reporting in `ternary/platform`.
+- Redox boot-time read-only capability scheme at `/scheme/trion`.
+- Measured, correctness-checked adaptive integer workload published as runtime policy evidence.
+- PCI inventory evidence, with unprobed optional device features reported honestly.
+- Existing Redox scheme/driver interfaces and byte-preserving binary MMIO, DMA, syscall, network, and storage boundaries.
+- Initfs packaging, service ordering, service tests, CI, and QEMU readiness verification.
 
-See [Stage E](Phase%202%20Stage%20E.md) for remaining completion gates.
+See [Stage E](Phase%202%20Stage%20E.md) for endpoints, commands, limitations, and completion evidence.
 
 ### Stage F — Measurement, hardening, and release validation
-**Status:** Initial benchmark harness and deterministic malformed-input regression tests implemented; sustained fuzzing, comparative result publication, full OS build, and QEMU boot validation remain open.
+**Status:** Initial benchmark harness and deterministic malformed-input regression tests implemented; sustained fuzzing, comparative result publication, and complete release validation remain open.
 
 - Benchmark equivalent binary, ternary, and hybrid workloads including conversion and compatibility overhead.
 - Fuzz packed-memory decoders and, when Stage G exists, direct PE/Mach-O loaders and instruction decoding.
