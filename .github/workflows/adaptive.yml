@@ -1,5 +1,5 @@
 name: TRION adaptive policy
-# CI coverage: Stages A-D policy, memory, TIR runtime, TRIONEX, and translator.
+# CI coverage: adaptive policy, packed memory, legacy TIR runtime, platform report, and benchmarks.
 
 on:
   push:
@@ -8,8 +8,6 @@ on:
       - "ternary/adaptive/**"
       - "ternary/memory/**"
       - "ternary/runtime/**"
-      - "ternary/executable/**"
-      - "ternary/translator/**"
       - "ternary/platform/**"
       - "ternary/benchmarks/**"
       - "ternary/core/**"
@@ -40,10 +38,6 @@ jobs:
         run: cargo test --manifest-path ternary/memory/Cargo.toml
       - name: Test TIR runtime
         run: cargo test --manifest-path ternary/runtime/Cargo.toml
-      - name: Test TRIONEX container
-        run: cargo test --manifest-path ternary/executable/Cargo.toml
-      - name: Test binary translator
-        run: cargo test --manifest-path ternary/translator/Cargo.toml
       - name: Test platform capability report
         run: cargo test --manifest-path ternary/platform/Cargo.toml
       - name: Run representation benchmark smoke test
@@ -55,8 +49,6 @@ jobs:
           cargo fmt --manifest-path ternary/adaptive/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/memory/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/runtime/Cargo.toml -- --check
-          cargo fmt --manifest-path ternary/executable/Cargo.toml -- --check
-          cargo fmt --manifest-path ternary/translator/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/platform/Cargo.toml -- --check
           cargo fmt --manifest-path ternary/benchmarks/Cargo.toml -- --check
       - name: Run clippy
@@ -64,7 +56,5 @@ jobs:
           cargo clippy --manifest-path ternary/adaptive/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/memory/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/runtime/Cargo.toml --all-targets -- -D warnings
-          cargo clippy --manifest-path ternary/executable/Cargo.toml --all-targets -- -D warnings
-          cargo clippy --manifest-path ternary/translator/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/platform/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/benchmarks/Cargo.toml --all-targets -- -D warnings
