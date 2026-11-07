@@ -62,7 +62,7 @@ fn validate_arguments(args: &[String], env: &[String]) -> Result<(), Error> {
 }
 
 /// Prepare the original application through one format-neutral dispatch path.
-/// This is a checked plan, not a claim that the kernel can enter the guest yet.
+/// This library returns a plan; actual native process creation is wired through Redox relibc.
 pub fn prepare_application(
     input: ApplicationInput,
     arguments: &[String],
@@ -97,20 +97,27 @@ pub fn prepare_application(
             (original_path, Some(bundle.executable), plan)
         }
     };
+    let mut blockers = vec![
+        "this library returns a load plan; actual process creation uses the Redox execve/posix_spawn path",
+        "the freestanding native profiles do not provide standard Windows or macOS process ABI and API services",
+    ];
+    if !arguments.is_empty() || !environment.is_empty() {
+        blockers.push("the current freestanding native profiles do not construct application argument/environment blocks");
+    }
+    if !load_plan.dependencies.is_empty() {
+        blockers.push("the current freestanding native profiles reject unresolved dynamic dependencies");
+    }
+    let redox_native_backend = cfg!(all(target_os = "redox", target_arch = "x86_64"));
     let compatibility = CompatibilityReport {
-        profile_id: crate::engine::INTERPRETED_PROFILE_ID,
+        profile_id: crate::NATIVE_PROFILE_ID,
         format: load_plan.format,
         architecture: load_plan.architecture,
         image_prepared: true,
-        guest_backend_integrated: false,
-        native_execution_available: false,
+        guest_backend_integrated: redox_native_backend,
+        native_execution_available: redox_native_backend,
         platform_abi_available: false,
         can_launch: false,
-        blockers: vec![
-            "kernel guest-process creation and native execution boundary are not integrated",
-            "platform syscall/API service broker is not integrated",
-            "instruction and process-isolation validation is deferred until Phase 2 implementation is complete",
-        ],
+        blockers,
     };
     Ok(ApplicationLaunchPlan {
         original_path,
@@ -121,9 +128,9 @@ pub fn prepare_application(
 }
 
 
-/// Integration contract implemented by the isolated process backend (Phase 2
-/// Stage H). The engine owns parsing and image preparation; the backend owns
-/// process creation, native execution, waiting, and teardown.
+/// Optional backend contract for integrations which own their process lifecycle.
+/// Production Redox native execution is wired through relibc's standard exec path,
+/// rather than through this portable planning crate.
 pub trait GuestExecutionBackend {
     type Handle;
     fn launch(
@@ -149,8 +156,8 @@ pub fn launch_with_backend<B: GuestExecutionBackend>(
 
 
 /// Development execution backend for the bounded instruction subset. It is
-/// useful for deterministic bring-up, but is not a substitute for Stage H's
-/// kernel-isolated native process backend or the Stage I/J platform runtimes.
+/// useful for deterministic bring-up, but is not a substitute for Redox native
+/// execution or the Stage I/J platform runtimes.
 pub struct InterpretedBackend<B> {
     pub syscall_broker: B,
     next_process_id: u64,
