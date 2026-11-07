@@ -90,3 +90,6 @@ jobs:
       - name: Fuzz app bundle metadata
         working-directory: ternary/fuzz
         run: cargo fuzz run app_bundle_plist -- -max_total_time=60 -max_len=1048576
+      - name: Fuzz x86-64 instruction decoder
+        working-directory: ternary/fuzz
+        run: cargo fuzz run x86_64_decoder -- -max_total_time=60 -max_len=64
