@@ -16,6 +16,7 @@ use core::fmt;
 pub const MAX_IMAGE_SIZE: usize = 512 * 1024 * 1024;
 pub const MAX_SECTIONS: usize = 96;
 pub const MAX_COMMANDS: usize = 4096;
+pub const NATIVE_PROFILE_ID: &str = "TRION-X64-REDOX-FREESTANDING-0";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -269,14 +270,25 @@ pub fn select_app_executable<'a>(plist:&[u8],members:&'a [&'a str])->Result<&'a 
 pub struct LaunchAssessment{pub description:Description,pub blockers:Vec<&'static str>,pub launchable:bool}
 /// Parsing never implies launch support. This currently returns explicit backend blockers.
 pub fn assess_launch(data:&[u8])->Result<LaunchAssessment,Error>{
-    let description=inspect(data)?;let mut blockers=vec![
-        "isolated guest process/address-space backend is not integrated",
-        "x86-64 instruction decoder, execution and fault boundary are not implemented",
-    ];
-    match description.format{
-        Format::Pe32Plus=>{blockers.push("PE imports require a verified DLL catalog, platform dependency policy and kernel-backed Windows API exports");blockers.push("Windows process startup, ABI, TLS, exception/unwind and kernel-backed API services are not implemented");}
-        Format::MachO64=>{blockers.push("Mach-O relocation, dyld rebasing, binding and dependency resolution are not implemented");blockers.push("macOS dyld, process startup, ABI and framework services are not implemented");}
+    let description=inspect(data)?;
+    let mut blockers=Vec::new();
+    match description.format {
+        Format::Pe32Plus => {
+            if !description.dependencies.is_empty() {
+                blockers.push("the freestanding PE profile rejects imports; the Windows DLL/API runtime is not implemented");
+            }
+            blockers.push("the native PE profile requires preferred-base loading and rejects TLS, exception/unwind, delay-import, load-config, IAT and managed-runtime metadata");
+            blockers.push("Windows PEB/TEB, Win32/NT APIs and platform startup services are not implemented");
+        }
+        Format::MachO64 => {
+            if !description.dependencies.is_empty() {
+                blockers.push("the freestanding Mach-O profile rejects dylib dependencies; dyld/framework resolution is not implemented");
+            }
+            blockers.push("the native Mach-O profile requires LC_MAIN and rejects dyld, rebasing/binding, chained fixups and code-signature commands");
+            blockers.push("standard macOS process startup, argument/environment blocks and framework services are not implemented");
+        }
     }
+    blockers.push("this library only inspects and prepares images; actual process creation uses the x86-64 Redox execve/posix_spawn path");
     Ok(LaunchAssessment{description,blockers,launchable:false})
 }
 
