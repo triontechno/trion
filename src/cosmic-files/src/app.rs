@@ -123,6 +123,9 @@ fn resolve_trion_app_bundle(bundle: &Path) -> Result<PathBuf, String> {
         if metadata.file_type().is_symlink() {
             return Err("application bundle contains a symlink".into());
         }
+        if !metadata.is_file() && !metadata.is_dir() {
+            return Err("application bundle contains a special file".into());
+        }
         if entry.path() == contents {
             continue;
         }
