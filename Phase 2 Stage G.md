@@ -39,7 +39,8 @@ Provide one direct execution path for original Windows PE32+ .exe files and macO
 - This is a deliberately small interpreter profile, not a claim of complete x86-64 emulation. Native PE/Mach-O execution uses the CPU directly.
 
 ### OS launcher
-- COSMIC Files routes .exe files into the standard Redox process execution path.
+- Redox relibc dispatches original PE32+ and Mach-O64 files through the standard execve/posix_spawn path, so any OS component using the normal process API reaches the native loader.
+- COSMIC Files routes .exe files into that process path.
 - COSMIC Files resolves .app/Contents/Info.plist, rejects symlink/special-file bundle members, selects the declared Contents/MacOS executable, and launches that original Mach-O file through the same process path.
 - The current bundle resolver supports XML Info.plist; binary plist and general macOS bundle semantics remain unsupported.
 
