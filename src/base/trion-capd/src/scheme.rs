@@ -246,9 +246,11 @@ mod tests {
         let buffer = DirentBuf::new(&mut bytes[..], header_size).unwrap();
         let entries = scheme.getdents(ROOT_ID, buffer, 0).unwrap();
         let written = entries.finalize();
-        let entry_count = DirentIter::new(&bytes[..written])
-            .map(|entry| entry.unwrap())
-            .count();
+        let mut entry_count = 0;
+        for entry in DirentIter::new(&bytes[..written]) {
+            entry.unwrap();
+            entry_count += 1;
+        }
         assert_eq!(entry_count, FILE_NAMES.len());
     }
 
