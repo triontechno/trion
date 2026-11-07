@@ -288,27 +288,24 @@ fn package(input_path: &str, output_path: &str) -> Result<(), String> {
 }
 
 fn run(path: &str, max_instructions: usize) -> Result<(), String> {
-    let (tir_payload, source_format) = {
-        let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-        match trion_executable::TrionExecutable::parse(&bytes) {
-            Ok(executable) => (executable.payload().to_vec(), "TRIONEX v1"),
-            Err(_) => {
-                let (actual, object_bytes, is_app) = input_bytes(path)?;
-                let translated = tir::translate_object_to_tir(&object_bytes)?;
-                let format = if is_app {
-                    "macOS .app x86-64 instruction subset"
-                } else {
-                    match goblin::Object::parse(&object_bytes) {
-                        Ok(goblin::Object::PE(_)) => "Windows PE x86-64 instruction subset",
-                        Ok(goblin::Object::Mach(_)) => "Mach-O x86-64 instruction subset",
-                        _ => "ELF x86-64 instruction subset",
-                    }
-                };
-                let _ = actual;
-                (translated, format)
-            }
+    let (actual, bytes, is_app) = input_bytes(path)?;
+    let (tir_payload, source_format) = match trion_executable::TrionExecutable::parse(&bytes) {
+        Ok(executable) => (executable.payload().to_vec(), "TRIONEX v1"),
+        Err(_) => {
+            let translated = tir::translate_object_to_tir(&bytes)?;
+            let format = if is_app {
+                "macOS .app x86-64 instruction subset"
+            } else {
+                match goblin::Object::parse(&bytes) {
+                    Ok(goblin::Object::PE(_)) => "Windows PE x86-64 instruction subset",
+                    Ok(goblin::Object::Mach(_)) => "Mach-O x86-64 instruction subset",
+                    _ => "ELF x86-64 instruction subset",
+                }
+            };
+            (translated, format)
         }
     };
+    let _ = actual;
     let memory = [0u8; 8];
     let mut registers = [0u64; 16];
     registers[4] = 0x1000;
