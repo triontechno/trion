@@ -142,10 +142,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "packed_vs_i8_ratio={:.6}",
         packed_storage_bytes as f64 / logical_i8_storage_bytes.max(1) as f64
     );
-    println!(
-        "packed_vs_i128_ratio={:.6}",
-        packed_storage_bytes as f64 / binary_storage_bytes.max(1) as f64
-    );
     let (binary_samples, binary_result) = binary;
     let (ternary_samples, ternary_result) = ternary;
     let (hybrid_samples, hybrid_result) = hybrid;
