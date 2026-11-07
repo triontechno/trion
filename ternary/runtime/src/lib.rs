@@ -181,14 +181,14 @@ fn parse_program(bytes: &[u8]) -> Result<Vec<Instruction>, RuntimeError> {
                 let dst = parse_register(dst, line)?;
                 let value =
                     Ternary::parse(imm).map_err(|_| RuntimeError::InvalidImmediate { line })?;
+                if value.to_string() != *imm {
+                    return Err(RuntimeError::InvalidImmediate { line });
+                }
                 let n = value
                     .to_u128()
                     .map_err(|_| RuntimeError::InvalidImmediate { line })?;
                 let value =
                     u64::try_from(n).map_err(|_| RuntimeError::InvalidImmediate { line })?;
-                if Ternary::from_u128(value as u128).to_string() != *imm {
-                    return Err(RuntimeError::InvalidImmediate { line });
-                }
                 Operation::MovImm64 { dst, value }
             }
             [_, "MOV", dst, src] => Operation::Mov {
