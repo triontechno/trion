@@ -24,6 +24,7 @@ use goblin::elf64::{
     program_header::program_header64::{PF_R, PF_W, PF_X, PT_INTERP, PT_LOAD, ProgramHeader},
 };
 
+#[cfg(target_arch = "x86_64")]
 mod trion;
 
 use syscall::{
@@ -82,33 +83,34 @@ pub fn fexec_impl(
     extrainfo: &ExtraInfo,
     interp_override: Option<InterpOverride>,
 ) -> Result<Option<FexecResult>> {
-    // Dispatch native PE32+ images through the same Redox process/address-space
-    // machinery used by ELF. The PE loader itself rejects unsupported Windows ABI
-    // features rather than treating an image-format match as launch compatibility.
-    let mut format_magic = [0u8; 4];
-    pread_all(&image_file, 0, &mut format_magic)?;
-    if format_magic[..2] == *b"MZ" {
-        return trion::fexec_pe32_plus(
-            image_file,
-            thread_fd,
-            proc_fd,
-            path,
-            args,
-            envs,
-            extrainfo,
-        );
-    }
-
-    if format_magic == [0xCF, 0xFA, 0xED, 0xFE] {
-        return trion::fexec_macho64(
-            image_file,
-            thread_fd,
-            proc_fd,
-            path,
-            args,
-            envs,
-            extrainfo,
-        );
+    // Native PE/Mach-O entry support is x86-64 only. Other Redox architectures
+    // continue through their existing executable-format path and reject these files.
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut format_magic = [0u8; 4];
+        pread_all(&image_file, 0, &mut format_magic)?;
+        if format_magic[..2] == *b"MZ" {
+            return trion::fexec_pe32_plus(
+                image_file,
+                thread_fd,
+                proc_fd,
+                path,
+                args,
+                envs,
+                extrainfo,
+            );
+        }
+        if format_magic == [0xCF, 0xFA, 0xED, 0xFE] {
+            return trion::fexec_macho64(
+                image_file,
+                thread_fd,
+                proc_fd,
+                path,
+                args,
+                envs,
+                extrainfo,
+            );
+        }
     }
 
     // Here, we do the minimum part of loading an application, which is what the kernel used to do.
