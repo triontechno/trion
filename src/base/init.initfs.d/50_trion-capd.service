@@ -1,6 +1,6 @@
 [unit]
 description = "TRION adaptive platform capability service"
-requires_weak = ["40_hwd.service"]
+requires_weak = ["40_hwd.service", "40_pcid-spawner-initfs.service"]
 
 [service]
 cmd = "trion-capd"
