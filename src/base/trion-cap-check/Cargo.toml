@@ -1,0 +1,12 @@
+[package]
+name = "trion-cap-check"
+description = "Boot-time integration check for TRION capability reports"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common = { path = "../drivers/common" }
+log.workspace = true
+
+[lints]
+workspace = true
