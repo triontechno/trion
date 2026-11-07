@@ -2,7 +2,7 @@ use redox_scheme::scheme::SchemeSync;
 use redox_scheme::{CallerCtx, OpenResult};
 use scheme_utils::FpathWriter;
 use syscall::data::Stat;
-use syscall::dirent::{DirEntry, DirentBuf, DirentKind};
+use syscall::dirent::{DirEntry, DirentBuf, DirentIter, DirentKind};
 use syscall::error::{Error, Result, EACCES, EBADF, EISDIR, ENOENT, ENOTDIR};
 use syscall::flag::{MODE_DIR, MODE_FILE, O_DIRECTORY, O_RDWR, O_WRONLY};
 use syscall::schemev2::NewFdFlags;
@@ -237,10 +237,12 @@ mod tests {
     fn directory_lists_only_the_three_read_only_reports() {
         let mut scheme = CapabilityScheme::new(String::new(), String::new(), String::new());
         let mut bytes = [0u8; 256];
-        let entries = scheme
-            .getdents(ROOT_ID, DirentBuf::new(&mut bytes), 0)
-            .unwrap();
-        assert_eq!(entries.len(), FILE_NAMES.len());
+        let header_size = std::mem::size_of::<syscall::dirent::DirentHeader>() as u16;
+        let buffer = DirentBuf::new(&mut bytes, header_size).unwrap();
+        let entries = scheme.getdents(ROOT_ID, buffer, 0).unwrap();
+        let written = entries.finalize();
+        let entry_count = DirentIter::new(&bytes[..written]).count();
+        assert_eq!(entry_count, FILE_NAMES.len());
     }
 
     #[test]
