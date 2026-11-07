@@ -77,6 +77,28 @@ See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-va
 - Run tests, formatting, Clippy, architecture builds, and QEMU boot validation.
 - Publish measured results; do not claim speed, capacity, energy, or security gains without evidence.
 
+### Stage G — Direct executable decoding and execution
+**Status: Planned; not implemented.**
+
+- Add a direct execution path for supported Windows PE32+ `.exe` files and macOS `.app` bundles.
+- Load and validate the original executable image, then decode and interpret supported machine instructions at runtime.
+- Do not require conversion to TIR or creation of a `.trx` file for direct execution.
+- Keep the existing Stage D translation/TRIONEX path available as a separate option.
+- Implement format-specific loaders, a bounded direct instruction decoder/interpreter, platform compatibility services, process isolation, and explicit resource/security controls.
+- Treat instruction decoding and Windows/macOS API compatibility as separate problems. Only advertise the tested instruction/import/platform-service matrix.
+- Reject unsupported instructions, imports, relocations, architectures, and malformed files safely.
+
+See [Stage G]("Phase%202%20Stage%20G.md") for architecture, milestones, and completion gates.
+
+### Stage H — UI, UX, and UC
+**Status: Planned; not implemented.**
+
+- Deliver the user-facing interface and experience work after the executable/runtime foundations in Stage G.
+- Define the scope of UC in the Stage H specification before implementation; do not assume an expansion not yet agreed.
+- Integrate desktop launch flows, application discovery, feedback, and compatibility diagnostics with the capabilities actually delivered by earlier stages.
+
+Stage H must reflect verified OS capabilities and must not present unsupported executable compatibility as available.
+
 ## 3. Global engineering gates
 
 1. Correctness and safety outrank representation choice.
@@ -91,6 +113,6 @@ See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-va
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 is complete only when Stages A–F have been implemented to their stated scope, automated checks pass, translator/runtime capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in the declared QEMU configurations.
+Phase 2 is complete only when Stages A–H have been implemented to their stated scope, automated checks pass, translator/runtime capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in the declared QEMU configurations.
 
 A successful library test suite alone does not prove that the OS boots or that ternary hardware exists.
