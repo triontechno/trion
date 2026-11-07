@@ -43,6 +43,173 @@ fn register_id(register: Register) -> Option<u8> {
     })
 }
 
+fn encode_code_sections(sections: Vec<(u64, Vec<u8>)>) -> Result<Vec<u8>, String> {
+    let mut output = format!("{TIR_HEADER}\n");
+    let mut instructions = 0usize;
+    for (base, code) in sections {
+        let mut decoder = Decoder::with_ip(64, &code, base, DecoderOptions::NONE);
+        while decoder.can_decode() {
+            let instruction = decoder.decode();
+            let ip = instruction.ip();
+            if instruction.is_invalid() {
+                return Err(format!("invalid x86-64 instruction encoding at 0x{ip:016x}"));
+            }
+            let op = match instruction.mnemonic() {
+                Mnemonic::Nop => "NOP".to_string(),
+                Mnemonic::Ret => "RET".to_string(),
+                Mnemonic::Mov
+                    if instruction.op_count() == 2
+                        && instruction.op_kind(0) == iced_x86::OpKind::Register
+                        && instruction.op_kind(1) == iced_x86::OpKind::Register =>
+                {
+                    let dst = register_id(instruction.op_register(0))
+                        .ok_or_else(|| format!("unsupported MOV destination at 0x{ip:016x}"))?;
+                    let src = register_id(instruction.op_register(1))
+                        .ok_or_else(|| format!("unsupported MOV source at 0x{ip:016x}"))?;
+                    format!("MOV r{dst} r{src}")
+                }
+                Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp
+                    if instruction.op_count() == 2
+                        && instruction.op_kind(0) == iced_x86::OpKind::Register
+                        && instruction.op_kind(1) == iced_x86::OpKind::Register =>
+                {
+                    let dst = register_id(instruction.op_register(0))
+                        .ok_or_else(|| format!("unsupported arithmetic destination at 0x{ip:016x}"))?;
+                    let src = register_id(instruction.op_register(1))
+                        .ok_or_else(|| format!("unsupported arithmetic source at 0x{ip:016x}"))?;
+                    format!("{:?} r{dst} r{src}", instruction.mnemonic()).to_ascii_uppercase()
+                }
+                Mnemonic::Jmp | Mnemonic::Je | Mnemonic::Jne | Mnemonic::Jl
+                | Mnemonic::Jle | Mnemonic::Jg | Mnemonic::Jge | Mnemonic::Call => {
+                    if instruction.op_kind(0) != iced_x86::OpKind::NearBranch64 {
+                        return Err(format!("indirect control flow is unsupported at 0x{ip:016x}"));
+                    }
+                    let mnemonic = match instruction.mnemonic() {
+                        Mnemonic::Jmp => "JMP", Mnemonic::Je => "JZ", Mnemonic::Jne => "JNZ",
+                        Mnemonic::Jl => "JL", Mnemonic::Jle => "JLE", Mnemonic::Jg => "JG",
+                        Mnemonic::Jge => "JGE", Mnemonic::Call => "CALL", _ => unreachable!(),
+                    };
+                    format!("{mnemonic} {:016x}", instruction.near_branch_target())
+                }
+                _ if instruction.code() == Code::Mov_r64_imm64 => {
+                    let register = register_id(instruction.op0_register())
+                        .ok_or_else(|| format!("unsupported MOV destination register at 0x{ip:016x}"))?;
+                    let immediate = Ternary::from_u128(instruction.immediate64() as u128);
+                    format!("MOV_IMM64 r{register} {immediate}")
+                }
+                _ => return Err(format!("unsupported x86-64 instruction {:?} at 0x{ip:016x}", instruction.mnemonic())),
+            };
+            writeln!(output, "{ip:016x} {op}").expect("writing to String cannot fail");
+            instructions = instructions.checked_add(1)
+                .ok_or_else(|| "instruction count overflow".to_string())?;
+        }
+    }
+    if instructions == 0 { return Err("input contains no translatable instructions".to_string()); }
+    let bytes = output.into_bytes();
+    validate_tir(&bytes)?;
+    Ok(bytes)
+}
+
+/// Translate a 64-bit x86 Windows PE image. This imports executable sections
+/// into the TRION TIR runtime; Win32/NT APIs and the Windows process ABI are not emulated.
+pub fn translate_pe_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let pe = match goblin::pe::PE::parse(bytes) {
+        Ok(pe) => pe,
+        Err(error) => return Err(format!("invalid PE executable: {error}")),
+    };
+    if !pe.is_64 || pe.header.coff_header.machine != 0x8664 {
+        return Err("only x86-64 PE executables are supported".into());
+    }
+    let mut sections = Vec::new();
+    for (index, section) in pe.sections.iter().enumerate() {
+        if section.characteristics & 0x2000_0000 == 0 || section.size_of_raw_data == 0 {
+            continue;
+        }
+        let start = usize::try_from(section.pointer_to_raw_data)
+            .map_err(|_| format!("PE section {index} offset too large"))?;
+        let size = usize::try_from(section.size_of_raw_data)
+            .map_err(|_| format!("PE section {index} size too large"))?;
+        let end = start.checked_add(size).ok_or("PE section bounds overflow")?;
+        let code = bytes.get(start..end)
+            .ok_or_else(|| format!("PE section {index} lies outside file"))?;
+        let base = pe.image_base.checked_add(u64::from(section.virtual_address))
+            .ok_or("PE section virtual address overflow")?;
+        sections.push((base, code.to_vec()));
+    }
+    encode_code_sections(sections)
+}
+
+/// Translate a thin little-endian x86-64 Mach-O image. Universal/fat binaries,
+/// ARM64, external relocations, and the macOS process/framework ABI are rejected.
+pub fn translate_macho_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    if bytes.len() < 32 || bytes.get(0..4) != Some(&[0xcf, 0xfa, 0xed, 0xfe]) {
+        return Err("only thin little-endian 64-bit Mach-O images are supported".into());
+    }
+    let read_u32 = |offset: usize| -> Result<u32, String> {
+        let end = offset.checked_add(4).ok_or("Mach-O offset overflow")?;
+        let field = bytes.get(offset..end).ok_or("truncated Mach-O header")?;
+        Ok(u32::from_le_bytes(field.try_into().map_err(|_| "invalid Mach-O field")?))
+    };
+    let read_u64 = |offset: usize| -> Result<u64, String> {
+        let end = offset.checked_add(8).ok_or("Mach-O offset overflow")?;
+        let field = bytes.get(offset..end).ok_or("truncated Mach-O header")?;
+        Ok(u64::from_le_bytes(field.try_into().map_err(|_| "invalid Mach-O field")?))
+    };
+    if read_u32(4)? != 0x0100_0007 {
+        return Err("only x86-64 Mach-O executables are supported".into());
+    }
+    let ncmds = usize::try_from(read_u32(16)?).map_err(|_| "Mach-O command count too large")?;
+    let sizeofcmds = usize::try_from(read_u32(20)?).map_err(|_| "Mach-O command size too large")?;
+    let commands_end = 32usize.checked_add(sizeofcmds).ok_or("Mach-O command bounds overflow")?;
+    if commands_end > bytes.len() { return Err("Mach-O load commands exceed file bounds".into()); }
+    let mut cursor = 32usize;
+    let mut sections = Vec::new();
+    for _ in 0..ncmds {
+        let cmd = read_u32(cursor)?;
+        let cmdsize = usize::try_from(read_u32(cursor + 4)?).map_err(|_| "Mach-O command too large")?;
+        if cmdsize < 8 || cursor.checked_add(cmdsize).ok_or("Mach-O command overflow")? > commands_end {
+            return Err("malformed Mach-O load command".into());
+        }
+        if cmd == 0x19 {
+            if cmdsize < 72 { return Err("truncated LC_SEGMENT_64 command".into()); }
+            let initprot = read_u32(cursor + 60)?;
+            let nsects = usize::try_from(read_u32(cursor + 64)?).map_err(|_| "Mach-O section count too large")?;
+            if initprot & 4 != 0 {
+                let section_start = cursor + 72;
+                let required = nsects.checked_mul(80).and_then(|n| n.checked_add(section_start))
+                    .ok_or("Mach-O section table overflow")?;
+                if required > cursor + cmdsize { return Err("Mach-O section table exceeds segment command".into()); }
+                for section_index in 0..nsects {
+                    let section = section_start + section_index * 80;
+                    let address = read_u64(section + 32)?;
+                    let size = usize::try_from(read_u64(section + 40)?).map_err(|_| "Mach-O section too large")?;
+                    let offset = usize::try_from(read_u32(section + 48)?).map_err(|_| "Mach-O section offset too large")?;
+                    let relocation_count = read_u32(section + 60)?;
+                    if relocation_count != 0 {
+                        return Err(format!("Mach-O section {section_index} contains relocations that are not yet supported"));
+                    }
+                    if size == 0 { continue; }
+                    let end = offset.checked_add(size).ok_or("Mach-O section bounds overflow")?;
+                    let code = bytes.get(offset..end).ok_or("Mach-O executable section lies outside file")?;
+                    sections.push((address, code.to_vec()));
+                }
+            }
+        }
+        cursor += cmdsize;
+    }
+    encode_code_sections(sections)
+}
+
+/// Translate ELF, PE, or thin x86-64 Mach-O code into the common TIR format.
+pub fn translate_object_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    match goblin::Object::parse(bytes).map_err(|error| format!("unrecognised executable: {error}"))? {
+        goblin::Object::Elf(_) => translate_elf_to_tir(bytes),
+        goblin::Object::PE(_) => translate_pe_to_tir(bytes),
+        goblin::Object::Mach(_) => translate_macho_to_tir(bytes),
+        _ => Err("unsupported executable object format".into()),
+    }
+}
+
 /// Translate the deliberately small, semantics-preserving x86-64 subset to TIR v1.
 ///
 /// The returned stream is validated before it is exposed. Unsupported
