@@ -146,6 +146,8 @@ pub const RFLAGS_ZF: u64 = 1 << 6;
 pub const RFLAGS_PF: u64 = 1 << 2;
 pub const RFLAGS_SF: u64 = 1 << 7;
 pub const RFLAGS_OF: u64 = 1 << 11;
+pub const RFLAGS_RESERVED_ONE: u64 = 1 << 1;
+pub const SYSCALL_RFLAGS_MASK: u64 = (1 << 8) | (1 << 9) | (1 << 10) | (1 << 14);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecutionEvent {
@@ -272,6 +274,7 @@ impl GuestProcess {
                 // forwarded directly to the host kernel.
                 self.cpu.rcx=next;
                 self.cpu.r11=self.cpu.rflags;
+                self.cpu.rflags=(self.cpu.rflags & !SYSCALL_RFLAGS_MASK) | RFLAGS_RESERVED_ONE;
                 self.cpu.rip=next;
                 self.instruction_budget-=1;
                 self.state=ProcessState::Blocked;
@@ -310,6 +313,7 @@ impl GuestProcess {
     pub fn resume_with_syscall_result(&mut self, result: i64) -> Result<(), Error> {
         if self.state!=ProcessState::Blocked {return Err(Error::Invalid("guest is not blocked at a syscall boundary"));}
         self.cpu.rax=result as u64;
+        self.cpu.rflags=self.cpu.r11 | RFLAGS_RESERVED_ONE;
         self.state=ProcessState::Ready;
         Ok(())
     }
