@@ -323,7 +323,7 @@ mod tests {
         put64(&mut d, seg+32, 0x1000);
         put64(&mut d, seg+40, 0);
         put64(&mut d, seg+48, 0x300);
-        put32(&mut d, seg+56, 5);
+        put32(&mut d, seg+56, 7);\n        put32(&mut d, seg+60, 5);
         put32(&mut d, seg+64, 0);
         let main = seg+72;
         put32(&mut d, main, 0x8000_0028);
