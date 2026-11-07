@@ -1,98 +1,100 @@
-# TRION Phase 2 — Stage G: Direct Executable Decoding and Execution
+# TRION Phase 2 — Stage G: Direct Executable Engine
 
 **Status: Planned; not implemented.**  
-**Prerequisites:** Stage D executable-format foundations and Stage E runtime/platform integration.
+**Prerequisites:** Stage E runtime/platform integration and Stage F security/validation gates.
 
 ## 1. Objective
 
-Allow users to open supported Windows `.exe` and macOS `.app` applications directly in TRION without first translating them into TIR or packaging them as `.trx` files.
+Build TRION's single application compatibility engine. Users should be able to open supported Windows .exe files and macOS .app bundles directly, as users open applications in Windows and macOS.
 
-This stage adds a direct execution path alongside (not instead of) the existing translator and TRIONEX runtime.
+TRION loads the original executable format, validates it, decodes machine instructions as execution proceeds, and executes supported instructions in its own controlled execution environment. The source application is not converted into TIR or repackaged as .trx.
 
-"Direct" means that TRION loads the source executable in its native executable format, decodes machine instructions as execution proceeds, and interprets supported instructions without producing an intermediate translated executable. It does **not** mean executing untrusted host machine code directly on the CPU.
+## 2. Non-negotiable architecture
 
-## 2. User-facing contract
+- One application execution path: the direct executable engine.
+- No application translator.
+- No TIR conversion for application launching.
+- No TRIONEX/.trx application container.
+- No translation cache or generated intermediate executable.
+- No fallback to a translator when an instruction or API is unsupported.
+- Original .exe files and .app bundles remain unchanged.
+- Unsupported inputs fail with actionable compatibility diagnostics.
 
-- A user can request to open a supported `.exe` or `.app` through the TRION executable launcher.
-- The launcher identifies the format and architecture, validates the image, and checks compatibility.
-- The direct execution engine decodes and executes supported instructions from the original image.
-- The original executable and application bundle remain unchanged.
-- No `.trx` conversion, translation cache, or intermediate TIR file is required for this path.
-- Unsupported instructions, imports, relocations, architectures, or platform services produce explicit diagnostics; they are never silently approximated.
-- The existing `.trx` execution and optional translation/import workflows remain available.
+The old Stage D translator/TRIONEX implementation is retired and must not be revived as a parallel application execution path.
 
-## 3. Architecture
+## 3. User-facing contract
 
-### 3.1 Executable launcher and dispatch
+- The user selects an .exe or .app in the TRION application launcher or file manager.
+- TRION identifies the executable format, architecture, dependencies, and required platform services.
+- The engine validates and loads the original image.
+- The engine decodes and executes supported machine instructions directly from the loaded image.
+- The engine presents compatibility status and explains missing instructions, imports, libraries, or services.
+- No translated copy is required or generated.
 
-Provide a common open/launch interface that dispatches:
-- `.trx` to the existing TRIONEX loader and TIR runtime.
-- Windows PE32+ `.exe` to the PE image loader and direct x86-64 execution engine.
-- macOS `.app` bundles to bundle inspection, Mach-O selection, the Mach-O loader, and the direct execution engine.
+## 4. Engine architecture
 
-Bundle selection must reject ambiguous or unsupported application layouts rather than guessing.
+### 4.1 Common application engine
 
-### 3.2 Format-specific loaders
+Shared components provide executable identification and validation; guest process address space and memory management; instruction decoding and execution; register, flags, stack, control-flow, exception, and fault semantics; import/dependency resolution interfaces; process lifecycle, resource accounting, and diagnostics; and isolation/permission enforcement.
 
-Implement validated loaders for the declared formats. They must handle image headers, sections/segments, entry points, image-relative addressing, required relocations, permissions, and bounds checks. Loader work must not assume that Stage D's current import-only parser is a complete process loader.
+### 4.2 Windows executable path
 
-### 3.3 Direct decoder and execution engine
+Support Windows PE32+ .exe images through a dedicated PE loader and Windows compatibility layer. The loader must validate headers, sections, image base, relocations, imports, entry point, and memory protections. The compatibility layer must implement Windows process/runtime conventions and APIs required by each declared supported application class.
 
-Build a dedicated direct-execution component that:
-- Decodes source x86-64 instructions at runtime from the loaded image.
-- Executes supported instructions through an interpreter, without emitting TIR or another intermediate executable.
-- Models architecturally visible registers, flags, instruction pointer, stack, and memory accesses with checked bounds and defined semantics.
-- Handles control flow, calls, returns, and faults.
-- Enforces instruction/time/resource budgets and safe termination.
-- Rejects unsupported or privileged instructions and unsafe execution modes.
-- Has independently tested instruction semantics and decoder validation.
+### 4.3 macOS application path
 
-Instruction coverage must be expanded in complete, semantics-preserving groups. Do not claim general x86-64 compatibility until the required ISA coverage and tests exist.
+Support macOS .app bundles through bundle inspection, executable selection, a Mach-O loader, and a macOS compatibility layer. The loader must validate bundle metadata, architectures, load commands, segments, relocations, dependencies, and entry point. The compatibility layer must implement runtime conventions and frameworks required by each declared supported application class.
 
-### 3.4 Platform compatibility services
+Windows and macOS services remain distinct platform layers over shared engine primitives. A .app bundle is not itself a single executable; TRION must locate and validate its actual Mach-O executable and required bundle resources.
 
-Instruction decoding alone does not provide Windows or macOS application compatibility. Implement explicit compatibility services for the APIs and runtime conventions required by each supported application class.
+### 4.4 Instruction engine
 
-Windows and macOS compatibility should be separate platform layers over shared loader/runtime primitives. Resolve imports only against implemented, documented services. Dynamic linking, process/thread behaviour, filesystem semantics, graphics, networking, and system calls require explicit contracts and tests before applications depending on them are advertised as supported.
+- Decode instructions from the original loaded guest image at runtime.
+- Execute supported source-ISA semantics in a bounded interpreter/emulator.
+- Do not emit TIR, .trx, or another intermediate executable.
+- Implement instruction semantics in complete, tested groups.
+- Model architectural state and memory accurately.
+- Handle faults, exceptions, control flow, calls, returns, and system transitions.
+- Reject unsupported and privileged instructions safely.
+- Publish exact supported ISA/feature coverage.
 
-### 3.5 Memory and security
+### 4.5 Platform compatibility
 
-- Treat all executable files and bundles as untrusted.
-- Validate all offsets, sizes, arithmetic, mappings, permissions, and relocation targets before use.
-- Keep the interpreter and application in a process isolation boundary.
-- Enforce executable/readable/writable page permissions and prevent writable-executable mappings unless a narrowly justified policy permits them.
-- Restrict filesystem, network, device, and system-service access through explicit permissions.
-- Do not execute untrusted native bytes in kernel mode.
-- Fuzz executable parsers and instruction decoding; malformed input must not cause unchecked panic, out-of-bounds access, or memory corruption.
+Instruction execution alone is not Windows/macOS compatibility. Each supported application class requires the relevant ABI, process/thread model, system calls, dynamic library loading, filesystem behavior, synchronization, graphics, audio, networking, and framework APIs.
 
-## 4. Relationship to translation and ternary execution
+Do not claim that arbitrary Windows or macOS applications run until those services are implemented and tested. Compatibility claims must identify tested application classes and API coverage.
 
-Direct execution is an additional compatibility path, not a replacement for the Stage D translator:
-- Direct path: source executable → validated image → runtime instruction decoding → direct interpreter.
-- Translation path: source executable → translator → TIR → optional TRIONEX packaging → TIR runtime.
+### 4.6 Security and isolation
 
-The direct interpreter initially executes the source ISA semantics in software. It does not establish native ternary hardware execution. Future adaptive execution may choose a validated direct interpreter, translated TIR, or another backend based on measured capability and cost, but that selection must preserve identical program semantics.
+- Treat executable files, bundles, libraries, and metadata as untrusted.
+- Validate every offset, size, address, relocation, mapping, and permission.
+- Isolate guest processes from the TRION kernel and other processes.
+- Enforce guest memory permissions and prevent unsafe writable/executable mappings.
+- Restrict filesystem, network, device, and system-service access through explicit policy.
+- Apply CPU, memory, time, and process resource limits.
+- Fuzz executable loaders, instruction decoders, dependency parsers, and compatibility boundaries.
+- Never execute untrusted guest instructions in kernel mode.
 
 ## 5. Implementation milestones
 
-1. Specify the direct engine's execution model, fault model, resource limits, and supported ISA subset.
-2. Implement and fuzz a standalone x86-64 decoder with precise instruction-length and operand validation.
-3. Implement a tested interpreter for an initial complete instruction subset, including registers, flags, branches, stack, and bounded memory.
-4. Implement the PE32+ image loader and direct `.exe` launch path.
-5. Implement the thin x86-64 Mach-O loader and `.app` bundle selection/launch path.
-6. Add import resolution and the minimum explicitly scoped Windows/macOS compatibility services.
-7. Integrate process isolation, permissions, resource controls, diagnostics, and desktop launch dispatch.
-8. Add differential tests against trusted reference execution for supported instructions, malformed-input fuzzing, integration tests, and documented compatibility fixtures.
+1. Specify the guest architecture, process model, fault model, and compatibility contract.
+2. Implement and fuzz the instruction decoder.
+3. Implement the execution engine and verify instruction semantics against trusted references.
+4. Implement validated PE32+ loading and the Windows guest process foundation.
+5. Implement validated Mach-O loading and macOS .app bundle selection.
+6. Implement dependency loading and platform ABI/system-service layers.
+7. Add graphics, input, audio, filesystem, networking, and other APIs required by selected application classes.
+8. Integrate launcher/file-manager dispatch, process isolation, permissions, diagnostics, and resource controls.
+9. Publish a tested compatibility matrix and complete end-to-end application tests.
 
-Milestones may be delivered incrementally, but the stage must not be marked complete until the declared support matrix, security gates, and end-to-end launch tests pass.
+## 6. Completion criteria
 
-## 6. Verification and completion criteria
+- Supported .exe and .app fixtures launch from their original formats.
+- No TIR or .trx artifacts are created or required.
+- Decoder and execution semantics pass differential and regression tests.
+- PE and Mach-O loaders pass malformed-input, relocation, dependency, and memory-permission tests.
+- Required Windows/macOS APIs and ABI behavior are documented and tested for every claimed application class.
+- Sandboxing, resource controls, fuzzing, and fault handling pass their security gates.
+- End-to-end launch tests pass on declared supported TRION configurations.
 
-- Decoder tests cover valid encodings, prefixes, operand forms, truncation, invalid encodings, and unsupported instructions.
-- Interpreter tests cover register and flag semantics, arithmetic edge cases, memory bounds, branches, calls/returns, faults, and execution budgets.
-- PE and Mach-O loaders have malformed-input, relocation, section/segment, permissions, and entry-point tests.
-- End-to-end tests open supported `.exe` and `.app` fixtures without producing `.trx` or TIR artifacts.
-- Compatibility claims are tied to a published matrix of tested architectures, instructions, imports, and platform services.
-- Fuzzing, formatting, linting, CI, and relevant OS integration/boot checks pass.
-
-Stage G does not promise that arbitrary Windows or macOS applications will run. Support is limited to the tested executable, instruction, and platform-API matrix.
+**This is the only planned application execution engine in TRION.** Compatibility is limited to the tested architecture, instruction, dependency, ABI, and platform-service matrix; it is not an automatic promise of universal Windows/macOS compatibility.
