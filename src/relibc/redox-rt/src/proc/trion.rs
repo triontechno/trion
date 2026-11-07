@@ -520,7 +520,7 @@ fn launch_macho64(
                     .get(at + 8..at + 24)
                     .ok_or(Error::new(ENOEXEC))?;
                 let name_len = name_bytes.iter().position(|byte| *byte == 0).unwrap_or(16);
-                let is_pagezero = name_bytes.get(..name_len) == Some(b"__PAGEZERO");
+                let is_pagezero = name_bytes.get(..name_len).is_some_and(|name| name == b"__PAGEZERO");
                 let vm_address = usize::try_from(u64_at(&commands, at + 24)?)
                     .map_err(|_| Error::new(EOVERFLOW))?;
                 let vm_size = usize::try_from(u64_at(&commands, at + 32)?)
@@ -542,11 +542,12 @@ fn launch_macho64(
                     || max_protection & !7 != 0
                     || initial_protection & !max_protection != 0
                     || initial_protection & 6 == 6
+                    || initial_protection & 4 != 0 && initial_protection & 1 == 0
                 {
                     return Err(Error::new(ENOEXEC));
                 }
                 if !is_pagezero {
-                    if vm_size == 0 || vm_address % PAGE_SIZE != 0 {
+                    if vm_size == 0 || vm_address % PAGE_SIZE != 0 || file_offset % PAGE_SIZE as u64 != 0 {
                         return Err(Error::new(ENOEXEC));
                     }
                     let mapped_size = page_align(vm_size)?;
