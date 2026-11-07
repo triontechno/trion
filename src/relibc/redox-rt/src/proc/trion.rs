@@ -105,7 +105,7 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
     ];
     code[3..7].copy_from_slice(&syscall_number.to_le_bytes());
     code[8..12].copy_from_slice(&proc_fd.to_le_bytes());
-    code[18..22].copy_from_slice(&exit_verb.to_le_bytes());
+    code[19..23].copy_from_slice(&exit_verb.to_le_bytes());
     Ok(code)
 }
 
