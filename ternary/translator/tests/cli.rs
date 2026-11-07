@@ -112,7 +112,8 @@ fn package_cli_wraps_validated_tir_and_refuses_overwrite() {
         String::from_utf8_lossy(&output.stderr)
     );
     let container = fs::read(&output_path).unwrap();
-    assert_eq!(&container[..8], b"TRIONEX\0");
+    assert_eq!(&container[..7], b"TRIONEX");
+    assert_eq!(container[7], 0);
     assert_eq!(u16::from_le_bytes([container[8], container[9]]), 1);
     assert_eq!(&container[36..], tir);
 
