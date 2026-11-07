@@ -47,7 +47,7 @@ Preserve corpus, crash artifacts, toolchain versions, campaign duration, and cov
 - `.github/workflows/adaptive.yml` contains adaptive, packed-memory, TIR research-runtime, platform, capability-service, formatting, lint, benchmark, and bounded fuzz validation.
 - The adaptive workflow is **manual-dispatch only** so implementation pushes do not launch tests before Phase 2 is complete.
 - `.github/workflows/trion-release.yml` builds the x86_64 desktop image and live ISO, verifies artifacts, and runs QEMU checks for kernel entry, TRION capability-service readiness, and user-space validation of the three capability endpoints.
-- The release workflow is also **manual-dispatch only** during implementation. Run it in the consolidated post-Phase-2 validation pass; it publishes a GitHub Release, so dispatch only when a release is intended.
+- The release workflow is also **manual-dispatch only** during implementation. It builds images and runs QEMU validation by default; GitHub Release publishing is a separate opt-in input and defaults to false.
 
 ## 4. Release acceptance gates
 
