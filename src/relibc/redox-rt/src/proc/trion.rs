@@ -538,7 +538,7 @@ fn launch_macho64(
                     .get(at + 8..at + 24)
                     .ok_or(Error::new(ENOEXEC))?;
                 let name_len = name_bytes.iter().position(|byte| *byte == 0).unwrap_or(16);
-                let is_pagezero = name_bytes.get(..name_len).is_some_and(|name| name == b"__PAGEZERO");
+                let is_pagezero = name_bytes.get(..name_len).is_some_and(|name| name == &b"__PAGEZERO"[..]);
                 let vm_address = usize::try_from(u64_at(&commands, at + 24)?)
                     .map_err(|_| Error::new(EOVERFLOW))?;
                 let vm_size = usize::try_from(u64_at(&commands, at + 32)?)
@@ -605,7 +605,11 @@ fn launch_macho64(
                 if command_size < 24 || entry_file_offset.is_some() {
                     return Err(Error::new(ENOEXEC));
                 }
-                entry_file_offset = Some(u64_at(&commands, at + 8)?);
+                let entry_offset = u64_at(&commands, at + 8)?;
+                if entry_offset == 0 {
+                    return Err(Error::new(ENOEXEC));
+                }
+                entry_file_offset = Some(entry_offset);
             }
             // These commands require dyld, dependency resolution, relocations,
             // TLS, signing or platform startup services not in the raw profile.
@@ -644,7 +648,7 @@ fn launch_macho64(
             .checked_add(segment.raw_size as u64)
             .ok_or(Error::new(EOVERFLOW))?;
         if entry_file_offset >= segment.raw_offset && entry_file_offset < file_end {
-            if !segment.protection.contains(MapFlags::PROT_EXEC) {
+            if entry.is_some() || !segment.protection.contains(MapFlags::PROT_EXEC) {
                 return Err(Error::new(ENOEXEC));
             }
             let delta = usize::try_from(entry_file_offset - segment.raw_offset)
