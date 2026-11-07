@@ -104,9 +104,9 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
         0x89, 0x4E, 0x08,                   // mov [rsi + 8], ecx (exit status)
         0x0F, 0x05,                         // syscall
         0x48, 0x83, 0xF8, 0xFC,             // cmp rax, -EINTR
-        0x74, 0xD0,                         // je retry syscall
+        0x74, 0xD2,                         // je retry syscall
         0x48, 0x83, 0xF8, 0xF5,             // cmp rax, -EAGAIN
-        0x74, 0xCA,                         // je retry syscall
+        0x74, 0xCC,                         // je retry syscall
         0x0F, 0x0B,                         // ud2 if process-manager exit unexpectedly returns
     ];
     code[9..13].copy_from_slice(&syscall_number.to_le_bytes());
