@@ -366,6 +366,19 @@ fn launch_pe(
         }
     }
 
+    // Reject loader metadata that would require CFG, bound imports, an IAT,
+    // or a managed (.NET) runtime even if the ordinary import directory is empty.
+    for index in [10usize, 11, 12, 14] {
+        if directory_count > index {
+            let offset = 112usize
+                .checked_add(index.checked_mul(8).ok_or(Error::new(EOVERFLOW))?)
+                .ok_or(Error::new(EOVERFLOW))?;
+            if u32_at(&optional, offset)? != 0 || u32_at(&optional, offset + 4)? != 0 {
+                return Err(Error::new(ENOEXEC));
+            }
+        }
+    }
+
     let section_table_offset = optional_offset
         .checked_add(optional_size as u64)
         .ok_or(Error::new(EOVERFLOW))?;
