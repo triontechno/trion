@@ -3,61 +3,43 @@
 **Status:** Active implementation  
 **Parent:** [TRION-ARCHITECTURE.md](TRION-ARCHITECTURE.md)  
 **Prerequisite:** Phase 1 ternary core  
-**Rule:** Work directly on main where practical; merge all completed and verified temporary-branch work into main.
+**Rule:** Work directly on main where practical. Do not run tests, builds, benchmarks, fuzzing, or QEMU validation until all Phase 2 implementation stages are complete.
 
 ## 1. Objective
 
-Phase 2 develops an adaptive binary/ternary architecture that preserves conventional hardware and software compatibility. It does not claim commodity processors execute ternary instructions or contain ternary RAM.
+Develop an adaptive binary/ternary architecture that preserves conventional hardware and software compatibility. Commodity processors are not assumed to execute ternary instructions or contain ternary RAM.
 
 ## 2. Stage plan
 
 ### Stage A — Adaptive representation foundation
-**Status: merged into main.** Binary, balanced-ternary, and hybrid choices; evidence-based deterministic selection; checked i128/u128 bridges; tests and CI.
+**Status: implementation merged to main.** Binary, balanced-ternary, and hybrid choices; evidence-based deterministic selection; checked i128/u128 bridges. Validation is deferred.
 
 ### Stage B — Packed ternary logical memory
-**Status: implementation delivered.** Five balanced trits per byte with checked construction, access, validation, and round-trip coverage. Backing storage remains conventional binary RAM. Testing is deferred until Phase 2 completion.
+**Status: implementation delivered; validation deferred.** Five balanced trits per byte with checked construction, access, validation, and round-trip coverage. Backing storage remains conventional binary RAM.
 
 ### Stage C — TIR execution foundation
-**Status: implementation delivered.** Bounded interpreter foundation. TIR remains a standalone research/test runtime, not an application execution path. Testing is deferred until Phase 2 completion.
+**Status: implementation delivered; validation deferred.** Bounded interpreter foundation. TIR remains a standalone research/test runtime, not an application execution path.
 
 ### Stage D — Translator (retired)
-**Status: discontinued by architecture decision.** The former translator, TIR conversion workflow, and TRIONEX application path are retired. Stage G is the sole application execution engine. See [Stage D](Phase%202%20Stage%20D.md).
+**Status: discontinued by architecture decision.** The former translator, TIR conversion workflow, and TRIONEX application path are retired. Stage G onward is the sole application execution architecture.
 
 ### Stage E — Runtime, kernel, and hardware integration
-**Status: implementation delivered; testing deferred until Phase 2 completion.**
+**Status: implementation delivered; validation deferred.** Includes target capability reporting, Redox read-only capability scheme, adaptive runtime policy evidence, PCI/ACPI inventory, binary hardware boundaries, initfs packaging, service ordering, and endpoint integration checker.
 
-- Versioned target capability reporting in ternary/platform.
-- Redox boot-time read-only capability scheme at /scheme/trion.
-- Measured, correctness-checked adaptive integer workload published as runtime policy evidence.
-- PCI and ACPI inventory evidence, with unprobed optional device features reported honestly.
-- Existing Redox scheme/driver interfaces and byte-preserving binary MMIO, DMA, syscall, network, and storage boundaries.
-- Initfs packaging, service ordering, and a one-shot endpoint integration checker.
+### Stage F — Measurement, hardening, and release infrastructure
+**Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, manual validation workflow, and manual release/build/QEMU workflow. No measurements or validation have been run.
 
-See [Stage E](Phase%202%20Stage%20E.md) for implementation details and deferred verification.
+### Stage G — Executable format and loader completion
+**Status: partial; not complete.** Existing code inspects PE32+ x86-64 and Mach-O 64 x86-64 metadata, validates selected ranges, maps PE bytes as inert memory, enumerates dependencies, and selects an app-bundle executable from bounded XML metadata. It does not apply relocations, resolve symbols, or execute code. Complete bounded PE/Mach-O loading, relocation handling, and instruction decoding without introducing translation.
 
-### Stage F — Measurement, hardening, and release validation
-**Status: implementation delivered; testing and measurements deferred until Phase 2 completion.**
+### Stage H — Isolated guest process and execution backend
+**Status: not implemented.** Implement guest address-space ownership, process/thread lifecycle, page mapping, W^X, CPU state, direct execution boundary, syscall/fault transitions, resource accounting, and containment. Guest code must never execute in kernel mode.
 
-- Equivalent binary, balanced-ternary, and hybrid workloads with semantic-result equality checks, raw timing samples, medians, host CPU/toolchain metadata, conversion overhead, and packed-memory storage/round-trip measurements.
-- Cargo-fuzz targets for packed balanced-trit decoding and TRN3 deserialization, with bounded attacker-controlled allocations.
-- Manual-dispatch-only adaptive validation workflow covering tests, formatting, Clippy, benchmarks, and fuzz campaigns.
-- Manual-dispatch-only release workflow for x86_64 image/ISO builds and QEMU checks of kernel entry, capability-service readiness, and report endpoint validation.
-- No benchmark or fuzz campaign is run during implementation; preserve raw output, corpus and crash artifacts during the post-Phase-2 validation pass.
+### Stage I — Windows compatibility runtime
+**Status: not implemented.** Implement a declared, bounded Windows application compatibility profile: PE imports and IAT resolution, process startup, calling conventions, required runtime libraries, selected Win32/NT services, filesystem semantics, synchronization, and explicit unsupported-API diagnostics. No general Windows compatibility claim without evidence.
 
-See [Stage F](Phase%202%20Stage%20F.md).
-
-### Stage G — Direct executable engine
-**Status: partial implementation delivered; execution backend and platform compatibility remain unimplemented.**
-
-- Added isolated ternary/executable crate with bounded PE32+ x86-64 and little-endian Mach-O 64 x86-64 metadata inspection.
-- Added PE section validation and inert preferred-base image mapping; import-library enumeration.
-- Added Mach-O segment/dependency/LC_MAIN validation and XML Info.plist executable selection.
-- Added explicit launch assessment that reports missing execution and ABI components.
-- Added manual fuzz targets for PE32+, Mach-O 64, and app-bundle metadata; campaigns are deferred.
-- Not yet implemented: relocation application, dynamic linking, instruction decoding/execution, guest process isolation, Windows/macOS ABI and system APIs, bundle filesystem integration, or launcher dispatch.
-- No .exe or .app launch support is claimed.
-
-See [Stage G](Phase%202%20Stage%20G.md).
+### Stage J — macOS compatibility runtime and unified dispatch
+**Status: not implemented.** Implement a declared, bounded macOS profile: .app traversal, Info.plist handling, Mach-O relocations and dyld binding, dependency/framework resolution, process startup, selected system services, resource handling, launcher/file-manager dispatch, and actionable compatibility reporting. No general macOS compatibility claim without evidence.
 
 ## 3. Global engineering gates
 
@@ -69,7 +51,13 @@ See [Stage G](Phase%202%20Stage%20G.md).
 6. Conventional hardware, network, file, and ABI boundaries retain their specified binary layouts.
 7. Keep new crates isolated until APIs and implementation are stable.
 8. Target main; merge any temporary branch after implementation.
+9. Original executable files remain unchanged. No application translator, TIR conversion, .trx container, translation cache, or generated intermediate executable.
+10. Parsing or mapping executable bytes does not authorize execution. Unsupported features fail closed.
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 implementation is complete only when Stages A–G are implemented to their stated scope. Stage G is not complete until its process executor, decoder, dynamic linkers, Windows/macOS compatibility layers, launcher integration and security controls exist. After implementation is complete, run the consolidated testing and validation pass, including automated checks, fuzz campaigns, comparative benchmarks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.
+Phase 2 implementation is complete only when Stages A–C and E–J are implemented to their stated scope; Stage D remains intentionally retired. In particular, Stage G–J must provide the declared loader, decoder, isolated process executor, dynamic linking, Windows/macOS compatibility profiles, launcher integration, and security controls.
+
+Only after all implementation stages are complete may the consolidated validation pass run: automated tests, fuzz campaigns, comparative benchmarks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Until then, all such execution remains deferred.
+
+The final project phase is **Phase 6** (formerly named Phase H); it is separate from Phase 2. The repository currently has no confirmed Phase 3–5 specifications, so their scope must not be invented or inferred from this Phase 2 plan.
