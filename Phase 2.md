@@ -90,15 +90,6 @@ See [Stage F]("Phase%202%20Stage%20F.md") for benchmark, fuzzing, and release-va
 
 See [Stage G]("Phase%202%20Stage%20G.md") for architecture, milestones, and completion gates.
 
-### Stage H — UI, UX, and UC
-**Status: Planned; not implemented.**
-
-- Deliver the user-facing interface and experience work after the executable/runtime foundations in Stage G.
-- Define the scope of UC in the Stage H specification before implementation; do not assume an expansion not yet agreed.
-- Integrate desktop launch flows, application discovery, feedback, and compatibility diagnostics with the capabilities actually delivered by earlier stages.
-
-Stage H must reflect verified OS capabilities and must not present unsupported executable compatibility as available.
-
 ## 3. Global engineering gates
 
 1. Correctness and safety outrank representation choice.
@@ -113,6 +104,6 @@ Stage H must reflect verified OS capabilities and must not present unsupported e
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 is complete only when Stages A–H have been implemented to their stated scope, automated checks pass, translator/runtime capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in the declared QEMU configurations.
+Phase 2 is complete only when Stages A–G have been implemented to their stated scope, automated checks pass, translator/runtime capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in the declared QEMU configurations.
 
-A successful library test suite alone does not prove that the OS boots or that ternary hardware exists.
+A successful library test suite alone does not prove that the OS boots or that ternary hardware exists. The separate final project phase, Phase H — UI/UX/UC, follows Phase 2 and is not part of this stage sequence.
