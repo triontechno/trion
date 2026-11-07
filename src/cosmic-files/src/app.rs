@@ -84,6 +84,16 @@ use crate::zoom::{zoom_in_view, zoom_out_view, zoom_to_default};
 use crate::{FxOrderMap, context_action, fl, home_dir, menu, mime_icon};
 
 #[cfg(target_os = "redox")]
+fn is_trion_macho_executable(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    file.read_exact(&mut magic).is_ok() && magic == [0xCF, 0xFA, 0xED, 0xFE]
+}
+
+#[cfg(target_os = "redox")]
 fn resolve_trion_app_bundle(bundle: &Path) -> Result<PathBuf, String> {
     use trion_executable::macos::{BundleMember, plan_bundle, MAX_BUNDLE_MEMBERS, MAX_PLIST_SIZE};
     use trion_executable::MAX_IMAGE_SIZE;
@@ -995,9 +1005,11 @@ impl App {
                     let is_pe = path.extension()
                         .and_then(|extension| extension.to_str())
                         .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
+                    #[cfg(target_os = "redox")]
+                    let is_macho = is_trion_macho_executable(&path);
                     let mut command = std::process::Command::new(&path);
                     #[cfg(target_os = "redox")]
-                    if is_pe {
+                    if is_pe || is_macho {
                         command.env_clear();
                     }
                     match spawn_detached(&mut command) {
