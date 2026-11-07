@@ -179,9 +179,8 @@ fn run(path: &str, max_instructions: usize) -> Result<(), String> {
     let bytes = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
     let executable = trion_executable::TrionExecutable::parse(&bytes)
         .map_err(|e| format!("invalid or unsupported TRIONEX executable: {e}"))?;
-    let mut registers = [0u64; 16];
-    let memory = [];
-    let mut state = MachineState { registers: &mut registers, memory_base: 0, memory: &memory };
+    let memory: [u8; 0] = [];
+    let mut state = MachineState { registers: [0u64; 16], memory_base: 0, memory: &memory };
     let outcome = execute_tir(executable.payload(), &mut state, max_instructions)
         .map_err(|e| format!("TRIONEX execution failed: {e}"))?;
     match outcome {
