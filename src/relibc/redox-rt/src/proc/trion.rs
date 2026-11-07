@@ -96,6 +96,9 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
         0xB8, 0, 0, 0, 0,                   // mov eax, SYS_CALL
         0xBF, 0, 0, 0, 0,                   // mov edi, proc fd
         0x48, 0x8D, 0x74, 0x24, 0xF0,       // lea rsi, [rsp - 16] (writable stack request)
+        0x48, 0x31, 0xC0,                   // xor rax, rax
+        0x48, 0x89, 0x06,                   // mov [rsi], rax
+        0x48, 0x89, 0x46, 0x08,             // mov [rsi + 8], rax
         0xC7, 0x06, 0, 0, 0, 0,             // mov dword [rsi], ProcCall::Exit
         0xBA, 16, 0, 0, 0,                  // mov edx, request length
         0x45, 0x31, 0xD2,                   // xor r10d, r10d (flags)
@@ -104,14 +107,14 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
         0x89, 0x4E, 0x08,                   // mov [rsi + 8], ecx (exit status)
         0x0F, 0x05,                         // syscall
         0x48, 0x83, 0xF8, 0xFC,             // cmp rax, -EINTR
-        0x74, 0xD2,                         // je retry syscall
+        0x74, 0xC8,                         // je retry syscall
         0x48, 0x83, 0xF8, 0xF5,             // cmp rax, -EAGAIN
-        0x74, 0xCC,                         // je retry syscall
+        0x74, 0xC2,                         // je retry syscall
         0x0F, 0x0B,                         // ud2 if process-manager exit unexpectedly returns
     ];
     code[9..13].copy_from_slice(&syscall_number.to_le_bytes());
     code[14..18].copy_from_slice(&proc_fd.to_le_bytes());
-    code[25..29].copy_from_slice(&exit_verb.to_le_bytes());
+    code[35..39].copy_from_slice(&exit_verb.to_le_bytes());
     Ok(code)
 }
 
