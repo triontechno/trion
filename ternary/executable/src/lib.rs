@@ -1,6 +1,8 @@
 //! Direct executable-format foundations. Parsed bytes remain inert: this crate
 //! does not execute guest code or translate applications to TIR or .trx.
 
+pub mod loader;
+
 pub mod decoder;
 pub mod guest;
 pub mod macos;
