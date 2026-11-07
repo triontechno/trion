@@ -73,7 +73,7 @@ A hybrid path means that a workload can use ternary internally and convert at a 
 | Registers | Adaptive logical register representation; do not claim conventional physical CPU registers are ternary |
 | Languages | Continue supporting existing binary-oriented languages (including C, C++, and Rust) and develop/support a native ternary language |
 | Compiler | Adaptive compiler that analyzes target, workload, semantics, and measured costs |
-| Translator | Bidirectional binary-to-ternary and ternary-to-binary architecture, adaptive per operation and target |
+| Application execution | Direct executable engine for supported binary application formats; no application translation pipeline |
 | Executables | Support existing binary executable formats and a native TRION ternary executable representation |
 | RAM | Ternary-oriented logical memory where beneficial, with explicit binary backing/bridges on conventional RAM |
 | Storage | Explore ternary encodings and packing for efficiency; preserve ordinary binary device and file interfaces |
@@ -90,18 +90,15 @@ The kernel MUST be representation-neutral at stable interfaces. Subsystems MAY u
 
 The CPU strategy MUST query or receive declared target capabilities. Software-emulated ternary arithmetic is not native ternary instruction execution. A future TRION processor may expose native ternary instructions and registers; the OS MUST distinguish that path from software emulation.
 
-### 5.2 Languages, compiler, and translator
+### 5.2 Languages, compiler, and executable engine
 
 TRION MUST preserve support for established binary-oriented languages and provide a path for a native ternary language. The compiler MUST retain source-language semantics and select representations only where legal and beneficial.
 
-The translator architecture is bidirectional:
-- binary input to a ternary-capable intermediate or target representation;
-- ternary input to binary-compatible output where required;
-- adaptive selection of direct execution, translation, interpretation, or a verified fallback as those backends are implemented.
+TRION MUST preserve support for established binary-oriented languages and provide a path for a native ternary language. The compiler MUST retain source-language semantics and select representations only where legal and beneficial.
 
-The translator MUST declare its supported source formats, architectures, instruction subset, ABI, relocation model, system-call behavior, exception behavior, and output format. Analysis, decoding, translation, code generation, validation, and execution MUST be reported as separate capabilities.
+Application compatibility uses one direct executable engine. It loads supported source executable formats, validates their native image structures, decodes source machine instructions at runtime, and executes them under a controlled guest process model. It MUST NOT require application-to-TIR translation, TRIONEX packaging, or generated intermediate executables. Windows PE and macOS Mach-O compatibility services remain separate platform layers over shared execution primitives.
 
-**Current Phase 1 limitation:** the existing x86-64 ELF frontend emits validated TIR v1 for a small exact instruction subset. TIR is not a runnable executable. This architecture does not upgrade that claim.
+The former binary/ternary application translator and TRIONEX execution path are retired. The Stage C TIR runtime may remain as an isolated research/test component, but it is not an application loader or application execution fallback.
 
 ### 5.3 Executable formats and compatibility
 
@@ -138,16 +135,16 @@ Conventional Ethernet, Wi-Fi, IP, TCP, UDP, TLS, and other established interface
 
 Security selection is based on cryptographic strength, peer review, implementation safety, and measured efficiency—not number system. Established binary cryptographic algorithms remain available for interoperability. A ternary-native cryptographic primitive MUST NOT be considered stronger merely because it is ternary; it requires independent cryptanalysis, standardization/peer review, side-channel analysis, and implementation testing before security-critical use.
 
-## 6. Translator and conversion safety contract
+## 6. Executable loading and conversion safety contract
 
-All bridges MUST:
+All executable loaders and representation bridges MUST:
 - state source and destination representations and widths;
 - preserve signedness, ordering, ownership, and lifetime;
 - use checked length and arithmetic calculations;
 - reject malformed or out-of-range values;
 - never silently truncate, normalize invalid encodings, or reinterpret bytes;
 - preserve memory ordering, atomicity, floating-point, exception, and ABI semantics where applicable;
-- expose unsupported instructions and formats as explicit diagnostics;
+- expose unsupported instructions, executable formats, dependencies, and platform services as explicit diagnostics;
 - use only semantics-preserving fallback paths.
 
 Conversion SHOULD be performed at stable boundaries, not repeatedly inside hot loops. Batch conversion MAY be used when measured to reduce overhead.
@@ -178,7 +175,7 @@ Stage A is the first adaptive execution foundation built on Phase 1. It MUST del
 Stage A MUST NOT claim:
 - physical ternary CPU, RAM, GPU, or storage hardware;
 - a full OS-wide adaptive scheduler or runtime;
-- complete binary-to-ternary or ternary-to-binary executable translation;
+- a binary-to-ternary or ternary-to-binary application translation pipeline;
 - runnable TIR or a completed native ternary executable format;
 - automatic conversion of all OS memory;
 - proven storage compression or energy savings;
@@ -189,7 +186,7 @@ Stage A MUST NOT claim:
 - Long-term adoption sequence and when/where ternary becomes the default (Q19: deferred for later review).
 - Native ternary executable file format details and loader ABI.
 - Native ternary language syntax and compiler frontend.
-- Translator execution backend: ahead-of-time native code, VM, interpreter, or multiple backends.
+- Direct executable engine architecture, guest ISA scope, and platform compatibility milestones.
 - Physical ternary CPU, RAM, GPU, and storage designs.
 - New ternary network protocols or filesystem formats.
 - Quantitative benchmark thresholds for enabling each ternary path by default.
