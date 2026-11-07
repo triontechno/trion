@@ -66,6 +66,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
+      - name: Check fuzz target formatting
+        run: cargo fmt --manifest-path ternary/fuzz/Cargo.toml -- --check
       - name: Build packed-memory and TRN3 fuzz targets
         working-directory: ternary/fuzz
         run: cargo fuzz build
