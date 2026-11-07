@@ -18,8 +18,6 @@ on:
       - "ternary/adaptive/**"
       - "ternary/memory/**"
       - "ternary/runtime/**"
-      - "ternary/executable/**"
-      - "ternary/translator/**"
       - "ternary/core/**"
       - ".github/workflows/adaptive.yml"
   workflow_dispatch:
