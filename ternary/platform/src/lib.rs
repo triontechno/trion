@@ -165,7 +165,7 @@ pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeRepo
     let midpoint = (iterations / 2) as i128;
     let mut binary_costs = Vec::with_capacity(SAMPLE_COUNT);
     let mut ternary_costs = Vec::with_capacity(SAMPLE_COUNT);
-    let mut checksum = 0i128;
+    let mut checksum = None;
 
     for _ in 0..SAMPLE_COUNT {
         let start = Instant::now();
@@ -190,9 +190,10 @@ pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeRepo
         if binary_sum != ternary_sum {
             return Err("binary and balanced-ternary workload results differ");
         }
-        checksum = binary_sum;
+        checksum = Some(binary_sum);
     }
 
+    let checksum = checksum.ok_or("adaptive probe produced no samples")?;
     binary_costs.sort_unstable();
     ternary_costs.sort_unstable();
     let binary_cost_ns = binary_costs[SAMPLE_COUNT / 2];
