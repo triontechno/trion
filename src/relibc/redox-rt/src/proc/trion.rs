@@ -5,6 +5,7 @@
 //! Windows API/PEB/TEB compatibility belongs to the later Windows runtime.
 
 use super::*;
+use alloc::{vec, vec::Vec};
 
 const MAX_PE_IMAGE: usize = 256 * 1024 * 1024;
 const MAX_PE_HEADERS: usize = 16 * 1024 * 1024;
