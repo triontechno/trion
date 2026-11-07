@@ -38,11 +38,15 @@ pub fn decode(bytes:&[u8])->Result<Decoded,Error>{
         0x50..=0x57=>simple(Instruction::PushReg(b-0x50)),
         0x58..=0x5f=>simple(Instruction::PopReg(b-0x58)),
         0x40..=0x4f=>{
-            let opcode=*bytes.get(1).ok_or(Error::Truncated("REX register opcode"))?;
+            let opcode=*bytes.get(1).ok_or(Error::Truncated("REX opcode"))?;
             let extension=(b&1)<<3;
             match opcode {
                 0x50..=0x57=>Ok(Decoded{instruction:Instruction::PushReg((opcode-0x50)|extension),length:2}),
                 0x58..=0x5f=>Ok(Decoded{instruction:Instruction::PopReg((opcode-0x58)|extension),length:2}),
+                0xb8..=0xbf if b&8!=0=>{
+                    let register=(opcode-0xb8)|extension;
+                    Ok(Decoded{instruction:Instruction::MovRegImm64{register,value:read_u64(bytes,2)?},length:10})
+                }
                 _=>Err(Error::Unsupported("REX-prefixed opcode outside declared decoder subset")),
             }
         }
@@ -55,15 +59,6 @@ pub fn decode(bytes:&[u8])->Result<Decoded,Error>{
                 0x80..=0x8f=>Ok(Decoded{instruction:Instruction::ConditionalJump{condition:second-0x80,displacement:read_i32(bytes,2)?},length:6}),
                 _=>Err(Error::Unsupported("x86-64 opcode outside declared decoder subset")),
             }
-        }
-        0x48..=0x4f=>{
-            let rex=b;
-            let opcode=*bytes.get(1).ok_or(Error::Truncated("REX opcode"))?;
-            if !(0xb8..=0xbf).contains(&opcode) || rex & 8 == 0 {
-                return Err(Error::Unsupported("REX-prefixed opcode outside declared decoder subset"));
-            }
-            let reg=(opcode-0xb8) | ((rex&1)<<3);
-            Ok(Decoded{instruction:Instruction::MovRegImm64{register:reg,value:read_u64(bytes,2)?},length:10})
         }
         _=>Err(Error::Unsupported("x86-64 opcode outside declared decoder subset")),
     }
