@@ -154,7 +154,7 @@ mod tests {
             gid: 0,
         };
         let read = scheme.read(CAPABILITIES_ID, &mut output, 3, 0, &caller).unwrap();
-        assert_eq!(&output[..read], b"abilit");
+        assert_eq!(&output[..read], b"ability-");
         assert_eq!(scheme.fsize(CAPABILITIES_ID, &caller).unwrap(), 17);
         assert_eq!(
             scheme.write(CAPABILITIES_ID, b"overwrite", 0, 0, &caller)
