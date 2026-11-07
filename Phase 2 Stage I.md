@@ -9,7 +9,7 @@
 - Unsupported and unimplemented APIs return explicit diagnostics. No API is falsely marked operational.
 
 ## Remaining
-- PE import-by-name/ordinal parsing and IAT population.
+- Versioned DLL catalog, dependency search policy, forwarder resolution and operational platform export table. The bounded PE import-by-name/ordinal parser and IAT population primitive now exist.
 - Versioned dependency catalog and DLL search policy.
 - Windows process startup, x64 calling convention, TLS, exception/unwind handling.
 - Kernel-backed Win32/NT service implementations for a narrowly declared profile.
