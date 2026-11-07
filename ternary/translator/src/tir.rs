@@ -407,10 +407,13 @@ fn relocate_executable_section(
                     // R_X86_64_RELATIVE: the TIR image uses a zero-based load
                     // bias, so the image-relative addend is the resolved value.
                     if symbol_index != 0 {
-                        return Err(format!("R_X86_64_RELATIVE must use symbol zero in section {rel_index}"));
+                        return Err(format!(
+                            "R_X86_64_RELATIVE must use symbol zero in section {rel_index}"
+                        ));
                     }
-                    let value = u64::try_from(i128::from(addend))
-                        .map_err(|_| format!("relative relocation addend is out of range in section {rel_index}"))?;
+                    let value = u64::try_from(i128::from(addend)).map_err(|_| {
+                        format!("relative relocation addend is out of range in section {rel_index}")
+                    })?;
                     let patch = code
                         .get_mut(place..place.checked_add(8).ok_or("relocation patch overflow")?)
                         .ok_or("relative relocation patch lies outside executable section")?;
