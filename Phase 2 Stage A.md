@@ -2,7 +2,7 @@
 
 **Status:** Regenerated implementation specification  
 **Parent architecture:** `TRION-ARCHITECTURE.md`  
-**Prerequisite:** Phase 1 ternary core and translator contract  
+**Prerequisite:** Phase 1 ternary core  
 **Implementation branch:** `phase2-stage-a-adaptive`
 
 ## 1. Purpose
@@ -54,7 +54,7 @@ Workload + target capabilities + measured candidate costs
 
 ## 5. Non-goals
 
-Stage A does not implement a general-purpose binary-to-ternary executable translator, ternary instruction execution, a TIR runtime, a new filesystem, a native ternary loader, physical ternary RAM, or production cryptographic algorithms. The existing Phase 1 translator remains a strict x86-64 ELF-to-TIR subset prototype.
+Stage A does not implement a general-purpose binary-to-ternary executable translator, ternary instruction execution, a TIR runtime, a new filesystem, a native ternary loader, physical ternary RAM, or production cryptographic algorithms. Application translation is discontinued; direct executable loading and execution are specified in Phase 2 Stage G.
 
 ## 6. Verification
 
@@ -62,7 +62,6 @@ Run from the repository root:
 
 ```sh
 cargo test --manifest-path ternary/core/Cargo.toml
-cargo test --manifest-path ternary/translator/Cargo.toml
 cargo test --manifest-path ternary/adaptive/Cargo.toml
 cargo fmt --manifest-path ternary/adaptive/Cargo.toml -- --check
 cargo clippy --manifest-path ternary/adaptive/Cargo.toml --all-targets -- -D warnings
