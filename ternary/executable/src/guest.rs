@@ -129,8 +129,12 @@ impl GuestProcess {
     pub fn set_entry(&mut self, entry: u64, stack: u64) -> Result<(), Error> {
         if self.state != ProcessState::Created { return Err(Error::Invalid("entry can only be set before start")); }
         self.address_space.find(entry, 1)?;
-        self.address_space.find(stack.checked_sub(1).ok_or(Error::Overflow)?, 1)?;
-        self.cpu.rip = entry; self.cpu.rsp = stack; self.state = ProcessState::Ready; Ok(())
+        let return_slot = stack.checked_sub(8).ok_or(Error::Overflow)?;
+        self.address_space.write(return_slot, &0u64.to_le_bytes())?;
+        self.cpu.rip = entry;
+        self.cpu.rsp = return_slot;
+        self.state = ProcessState::Ready;
+        Ok(())
     }
     /// Deliberately does not transition to Running: a host execution backend is not yet wired.
     pub fn execution_backend_available(&self) -> bool { false }
@@ -254,7 +258,13 @@ impl GuestProcess {
             I::Ret=>{
                 let mut data=[0u8;8];self.address_space.read(self.cpu.rsp,&mut data)?;
                 self.cpu.rsp=self.cpu.rsp.checked_add(8).ok_or(Error::Overflow)?;
-                self.cpu.rip=u64::from_le_bytes(data);
+                let target=u64::from_le_bytes(data);
+                if target==0 {
+                    self.instruction_budget-=1;
+                    self.state=ProcessState::Exited(0);
+                    return Ok(ExecutionEvent::Halted);
+                }
+                self.cpu.rip=target;
             }
             I::Syscall=>{
                 // Intel SYSCALL saves the next instruction and user flags in RCX/R11.
@@ -316,18 +326,18 @@ mod execution_tests {
     use super::*;
 
     #[test]
-    fn privileged_hlt_faults_the_guest_process() {
+    fn executes_original_x86_bytes_and_returns_from_the_entry_point() {
         let mut process = GuestProcess::new(7, 32).unwrap();
         process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
-        // mov rax, 42; hlt
-        let code = [0x48,0xb8,42,0,0,0,0,0,0,0,0xf4];
+        // mov rax, 42; ret (the loader-installed zero return sentinel exits the process)
+        let code = [0x48,0xb8,42,0,0,0,0,0,0,0,0xc3];
         process.address_space.write(0x400000, &code).unwrap();
         process.address_space.protect(0x400000, Permissions::READ_EXECUTE).unwrap();
         process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
         process.set_entry(0x400000, 0x701000).unwrap();
-        assert!(process.run().is_err());
+        assert_eq!(process.run().unwrap(), ExecutionEvent::Halted);
         assert_eq!(process.cpu.rax, 42);
-        assert_eq!(process.state, ProcessState::Faulted);
+        assert_eq!(process.state, ProcessState::Exited(0));
     }
 
     #[test]
