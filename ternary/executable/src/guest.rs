@@ -357,7 +357,7 @@ mod execution_tests {
         process.set_entry(0x400000, 0x701000).unwrap();
         assert_eq!(process.run().unwrap(), ExecutionEvent::Halted);
         assert_eq!(process.cpu.rax, 42);
-        assert_eq!(process.state, ProcessState::Exited(0));
+        assert_eq!(process.state, ProcessState::Exited(42));
     }
 
     #[test]
