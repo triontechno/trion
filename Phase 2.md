@@ -15,32 +15,32 @@ Phase 2 develops an adaptive binary/ternary architecture that preserves conventi
 **Status: merged into main.** Binary, balanced-ternary, and hybrid choices; evidence-based deterministic selection; checked i128/u128 bridges; tests and CI.
 
 ### Stage B — Packed ternary logical memory
-**Status: implemented and CI-verified.** Five balanced trits per byte with checked construction, access, validation, and round-trip tests. Backing storage remains conventional binary RAM.
+**Status: implementation delivered.** Five balanced trits per byte with checked construction, access, validation, and round-trip coverage. Backing storage remains conventional binary RAM. Testing is deferred until Phase 2 completion.
 
 ### Stage C — TIR execution foundation
-**Status: bounded interpreter implemented and CI-verified.** TIR remains a standalone research/test runtime, not an application execution path.
+**Status: implementation delivered.** Bounded interpreter foundation. TIR remains a standalone research/test runtime, not an application execution path. Testing is deferred until Phase 2 completion.
 
 ### Stage D — Translator (retired)
 **Status: discontinued by architecture decision.** The former translator, TIR conversion workflow, and TRIONEX application path are retired. Stage G is the sole application execution engine. See [Stage D](Phase%202%20Stage%20D.md).
 
 ### Stage E — Runtime, kernel, and hardware integration
-**Status:** Implementation delivered; automated build and QEMU verification pending.
+**Status: implementation delivered; testing deferred until Phase 2 completion.**
 
 - Versioned target capability reporting in `ternary/platform`.
 - Redox boot-time read-only capability scheme at `/scheme/trion`.
 - Measured, correctness-checked adaptive integer workload published as runtime policy evidence.
-- PCI inventory evidence with bounded scheme-registration waiting; unprobed optional device features are reported honestly.
+- PCI and ACPI inventory evidence, with unprobed optional device features reported honestly.
 - Existing Redox scheme/driver interfaces and byte-preserving binary MMIO, DMA, syscall, network, and storage boundaries.
-- Initfs packaging, service ordering, service tests, CI, and QEMU readiness verification.
+- Initfs packaging, service ordering, and a one-shot endpoint integration checker.
 
-See [Stage E](Phase%202%20Stage%20E.md) for endpoints, commands, limitations, and completion evidence.
+See [Stage E](Phase%202%20Stage%20E.md) for implementation details and deferred verification.
 
 ### Stage F — Measurement, hardening, and release validation
-**Status:** Initial benchmark harness and deterministic malformed-input regression tests implemented; sustained fuzzing, comparative result publication, and complete release validation remain open.
+**Status: implementation in progress.** Benchmark harness and deterministic malformed-input regression tests exist; comparative result publication, fuzzing coverage, and release validation implementation remain open.
 
 - Benchmark equivalent binary, ternary, and hybrid workloads including conversion and compatibility overhead.
 - Fuzz packed-memory decoders and, when Stage G exists, direct PE/Mach-O loaders and instruction decoding.
-- Run tests, formatting, Clippy, architecture builds, and QEMU boot validation.
+- Prepare automated test, formatting, lint, architecture-build, and QEMU boot workflows for the post-implementation test pass.
 - Publish measured results; make no unsupported performance, capacity, energy, or security claims.
 
 ### Stage G — Direct executable engine
@@ -63,10 +63,9 @@ See [Stage G](Phase%202%20Stage%20G.md) for architecture and completion gates.
 4. Malformed external input must not cause unchecked panics or out-of-bounds access in new components.
 5. Ternary candidates require support and semantic validation.
 6. Conventional hardware, network, file, and ABI boundaries retain their specified binary layouts.
-7. Test success and rejection paths.
-8. Keep new crates isolated until APIs and tests are stable.
-9. Target `main`; merge any temporary branch after verification.
+7. Keep new crates isolated until APIs and implementation are stable.
+8. Target `main`; merge any temporary branch after implementation.
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 is complete only when Stages A–G are implemented to their stated scope, automated checks pass, direct executable capabilities are accurately described, compatibility paths are tested, and the supported OS build boots in declared QEMU configurations. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.
+Phase 2 implementation is complete only when Stages A–G are implemented to their stated scope. After implementation is complete, run the consolidated testing and validation pass, including automated checks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Phase H — UI/UX/UC — is the separate final project phase, not a Phase 2 stage.
