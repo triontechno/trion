@@ -241,8 +241,8 @@ pub fn assess_launch(data:&[u8])->Result<LaunchAssessment,Error>{
         "x86-64 instruction decoder, execution and fault boundary are not implemented",
     ];
     match description.format{
-        Format::Pe32Plus=>{blockers.push("PE imports require a verified DLL catalog, platform dependency policy and kernel-backed Windows API exports");blockers.push("Windows process, syscall, runtime and API compatibility services are not implemented");}
-        Format::MachO64=>{blockers.push("Mach-O relocation, dyld rebasing, binding and dependency resolution are not implemented");blockers.push("macOS process, syscall, runtime and framework compatibility services are not implemented");}
+        Format::Pe32Plus=>{blockers.push("PE imports require a verified DLL catalog, platform dependency policy and kernel-backed Windows API exports");blockers.push("Windows process startup, ABI, TLS, exception/unwind and kernel-backed API services are not implemented");}
+        Format::MachO64=>{blockers.push("Mach-O relocation, dyld rebasing, binding and dependency resolution are not implemented");blockers.push("macOS dyld, process startup, ABI and framework services are not implemented");}
     }
     Ok(LaunchAssessment{description,blockers,launchable:false})
 }
