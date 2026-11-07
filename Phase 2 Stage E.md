@@ -49,7 +49,7 @@ This is a concrete measured software workload, not a claim that the CPU executes
 
 - The capability service checks for the existing PCI scheme and counts enumerated PCI function entries after the hardware manager dependency.
 - ACPI and DeviceTree discovery remain the responsibility of Redox's existing `hwd` service.
-- PCI presence/count is inventory evidence only; optional device capabilities remain explicitly unprobed.
+- The daemon waits up to five seconds for the asynchronously spawned `pcid` scheme and records its bounded probe-attempt count. PCI presence/count is inventory evidence only; optional device capabilities remain explicitly unprobed.
 - MMIO registers, DMA descriptors, driver ABIs, syscall structures, network frames, and persistent formats remain byte-for-byte binary.
 - Packed ternary memory remains a logical representation backed by ordinary memory. It is not wired into physical page allocation or DMA.
 - No native ternary CPU, RAM, or peripheral support is claimed.
@@ -57,7 +57,7 @@ This is a concrete measured software workload, not a claim that the CPU executes
 ### 5. Build and verification automation
 
 - Adaptive-policy CI tests the platform probe and all existing ternary crates.
-- A nightly CI job tests, checks, formats, and lints both `trion-capd` and `trion-cap-check`.
+- The Redox capability-service CI job tests, checks, formats, and lints both `trion-capd` and `trion-cap-check` on relevant pushes and pull requests.
 - The initfs one-shot `trion-cap-check` reads all three published endpoints and validates schema versions, measured costs, selected representation, and conservative hardware claims.
 - The Redox initfs Makefile builds and packages both the daemon and one-shot integration checker.
 - The base build recipe now builds from the repository's vendored `src/base` tree and rebases the platform crate path into the monorepo ternary workspace, so the image build actually includes these changes.
