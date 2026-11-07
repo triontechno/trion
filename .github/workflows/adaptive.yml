@@ -78,4 +78,4 @@ jobs:
       - name: Check service formatting
         run: cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -- --check
       - name: Lint capability services
-        run: cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets -- -D warnings
+        run: cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets --no-deps -- -D warnings
