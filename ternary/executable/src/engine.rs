@@ -138,7 +138,7 @@ pub fn prepare_macho64(input: &[u8], load_base: Option<u64>) -> Result<LoadPlan,
     for segment in &description.sections {
         if segment.memory_size == 0 { continue; }
         let permissions = Permissions {
-            read: true,
+            read: segment.readable,
             write: segment.writable,
             execute: segment.executable,
         };
