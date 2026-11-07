@@ -92,14 +92,30 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     // hwd owns ACPI/DeviceTree backend discovery. These read-only directory
     // inventories record what its published schemes expose; they do not claim
     // that optional device capabilities have been probed.
-    let (pci_scheme_available, pci_function_entries) = inventory("/scheme/pci");
-    let (acpi_symbols_available, acpi_symbol_entries) = inventory("/scheme/acpi/symbols");
+    // Give the hardware manager and PCI spawner a bounded settling window.
+    // A registered but empty scheme is distinct from an unavailable scheme.
+    let (pci_scheme_available, pci_function_entries, pci_inventory_attempts) =
+        pci_inventory_with_retry(
+            || inventory("/scheme/pci").then_some(inventory("/scheme/pci").unwrap_or_default()),
+            10,
+            std::time::Duration::from_millis(100),
+        );
+    let (acpi_symbols_available, acpi_symbol_entries, acpi_inventory_attempts) =
+        pci_inventory_with_retry(
+            || inventory("/scheme/acpi/symbols").then_some(
+                inventory("/scheme/acpi/symbols").unwrap_or_default(),
+            ),
+            10,
+            std::time::Duration::from_millis(100),
+        );
     let hardware_evidence = format!(
-        "TRION-HARDWARE-EVIDENCE 2\npci_scheme_available={}\npci_function_entries={}\nacpi_symbols_available={}\nacpi_symbol_entries={}\nacpi_device_tree_discovery=delegated_to_hwd\noptional_device_capabilities=not_probed\nnative_ternary_hardware=unverified\n",
+        "TRION-HARDWARE-EVIDENCE 2\npci_scheme_available={}\npci_function_entries={}\npci_inventory_attempts={}\nacpi_symbols_available={}\nacpi_symbol_entries={}\nacpi_inventory_attempts={}\nacpi_device_tree_discovery=delegated_to_hwd\noptional_device_capabilities=not_probed\nnative_ternary_hardware=unverified\n",
         pci_scheme_available,
         pci_function_entries,
+        pci_inventory_attempts,
         acpi_symbols_available,
         acpi_symbol_entries,
+        acpi_inventory_attempts,
     );
 
     let mut capability_scheme =
@@ -121,9 +137,8 @@ fn daemon(daemon: daemon::Daemon) -> ! {
 
 /// Return whether a Redox scheme directory is available and how many entries
 /// it currently publishes. A missing scheme is reported, never guessed.
-fn inventory(path: &str) -> (bool, usize) {
-    match std::fs::read_dir(path) {
-        Ok(entries) => (true, entries.filter_map(Result::ok).count()),
-        Err(_) => (false, 0),
-    }
+fn inventory(path: &str) -> Option<usize> {
+    std::fs::read_dir(path)
+        .ok()
+        .map(|entries| entries.filter_map(Result::ok).count())
 }
