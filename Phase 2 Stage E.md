@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage E: Runtime and Platform Integration
 
-<badge>Implementation delivered; automated verification pending</badge>
+<badge>Implementation updated; testing deferred until Phase 2 completion</badge>
 
 Stage E connects the adaptive binary/ternary runtime to the actual Redox user-space boot and platform service model. It does not implement application loading; direct Windows `.exe` and macOS `.app` execution belongs exclusively to Stage G.
 
@@ -8,21 +8,11 @@ Stage E connects the adaptive binary/ternary runtime to the actual Redox user-sp
 
 ### 1. Target capability reporting
 
-The `trion-platform` crate provides a versioned schema-v3 capability report containing:
-
-- Target architecture and operating system.
-- Pointer width and target endianness.
-- Compiler-declared atomic widths.
-- Ordinary binary execution support.
-- No claim that the standalone Stage C TIR runtime is integrated into this OS capability service.
-- Explicit binary external-interface boundaries.
-- Native ternary hardware remains false unless a future hardware-specific adapter verifies it.
-
-Optional CPU and device features are never inferred from an architecture string.
+The `trion-platform` crate provides a versioned schema-v3 capability report containing target architecture, operating system, pointer width, endianness, compiler-declared atomic widths, ordinary binary execution support, and explicit binary external-interface boundaries. Optional CPU and device features are never inferred from an architecture string. Native ternary hardware remains unverified unless a future hardware-specific adapter proves it.
 
 ### 2. Redox boot-time capability service
 
-The `trion-capd` daemon is part of the `src/base` Cargo workspace and initfs binary list. The `40_drivers.target` starts it after the hardware-manager dependency.
+The `trion-capd` daemon is part of the `src/base` Cargo workspace and initfs binary list. The `40_drivers.target` starts it after the hardware manager and initfs PCI driver spawner.
 
 It registers a read-only Redox scheme at `/scheme/trion` and exposes:
 
@@ -30,42 +20,38 @@ It registers a read-only Redox scheme at `/scheme/trion` and exposes:
 |---|---|
 | `/scheme/trion/capabilities` | Schema-v3 target capability report |
 | `/scheme/trion/runtime-policy` | Measured adaptive workload costs, correctness checksum, and selected representation |
-| `/scheme/trion/hardware-evidence` | PCI scheme availability and enumerated function count, with explicit unknown/unprobed feature status |
+| `/scheme/trion/hardware-evidence` | PCI and ACPI inventory availability/counts, with explicit unknown/unprobed feature status |
 
 The scheme uses the existing Redox `SchemeSync` interface. It does not add a kernel syscall or change an existing ABI. Report handles are read-only, offset-aware, and reject writes.
 
-### 3. Real adaptive runtime workload
+### 3. Runtime and kernel/service integration
 
-At service startup, a bounded integer workload runs through two paths:
+At service startup, a bounded integer workload runs through binary accumulation and balanced-ternary encode/decode plus accumulation. Both paths process the same bounded values and must produce matching results. Five interleaved samples are measured; median costs are passed to the shared adaptive selector and published through the runtime-policy endpoint.
 
-- Binary integer accumulation.
-- Balanced-ternary encode/decode followed by accumulation.
+The service is integrated with Redox's existing daemon readiness, scheme registration, namespace restriction, and request-processing lifecycle. It deliberately uses existing kernel and scheme interfaces: Stage E does not introduce a new syscall, alter kernel ABI layouts, or claim that the kernel executes TIR or native ternary instructions.
 
-Both paths process the same bounded values. Their results must match before measured elapsed costs are passed to the shared adaptive selector. Five interleaved samples are measured and the median cost is used for each candidate. The selected representation and measured costs are published through the runtime-policy endpoint. The workload is capped at 100,000 iterations.
+### 4. Hardware and device-boundary integration
 
-This is a concrete measured software workload, not a claim that the CPU executes native ternary instructions.
-
-### 4. Hardware and ABI integration
-
-- The capability service checks for the existing PCI scheme and counts enumerated PCI function entries after the hardware manager dependency.
-- ACPI and DeviceTree discovery remain the responsibility of Redox's existing `hwd` service.
-- The daemon waits up to five seconds for the asynchronously spawned `pcid` scheme and records its bounded probe-attempt count. PCI presence/count is inventory evidence only; optional device capabilities remain explicitly unprobed.
+- The service inventories entries exposed by `/scheme/pci` and `/scheme/acpi/symbols` after Redox hardware discovery and PCI driver spawning.
+- ACPI and DeviceTree backend selection/probing remain owned by Redox's existing `hwd` service.
+- PCI and ACPI counts are inventory evidence only; they do not imply that optional device features have been probed.
+- Missing inventory schemes are reported as unavailable, not silently treated as proof that no hardware exists.
 - MMIO registers, DMA descriptors, driver ABIs, syscall structures, network frames, and persistent formats remain byte-for-byte binary.
 - Packed ternary memory remains a logical representation backed by ordinary memory. It is not wired into physical page allocation or DMA.
 - No native ternary CPU, RAM, or peripheral support is claimed.
 
-### 5. Build and verification automation
+### 5. Initfs packaging and service startup
 
-- Adaptive-policy CI tests the platform probe and all existing ternary crates.
-- The Redox capability-service CI job tests, checks, formats, and lints both `trion-capd` and `trion-cap-check` on relevant pushes and pull requests.
-- The initfs one-shot `trion-cap-check` reads all three published endpoints and validates schema versions, measured costs, selected representation, and conservative hardware claims.
-- The Redox initfs Makefile builds and packages both the daemon and one-shot integration checker.
-- The base build recipe now builds from the repository's vendored `src/base` tree and rebases the platform crate path into the monorepo ternary workspace, so the image build actually includes these changes.
-- The image-release workflow builds the OS and its QEMU smoke test requires kernel entry, capability-daemon readiness, and successful user-space reads/validation of all three endpoints.
+- `trion-capd` and `trion-cap-check` are members of the `src/base` Cargo workspace.
+- Both binaries are included in `INITFS_BINS` and copied into the generated initfs.
+- `40_drivers.target` includes the capability daemon and one-shot integration checker.
+- `50_trion-capd.service` has weak ordering dependencies on both `40_hwd.service` and `40_pcid-spawner-initfs.service`.
+- `55_trion-cap-check.service` runs after the daemon and reads all three published endpoints, validating their schemas and conservative claims.
+- The integration checker rejects inconsistent availability/count pairs and unverified native-ternary claims.
 
 ## Verification commands
 
-Host-side tests:
+Testing is intentionally deferred until all Phase 2 implementation stages are complete. At that point run:
 
 ```sh
 cargo test --manifest-path ternary/adaptive/Cargo.toml
@@ -77,16 +63,11 @@ cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -
 cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets -- -D warnings
 ```
 
-The repository image workflow additionally runs the full Redox image build and QEMU boot smoke test. Stage E may be marked fully verified only after those required workflow jobs pass on `main`.
+The full Redox image build and QEMU boot validation also belong to the post-Phase-2 test pass. Stage E implementation must not be represented as boot-verified before those checks run.
 
 ## Scope and limitations
 
-- The automated boot integration check targets the repository's x86_64 QEMU image. Other architecture targets must not be advertised as boot-verified until their own builds and boots pass.
-- PCI enumeration reports only what the existing PCI scheme exposes. It does not probe arbitrary device features, benchmark devices, or infer ternary capability.
-- A missing PCI scheme is reported as unavailable rather than causing service failure. The three report endpoints are public read-only metadata; the scheme exposes no write or device-control operations.
+- The intended boot integration target is the repository's x86_64 QEMU image. Other architecture targets must not be advertised as boot-verified until separately checked.
+- PCI/ACPI inventory records only what the existing Redox schemes expose. It does not probe arbitrary device features, benchmark devices, or infer ternary capability.
 - There is no ternary physical-memory allocator, page-table encoding, kernel TIR execution, translator, TRIONEX path, or application executable engine in Stage E.
 - Direct `.exe` and `.app` loading/execution remain Stage G work.
-
-## Completion criteria
-
-Stage E implementation is delivered. Verification is complete when the adaptive-policy tests, Redox capability-service tests/checks/lints, full x86_64 image build, and QEMU user-space endpoint-validation smoke test all pass. A failed or unavailable verification run must remain visible as incomplete; documentation alone is not proof of a successful boot.
