@@ -945,9 +945,10 @@ impl App {
         let mut all_archives = true;
         let supported_archive_types = crate::archive::SUPPORTED_ARCHIVE_TYPES;
         for (mime, path) in paths.iter().map(|path| {
+            let path_ref = AsRef::<Path>::as_ref(path);
             (
-                mime_icon::mime_for_path(path, None, false),
-                path.as_ref().to_owned(),
+                mime_icon::mime_for_path(path_ref, None, false),
+                path_ref.to_owned(),
             )
         }) {
             if all_archives && !supported_archive_types.iter().copied().any(|t| mime == t) {
