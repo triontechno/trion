@@ -75,13 +75,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let inputs: Vec<i128> = (0..VALUES)
         .map(|index| (index as i128 % 2_001) - 1_000)
         .collect();
-    let trits: Vec<i8> = inputs
+    let encoded_trits: Vec<i8> = inputs
         .iter()
-        .map(|value| match value.rem_euclid(3) {
-            0 => -1,
-            1 => 0,
-            _ => 1,
-        })
+        .flat_map(|value| Ternary::from_i128(*value).trits_lsf().to_vec())
         .collect();
 
     let binary = measure(|| {
@@ -120,14 +116,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     let packed_roundtrip = measure(|| {
-        let packed = PackedTritBuffer::from_balanced_trits(black_box(&trits))?;
+        let packed = PackedTritBuffer::from_balanced_trits(black_box(&encoded_trits))?;
         let decoded = packed.to_balanced_trits()?;
         Ok(decoded.iter().map(|digit| i128::from(*digit)).sum())
     })?;
 
-    let packed = PackedTritBuffer::from_balanced_trits(&trits)?;
+    let packed = PackedTritBuffer::from_balanced_trits(&encoded_trits)?;
     let binary_storage_bytes = inputs.len() * std::mem::size_of::<i128>();
-    let logical_i8_storage_bytes = trits.len() * std::mem::size_of::<i8>();
+    let logical_i8_storage_bytes = encoded_trits.len() * std::mem::size_of::<i8>();
     let packed_storage_bytes = packed.packed_byte_len();
 
     println!("TRION_PHASE2_BENCHMARK 2");
