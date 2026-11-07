@@ -79,7 +79,12 @@ jobs:
             cat "$log"
             exit "$qemu_status"
           fi
-          echo "QEMU reached x86_64 kernel entry."
+          if ! grep -Fq "capability scheme registered at /scheme/trion" "$log"; then
+            cat "$log"
+            echo "QEMU did not observe the TRION capability service becoming ready."
+            exit 1
+          fi
+          echo "QEMU reached kernel entry and the TRION capability service became ready."
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
