@@ -13,7 +13,7 @@ TARGET_DIR = $(BUILD_DIR)/$(TARGET)/$(BUILD_TYPE)
 BUILD_FLAGS +=  --target-dir $(BUILD_DIR)
 
 INITFS_BINS = ipcd init logd ramfs randd zerod \
-	acpid fbbootlogd hwd inputd lived trion-capd \
+	acpid fbbootlogd hwd inputd lived trion-capd trion-cap-check \
 	pcid pcid-spawner rtcd vesad
 INITFS_DRIVERS_BINS = nvmed virtio-blkd  virtio-gpud
 BASE_BINS = fbcond getty inputd pcid pcid-spawner redoxerd audiod dhcpd ptyd netstack nbdd
