@@ -2652,6 +2652,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "trion-cap-check"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "log",
+]
+
+[[package]]
 name = "trion-capd"
 version = "0.1.0"
 dependencies = [
