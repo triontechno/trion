@@ -21,10 +21,13 @@ pub enum ApplicationInput {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompatibilityReport {
+    pub profile_id: &'static str,
     pub format: crate::Format,
     pub architecture: crate::Architecture,
     pub image_prepared: bool,
     pub guest_backend_integrated: bool,
+    pub native_execution_available: bool,
+    pub platform_abi_available: bool,
     pub can_launch: bool,
     pub blockers: Vec<&'static str>,
 }
@@ -95,10 +98,13 @@ pub fn prepare_application(
         }
     };
     let compatibility = CompatibilityReport {
+        profile_id: crate::engine::INTERPRETED_PROFILE_ID,
         format: load_plan.format,
         architecture: load_plan.architecture,
         image_prepared: true,
         guest_backend_integrated: false,
+        native_execution_available: false,
+        platform_abi_available: false,
         can_launch: false,
         blockers: vec![
             "kernel guest-process creation and native execution boundary are not integrated",
