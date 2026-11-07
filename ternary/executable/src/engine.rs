@@ -197,3 +197,39 @@ pub fn materialize(plan: &LoadPlan, process_id: u64) -> Result<crate::guest::Gue
     process.set_entry(plan.entry_point, stack_top)?;
     Ok(process)
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn materializes_a_plan_with_wx_permissions_and_runs_original_bytes() {
+        let plan = LoadPlan {
+            format: Format::Pe32Plus,
+            architecture: crate::Architecture::X86_64,
+            image_base: 0x400000,
+            entry_point: 0x400000,
+            stack_size: crate::guest::PAGE_SIZE,
+            instruction_budget: 16,
+            dependencies: Vec::new(),
+            regions: vec![PlannedRegion {
+                address: 0x400000,
+                memory_size: crate::guest::PAGE_SIZE,
+                permissions: Permissions::READ_EXECUTE,
+                initial_bytes: vec![0xf4],
+            }],
+        };
+        let mut process = materialize(&plan, 10).unwrap();
+        assert_eq!(process.run().unwrap(), crate::guest::ExecutionEvent::Halted);
+    }
+
+    #[test]
+    fn rejects_writable_executable_image_regions() {
+        let result = validate_region(
+            0x400000, 4096, 1,
+            Permissions { read: true, write: true, execute: true },
+        );
+        assert!(result.is_err());
+    }
+}
