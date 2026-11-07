@@ -1,7 +1,12 @@
 use goblin::elf::{header, section_header};
 use iced_x86::{Decoder, DecoderOptions, Formatter, IntelFormatter};
-use std::{env, fs, io::Write, path::{Path, PathBuf}, process::ExitCode};
-use trion_tir_runtime::{execute_tir, ExecutionOutcome, MachineState};
+use std::{
+    env, fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
+use trion_tir_runtime::{ExecutionOutcome, MachineState, execute_tir};
 
 mod tir;
 
@@ -36,8 +41,15 @@ fn app_executable(path: &Path) -> Result<PathBuf, String> {
 
 fn input_bytes(path: &str) -> Result<(PathBuf, Vec<u8>, bool), String> {
     let supplied = PathBuf::from(path);
-    let is_app = supplied.is_dir() || supplied.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app"));
-    let actual = if is_app { app_executable(&supplied)? } else { supplied };
+    let is_app = supplied.is_dir()
+        || supplied
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app"));
+    let actual = if is_app {
+        app_executable(&supplied)?
+    } else {
+        supplied
+    };
     let bytes = fs::read(&actual).map_err(|e| format!("cannot read {}: {e}", actual.display()))?;
     Ok((actual, bytes, is_app))
 }
@@ -55,7 +67,10 @@ fn inspect(path: &str) -> Result<(), String> {
     match object {
         goblin::Object::Elf(elf) => {
             if elf.header.e_machine != header::EM_X86_64 || !elf.is_64 {
-                return Err(format!("unsupported ELF architecture: expected x86-64, machine={}, 64-bit={}", elf.header.e_machine, elf.is_64));
+                return Err(format!(
+                    "unsupported ELF architecture: expected x86-64, machine={}, 64-bit={}",
+                    elf.header.e_machine, elf.is_64
+                ));
             }
             println!("Format: ELF64");
             println!("Architecture: x86-64");
@@ -65,17 +80,28 @@ fn inspect(path: &str) -> Result<(), String> {
         }
         goblin::Object::PE(pe) => {
             println!("Format: PE/COFF (Windows executable)");
-            println!("Architecture machine: 0x{:04x}", pe.header.coff_header.machine);
+            println!(
+                "Architecture machine: 0x{:04x}",
+                pe.header.coff_header.machine
+            );
             println!("64-bit optional header: {}", pe.is_64);
             println!("Sections: {}", pe.sections.len());
-            println!("Note: PE parsing/inspection is supported; Windows API emulation and execution are not implemented.");
+            println!(
+                "Note: PE parsing/inspection is supported; Windows API emulation and execution are not implemented."
+            );
         }
         goblin::Object::Mach(_) => {
             println!("Format: Mach-O (Apple executable)");
-            println!("Note: Mach-O parsing/recognition is supported; macOS framework, loader and system-call compatibility are not implemented.");
+            println!(
+                "Note: Mach-O parsing/recognition is supported; macOS framework, loader and system-call compatibility are not implemented."
+            );
         }
-        goblin::Object::Archive(_) => return Err("static archives are not executable inputs".into()),
-        goblin::Object::Unknown(magic) => return Err(format!("unsupported executable magic: {magic:?}")),
+        goblin::Object::Archive(_) => {
+            return Err("static archives are not executable inputs".into());
+        }
+        goblin::Object::Unknown(magic) => {
+            return Err(format!("unsupported executable magic: {magic:?}"));
+        }
     }
     Ok(())
 }
@@ -91,18 +117,27 @@ fn inspect_elf_code(bytes: &[u8], elf: &goblin::elf::Elf<'_>) -> Result<(), Stri
     let mut formatter = IntelFormatter::new();
 
     for (index, section) in elf.section_headers.iter().enumerate() {
-        if section.sh_flags & (section_header::SHF_EXECINSTR as u64) == 0 || section.sh_size == 0 { continue; }
-        let start = usize::try_from(section.sh_offset).map_err(|_| "section offset too large".to_string())?;
-        let size = usize::try_from(section.sh_size).map_err(|_| "section size too large".to_string())?;
+        if section.sh_flags & (section_header::SHF_EXECINSTR as u64) == 0 || section.sh_size == 0 {
+            continue;
+        }
+        let start = usize::try_from(section.sh_offset)
+            .map_err(|_| "section offset too large".to_string())?;
+        let size =
+            usize::try_from(section.sh_size).map_err(|_| "section size too large".to_string())?;
         let end = start.checked_add(size).ok_or("section bounds overflow")?;
-        let data = bytes.get(start..end).ok_or_else(|| format!("section {index} lies outside file bounds"))?;
+        let data = bytes
+            .get(start..end)
+            .ok_or_else(|| format!("section {index} lies outside file bounds"))?;
         executable_sections += 1;
         let mut decoder = Decoder::with_ip(64, data, section.sh_addr, DecoderOptions::NONE);
         while decoder.can_decode() {
             let instruction = decoder.decode();
             if instruction.is_invalid() {
                 invalid += 1;
-                if unsupported_examples.len() < 12 { unsupported_examples.push(format!("0x{:x}: <invalid encoding>", instruction.ip())); }
+                if unsupported_examples.len() < 12 {
+                    unsupported_examples
+                        .push(format!("0x{:x}: <invalid encoding>", instruction.ip()));
+                }
                 continue;
             }
             decoded += 1;
@@ -200,13 +235,18 @@ fn package(input_path: &str, output_path: &str) -> Result<(), String> {
     let bytes = executable
         .to_bytes()
         .map_err(|error| format!("cannot encode TRIONEX container: {error}"))?;
-    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(output_path)
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
         .map_err(|error| format!("cannot create {output_path} without overwriting: {error}"))?;
     if let Err(error) = file.write_all(&bytes) {
         drop(file);
         return match fs::remove_file(output_path) {
             Ok(()) => Err(format!("cannot write {output_path}: {error}")),
-            Err(cleanup_error) => Err(format!("cannot write {output_path}: {error}; also cannot remove partial output: {cleanup_error}")),
+            Err(cleanup_error) => Err(format!(
+                "cannot write {output_path}: {error}; also cannot remove partial output: {cleanup_error}"
+            )),
         };
     }
     println!(
