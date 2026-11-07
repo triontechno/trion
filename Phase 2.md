@@ -29,7 +29,7 @@ Phase 2 develops an adaptive binary/ternary architecture that preserves conventi
 - Versioned target capability reporting in `ternary/platform`.
 - Redox boot-time read-only capability scheme at `/scheme/trion`.
 - Measured, correctness-checked adaptive integer workload published as runtime policy evidence.
-- PCI inventory evidence, with unprobed optional device features reported honestly.
+- PCI inventory evidence with bounded scheme-registration waiting; unprobed optional device features are reported honestly.
 - Existing Redox scheme/driver interfaces and byte-preserving binary MMIO, DMA, syscall, network, and storage boundaries.
 - Initfs packaging, service ordering, service tests, CI, and QEMU readiness verification.
 
