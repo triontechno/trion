@@ -36,6 +36,29 @@ use syscall::{
     Sigcontrol, sig_bit,
 };
 
+
+/// Convert an unhandled processor exception into the POSIX signal reported by waitpid.
+/// Exception kind values are architecture-specific; this mapping is deliberately
+/// defined for the x86-64 native guest profile only.
+fn native_exception_signal(excp: syscall::Exception) -> usize {
+    #[cfg(target_arch = "x86_64")]
+    {
+        match excp.kind {
+            0 | 4 | 16 | 19 => 8, // SIGFPE: divide, overflow, x87/SIMD arithmetic
+            1 | 3 => 5,            // SIGTRAP: debug and breakpoint
+            5 | 10 | 11 | 12 | 13 | 14 => 11, // SIGSEGV: bounds, segment, protection, page
+            6 | 7 => 4,            // SIGILL: invalid opcode / unavailable processor state
+            17 => 7,               // SIGBUS: alignment check
+            _ => 6,                // SIGABRT for unknown/unclassified processor exceptions
+        }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = excp;
+        6 // SIGABRT until an architecture-specific mapping is defined.
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 enum VirtualId {
     KernelId(Id),
@@ -149,10 +172,9 @@ pub fn run(write_fd: FdGuard, socket: Socket, auth: FdGuard, event: FdGuard) -> 
             } else if sts_buf.status == ContextStatus::ForceKilled as usize {
                 (SIGKILL << 8) as u16
             } else if sts_buf.status == ContextStatus::UnhandledExcp as usize {
-                // TODO: translate arch-specific exception kind
-                // TODO: generate coredump (or let some other process do that)
-                // into signal (SIGSEGV, SIGBUS, SIGILL, SIGFPE)
-                1
+                // Preserve the fault class in the child wait status instead of
+                // reporting the invalid signal number 1.
+                (native_exception_signal(sts_buf.excp) << 8) as u16
             } else {
                 // spurious event
                 continue;
