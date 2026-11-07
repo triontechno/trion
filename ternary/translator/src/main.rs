@@ -108,20 +108,43 @@ fn inspect_elf_code(bytes: &[u8], elf: &goblin::elf::Elf<'_>) -> Result<(), Stri
             decoded += 1;
             let name = format!("{:?}", instruction.mnemonic());
             *counts.entry(name).or_insert(0) += 1;
-            let candidate = matches!(instruction.mnemonic(),
-                iced_x86::Mnemonic::Nop | iced_x86::Mnemonic::Mov | iced_x86::Mnemonic::Movzx |
-                iced_x86::Mnemonic::Movsx | iced_x86::Mnemonic::Lea | iced_x86::Mnemonic::Add |
-                iced_x86::Mnemonic::Sub | iced_x86::Mnemonic::Imul | iced_x86::Mnemonic::Cmp |
-                iced_x86::Mnemonic::Test | iced_x86::Mnemonic::Jmp | iced_x86::Mnemonic::Je |
-                iced_x86::Mnemonic::Jne | iced_x86::Mnemonic::Jl | iced_x86::Mnemonic::Jle |
-                iced_x86::Mnemonic::Jg | iced_x86::Mnemonic::Jge | iced_x86::Mnemonic::Call |
-                iced_x86::Mnemonic::Ret | iced_x86::Mnemonic::Push | iced_x86::Mnemonic::Pop |
-                iced_x86::Mnemonic::Syscall);
-            if candidate { candidate_mnemonics += 1; } else { noncandidate_mnemonics += 1; }
+            let candidate = matches!(
+                instruction.mnemonic(),
+                iced_x86::Mnemonic::Nop
+                    | iced_x86::Mnemonic::Mov
+                    | iced_x86::Mnemonic::Movzx
+                    | iced_x86::Mnemonic::Movsx
+                    | iced_x86::Mnemonic::Lea
+                    | iced_x86::Mnemonic::Add
+                    | iced_x86::Mnemonic::Sub
+                    | iced_x86::Mnemonic::Imul
+                    | iced_x86::Mnemonic::Cmp
+                    | iced_x86::Mnemonic::Test
+                    | iced_x86::Mnemonic::Jmp
+                    | iced_x86::Mnemonic::Je
+                    | iced_x86::Mnemonic::Jne
+                    | iced_x86::Mnemonic::Jl
+                    | iced_x86::Mnemonic::Jle
+                    | iced_x86::Mnemonic::Jg
+                    | iced_x86::Mnemonic::Jge
+                    | iced_x86::Mnemonic::Call
+                    | iced_x86::Mnemonic::Ret
+                    | iced_x86::Mnemonic::Push
+                    | iced_x86::Mnemonic::Pop
+                    | iced_x86::Mnemonic::Syscall
+            );
+            if candidate {
+                candidate_mnemonics += 1;
+            } else {
+                noncandidate_mnemonics += 1;
+            }
             if !candidate && unsupported_examples.len() < 12 {
                 let mut text = String::new();
                 formatter.format(&instruction, &mut text);
-                unsupported_examples.push(format!("0x{:x}: {text} [backend not implemented]", instruction.ip()));
+                unsupported_examples.push(format!(
+                    "0x{:x}: {text} [backend not implemented]",
+                    instruction.ip()
+                ));
             }
         }
     }
@@ -131,10 +154,16 @@ fn inspect_elf_code(bytes: &[u8], elf: &goblin::elf::Elf<'_>) -> Result<(), Stri
     println!("Non-candidate mnemonics (backend absent): {noncandidate_mnemonics}");
     println!("Invalid instruction encodings: {invalid}");
     println!("Instruction frequencies:");
-    for (mnemonic, count) in counts { println!("  {mnemonic:<16} {count}"); }
+    for (mnemonic, count) in counts {
+        println!("  {mnemonic:<16} {count}");
+    }
     println!("Examples needing attention (first 12):");
-    for example in unsupported_examples { println!("  {example}"); }
-    println!("Candidate mnemonic classification is not translation support; no output binary was generated.");
+    for example in unsupported_examples {
+        println!("  {example}");
+    }
+    println!(
+        "Candidate mnemonic classification is not translation support; no output binary was generated."
+    );
     Ok(())
 }
 
@@ -142,13 +171,20 @@ fn translate(path: &str, output_path: &str) -> Result<(), String> {
     let bytes = fs::read(path).map_err(|error| format!("cannot read {path}: {error}"))?;
     let output = tir::translate_elf_to_tir(&bytes)?;
     let count = tir::validate_tir(&output)?;
-    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(output_path)
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
         .map_err(|error| format!("cannot create {output_path} without overwriting: {error}"))?;
     if let Err(error) = file.write_all(&output) {
         drop(file);
         return match fs::remove_file(output_path) {
-            Ok(()) => Err(format!("cannot write translated output {output_path}: {error}")),
-            Err(cleanup_error) => Err(format!("cannot write translated output {output_path}: {error}; also cannot remove partial output: {cleanup_error}")),
+            Ok(()) => Err(format!(
+                "cannot write translated output {output_path}: {error}"
+            )),
+            Err(cleanup_error) => Err(format!(
+                "cannot write translated output {output_path}: {error}; also cannot remove partial output: {cleanup_error}"
+            )),
         };
     }
     println!("Translated {count} instructions to validated TIR v1: {output_path}");
@@ -157,10 +193,13 @@ fn translate(path: &str, output_path: &str) -> Result<(), String> {
 }
 
 fn package(input_path: &str, output_path: &str) -> Result<(), String> {
-    let payload = fs::read(input_path).map_err(|error| format!("cannot read {input_path}: {error}"))?;
+    let payload =
+        fs::read(input_path).map_err(|error| format!("cannot read {input_path}: {error}"))?;
     let executable = trion_executable::TrionExecutable::from_tir(&payload)
         .map_err(|error| format!("input is not valid canonical TIR v1: {error}"))?;
-    let bytes = executable.to_bytes().map_err(|error| format!("cannot encode TRIONEX container: {error}"))?;
+    let bytes = executable
+        .to_bytes()
+        .map_err(|error| format!("cannot encode TRIONEX container: {error}"))?;
     let mut file = fs::OpenOptions::new().write(true).create_new(true).open(output_path)
         .map_err(|error| format!("cannot create {output_path} without overwriting: {error}"))?;
     if let Err(error) = file.write_all(&bytes) {
@@ -170,7 +209,10 @@ fn package(input_path: &str, output_path: &str) -> Result<(), String> {
             Err(cleanup_error) => Err(format!("cannot write {output_path}: {error}; also cannot remove partial output: {cleanup_error}")),
         };
     }
-    println!("Packaged {} validated TIR bytes into TRIONEX v1: {output_path}", payload.len());
+    println!(
+        "Packaged {} validated TIR bytes into TRIONEX v1: {output_path}",
+        payload.len()
+    );
     println!("TRIONEX is an interpreted TIR container, not native machine code.");
     Ok(())
 }
@@ -180,14 +222,26 @@ fn run(path: &str, max_instructions: usize) -> Result<(), String> {
     let executable = trion_executable::TrionExecutable::parse(&bytes)
         .map_err(|e| format!("invalid or unsupported TRIONEX executable: {e}"))?;
     let memory: [u8; 0] = [];
-    let mut state = MachineState { registers: [0u64; 16], memory_base: 0, memory: &memory };
+    let mut state = MachineState {
+        registers: [0u64; 16],
+        memory_base: 0,
+        memory: &memory,
+    };
     let outcome = execute_tir(executable.payload(), &mut state, max_instructions)
         .map_err(|e| format!("TRIONEX execution failed: {e}"))?;
     match outcome {
-        ExecutionOutcome::Completed { instructions_executed } =>
-            println!("TRIONEX completed: {instructions_executed} instructions; r0={}", state.registers[0]),
-        ExecutionOutcome::Returned { target, instructions_executed } =>
-            println!("TRIONEX returned to 0x{target:016x} after {instructions_executed} instructions"),
+        ExecutionOutcome::Completed {
+            instructions_executed,
+        } => println!(
+            "TRIONEX completed: {instructions_executed} instructions; r0={}",
+            state.registers[0]
+        ),
+        ExecutionOutcome::Returned {
+            target,
+            instructions_executed,
+        } => println!(
+            "TRIONEX returned to 0x{target:016x} after {instructions_executed} instructions"
+        ),
     }
     Ok(())
 }
@@ -203,10 +257,16 @@ fn main() -> ExitCode {
             Ok(limit) if limit > 0 => run(input, limit),
             _ => Err("max-instructions must be a positive integer".into()),
         },
-        _ => { usage(); return ExitCode::from(2); }
+        _ => {
+            usage();
+            return ExitCode::from(2);
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => { eprintln!("error: {error}"); ExitCode::FAILURE }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
     }
 }
