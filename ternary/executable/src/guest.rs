@@ -124,7 +124,9 @@ pub struct GuestProcess {
 impl GuestProcess {
     pub fn new(id: u64, instruction_budget: u64) -> Result<Self, Error> {
         if id == 0 || instruction_budget == 0 { return Err(Error::Invalid("guest process identity or budget")); }
-        Ok(Self { id, state: ProcessState::Created, address_space: AddressSpace::new(), cpu: CpuState::default(), instruction_budget, pending_syscall: false })
+        let mut cpu = CpuState::default();
+        cpu.rflags = RFLAGS_RESERVED_ONE;
+        Ok(Self { id, state: ProcessState::Created, address_space: AddressSpace::new(), cpu, instruction_budget })
     }
     pub fn set_entry(&mut self, entry: u64, stack: u64) -> Result<(), Error> {
         if self.state != ProcessState::Created { return Err(Error::Invalid("entry can only be set before start")); }
@@ -136,7 +138,8 @@ impl GuestProcess {
         self.state = ProcessState::Ready;
         Ok(())
     }
-    /// Deliberately does not transition to Running: a host execution backend is not yet wired.
+    /// This in-crate model remains a bounded development interpreter; native execution
+    /// is performed by the separate Redox process/address-space loader.
     pub fn execution_backend_available(&self) -> bool { false }
 }
 
@@ -212,8 +215,9 @@ impl GuestProcess {
     /// Execute one instruction from the original guest image. This is a bounded
     /// interpreter for the explicitly decoded subset, not native host execution.
     pub fn step(&mut self) -> Result<ExecutionEvent, Error> {
+        let was_runnable = matches!(self.state, ProcessState::Ready | ProcessState::Running);
         let result = self.step_inner();
-        if result.is_err() {
+        if was_runnable && result.is_err() {
             self.state = ProcessState::Faulted;
         }
         result
