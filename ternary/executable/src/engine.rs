@@ -127,6 +127,40 @@ pub fn prepare_pe32_plus(
 
 /// Prepare a dependency-free Mach-O 64 image. dyld-dependent images are refused
 /// until a versioned, brokered dependency/fixup runtime is supplied.
+fn validate_dependency_free_macho(input: &[u8]) -> Result<(), Error> {
+    let read_u32 = |offset: usize| -> Result<u32, Error> {
+        let end = offset.checked_add(4).ok_or(Error::Overflow)?;
+        let bytes = input.get(offset..end).ok_or(Error::Truncated("Mach-O load command"))?;
+        Ok(u32::from_le_bytes(bytes.try_into().map_err(|_| Error::Truncated("Mach-O load command"))?))
+    };
+    if input.len() < 32 { return Err(Error::Truncated("Mach-O header")); }
+    let count = read_u32(16)? as usize;
+    let command_bytes = read_u32(20)? as usize;
+    if count > crate::MAX_COMMANDS { return Err(Error::Limit("Mach-O load command count")); }
+    let end = 32usize.checked_add(command_bytes).ok_or(Error::Overflow)?;
+    if end > input.len() { return Err(Error::Truncated("Mach-O load commands")); }
+    let mut at = 32usize;
+    for _ in 0..count {
+        let command = read_u32(at)?;
+        let size = read_u32(at.checked_add(4).ok_or(Error::Overflow)?)? as usize;
+        if size < 8 || at.checked_add(size).ok_or(Error::Overflow)? > end {
+            return Err(Error::Invalid("Mach-O load command bounds"));
+        }
+        match command {
+            0x19 | 0x8000_0028 | 0x1b | 0x32 | 0x24 | 0x2a | 0x26 | 0x29 => {},
+            0x0c | 0x8000_0018 | 0x8000_001f | 0x8000_0023 =>
+                return Err(Error::Unsupported("Mach-O dylib dependency requires dyld")),
+            0x22 | 0x8000_0022 | 0x8000_0034 | 0x8000_0033 =>
+                return Err(Error::Unsupported("Mach-O dyld rebase/bind/fixup data is unsupported")),
+            0x1d => return Err(Error::Unsupported("Mach-O code signature requires explicit verification policy")),
+            _ => return Err(Error::Unsupported("Mach-O load command outside dependency-free profile")),
+        }
+        at = at.checked_add(size).ok_or(Error::Overflow)?;
+    }
+    if at != end { return Err(Error::Invalid("Mach-O sizeofcmds mismatch")); }
+    Ok(())
+}
+
 pub fn prepare_macho64(input: &[u8], load_base: Option<u64>) -> Result<LoadPlan, Error> {
     let description = crate::macho::inspect(input)?;
     if !description.dependencies.is_empty() {
