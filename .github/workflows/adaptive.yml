@@ -1,5 +1,6 @@
 name: TRION adaptive policy
-# CI coverage: adaptive policy, packed memory, legacy TIR test runtime, platform integration, and benchmarks.
+# CI covers adaptive policy, packed memory, TIR research runtime, platform integration,
+# and the Redox boot-time capability service.
 
 on:
   push:
@@ -11,6 +12,7 @@ on:
       - "ternary/platform/**"
       - "ternary/benchmarks/**"
       - "ternary/core/**"
+      - "src/base/**"
       - ".github/workflows/adaptive.yml"
   pull_request:
     branches: [main]
@@ -21,6 +23,7 @@ on:
       - "ternary/platform/**"
       - "ternary/benchmarks/**"
       - "ternary/core/**"
+      - "src/base/**"
       - ".github/workflows/adaptive.yml"
   workflow_dispatch:
 
@@ -38,7 +41,7 @@ jobs:
         run: cargo test --manifest-path ternary/memory/Cargo.toml
       - name: Test TIR research runtime
         run: cargo test --manifest-path ternary/runtime/Cargo.toml
-      - name: Test platform capability and runtime integration
+      - name: Test platform capability and adaptive workload
         run: cargo test --manifest-path ternary/platform/Cargo.toml
       - name: Run representation benchmark smoke test
         run: cargo run --manifest-path ternary/benchmarks/Cargo.toml --release
@@ -58,3 +61,19 @@ jobs:
           cargo clippy --manifest-path ternary/runtime/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/platform/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path ternary/benchmarks/Cargo.toml --all-targets -- -D warnings
+
+  redox-capability-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+      - name: Test Redox capability scheme
+        run: cargo test --manifest-path src/base/Cargo.toml -p trion-capd
+      - name: Check Redox capability service
+        run: cargo check --manifest-path src/base/Cargo.toml -p trion-capd
+      - name: Check service formatting
+        run: cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -- --check
+      - name: Lint capability service
+        run: cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd --all-targets -- -D warnings
