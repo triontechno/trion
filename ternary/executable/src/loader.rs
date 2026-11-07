@@ -77,13 +77,14 @@ pub fn rebase_pe32_plus(image:&mut InertImage, actual_base:u64)->Result<(),Error
             let target=page.checked_add(offset).ok_or(Error::Overflow)?;
             let target_end=target.checked_add(8).ok_or(Error::Overflow)?;
             if target_end>bytes.len() { return Err(Error::Truncated("PE relocation target")); }
-            if writes.iter().any(|(old,_)| *old==target) {
+            if !seen.insert(target) {
                 return Err(Error::Invalid("duplicate PE relocation target"));
             }
             let old=u64le(bytes,target)?;
             let adjusted=if delta>=0 { old.checked_add(delta as u64) } else { old.checked_sub((-delta) as u64) }
                 .ok_or(Error::Overflow)?;
             writes.try_reserve(1).map_err(|_|Error::Limit("PE relocation write set allocation"))?;
+            writes.try_reserve(1).map_err(|_|Error::Limit("PE relocation write-set allocation"))?;
             writes.push((target,adjusted));
         }
         at=at.checked_add(block_size).ok_or(Error::Overflow)?;
