@@ -133,7 +133,7 @@ fn finish_native_exec(
         .ok_or(Error::new(EOVERFLOW))?;
     map_writable(&grants_fd, stack_base, super::STACK_SIZE)?;
 
-    let trampoline = exit_trampoline(extrainfo.proc_fd)?;
+    let trampoline = exit_trampoline(proc_fd.as_raw_fd())?;
     let trampoline_size = page_align(trampoline.len())?;
     let trampoline_address = mmap_anon_remote(
         &grants_fd,
