@@ -92,6 +92,7 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
         .map_err(|_| Error::new(ENOEXEC))?;
     let mut code = vec![
         0x89, 0xC1,                         // mov ecx, eax (preserve entry return code)
+        0x81, 0xE1, 0xFF, 0, 0, 0,         // and ecx, 0xff (Redox process exit status)
         0xB8, 0, 0, 0, 0,                   // mov eax, SYS_CALL
         0xBF, 0, 0, 0, 0,                   // mov edi, proc fd
         0x48, 0x8D, 0x74, 0x24, 0xF0,       // lea rsi, [rsp - 16] (writable stack request)
@@ -102,11 +103,15 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
         0x45, 0x31, 0xC9,                   // xor r9d, r9d (metadata length)
         0x89, 0x4E, 0x08,                   // mov [rsi + 8], ecx (exit status)
         0x0F, 0x05,                         // syscall
+        0x48, 0x83, 0xF8, 0xFC,             // cmp rax, -EINTR
+        0x74, 0xD0,                         // je retry syscall
+        0x48, 0x83, 0xF8, 0xF5,             // cmp rax, -EAGAIN
+        0x74, 0xCA,                         // je retry syscall
         0x0F, 0x0B,                         // ud2 if process-manager exit unexpectedly returns
     ];
-    code[3..7].copy_from_slice(&syscall_number.to_le_bytes());
-    code[8..12].copy_from_slice(&proc_fd.to_le_bytes());
-    code[19..23].copy_from_slice(&exit_verb.to_le_bytes());
+    code[9..13].copy_from_slice(&syscall_number.to_le_bytes());
+    code[14..18].copy_from_slice(&proc_fd.to_le_bytes());
+    code[25..29].copy_from_slice(&exit_verb.to_le_bytes());
     Ok(code)
 }
 
