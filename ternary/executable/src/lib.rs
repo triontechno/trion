@@ -1,7 +1,9 @@
 //! Direct executable-format foundations. Parsed bytes remain inert: this crate
 //! does not execute guest code or translate applications to TIR or .trx.
 
-pub mod loader;\npub mod engine;\npub mod launch;
+pub mod loader;
+pub mod engine;
+pub mod launch;
 
 pub mod decoder;
 pub mod guest;
@@ -108,7 +110,10 @@ pub mod pe{
             if rs>0{range(d,rp,rs,"section bytes")?;}
             sections.push(Section{name,address:va,memory_size:vs.max(rs),file_offset:rp,file_size:rs,readable:flags&0x4000_0000!=0,executable:flags&0x2000_0000!=0,writable:flags&0x8000_0000!=0});
         }
-        if !sections.iter().any(|s| s.executable && entry>=s.address && entry<s.address.saturating_add(s.memory_size)) {\n            return Err(Error::Invalid("PE entry point is not in an executable section"));\n        }\n        for i in 0..sections.len(){for b in sections.iter().skip(i+1){
+        if !sections.iter().any(|s| s.executable && entry>=s.address && entry<s.address.saturating_add(s.memory_size)) {
+            return Err(Error::Invalid("PE entry point is not in an executable section"));
+        }
+        for i in 0..sections.len(){for b in sections.iter().skip(i+1){
             let a=&sections[i];let ae=a.address.checked_add(a.memory_size).ok_or(Error::Overflow)?;
             let be=b.address.checked_add(b.memory_size).ok_or(Error::Overflow)?;
             if a.address<be&&b.address<ae{return Err(Error::Invalid("overlapping virtual sections"))}
