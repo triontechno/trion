@@ -879,6 +879,62 @@ impl App {
     fn open_file(&mut self, paths: &[impl AsRef<Path>]) -> Task<Message> {
         let mut tasks = Vec::new();
 
+        // On Redox, treat .app directories as launchable bundles rather than
+        // ordinary folders. The resolver rejects symlinks and unsupported plist
+        // or executable metadata before invoking the native Mach-O loader.
+        #[cfg(target_os = "redox")]
+        let paths = {
+            let mut remaining_paths = Vec::<PathBuf>::new();
+            for selected in paths {
+                let bundle = selected.as_ref();
+                let is_app_bundle = bundle.extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("app"));
+                if !is_app_bundle {
+                    remaining_paths.push(bundle.to_owned());
+                    continue;
+                }
+                match resolve_trion_app_bundle(bundle) {
+                    Ok(executable) => {
+                        let mut command = std::process::Command::new(&executable);
+                        command.env_clear();
+                        match spawn_detached(&mut command) {
+                            Ok(()) => {
+                                if self.config.show_recents {
+                                    let _ = recently_used_xbel::update_recently_used(
+                                        bundle,
+                                        Self::APP_ID.to_string(),
+                                        "cosmic-files".to_string(),
+                                        None,
+                                    );
+                                }
+                            }
+                            Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
+                                tasks.push(self.push_dialog(
+                                    DialogPage::SetExecutableAndLaunch { path: executable },
+                                    Some(SET_EXECUTABLE_AND_LAUNCH_CONFIRM_BUTTON_ID.clone()),
+                                ));
+                            }
+                            Err(err) => log::warn!(
+                                "failed to launch app bundle {}: {}",
+                                bundle.display(),
+                                err
+                            ),
+                        }
+                    }
+                    Err(err) => log::warn!(
+                        "refusing unsupported or unsafe app bundle {}: {}",
+                        bundle.display(),
+                        err
+                    ),
+                }
+            }
+            if remaining_paths.is_empty() {
+                return Task::batch(tasks);
+            }
+            remaining_paths
+        };
+
         // Associate all paths to its MIME type
         // This allows handling paths as groups if possible, such as launching a single video
         // player that is passed every path.
