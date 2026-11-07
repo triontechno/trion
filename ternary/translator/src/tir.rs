@@ -18,13 +18,6 @@ fn x86_elf(bytes: &[u8]) -> Result<goblin::elf::Elf<'_>, String> {
             elf.is_64, elf.header.e_machine
         ));
     }
-    if let Some((index, _)) = elf.section_headers.iter().enumerate().find(|(_, section)| {
-        section.sh_type == section_header::SHT_REL || section.sh_type == section_header::SHT_RELA
-    }) {
-        return Err(format!(
-            "ELF relocation section {index} is unsupported; relocated code cannot be translated"
-        ));
-    }
     Ok(elf)
 }
 
@@ -54,6 +47,115 @@ fn register_id(register: Register) -> Option<u8> {
 ///
 /// The returned stream is validated before it is exposed. Unsupported
 /// instructions reject the whole input; no partial translation is returned.
+fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
+    let field = bytes.get(offset..offset.checked_add(2).ok_or("ELF offset overflow")?)
+        .ok_or("truncated ELF u16 field")?;
+    Ok(u16::from_le_bytes([field[0], field[1]]))
+}
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let field = bytes.get(offset..offset.checked_add(4).ok_or("ELF offset overflow")?)
+        .ok_or("truncated ELF u32 field")?;
+    Ok(u32::from_le_bytes(field.try_into().map_err(|_| "invalid ELF u32")?))
+}
+fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
+    let field = bytes.get(offset..offset.checked_add(8).ok_or("ELF offset overflow")?)
+        .ok_or("truncated ELF u64 field")?;
+    Ok(u64::from_le_bytes(field.try_into().map_err(|_| "invalid ELF u64")?))
+}
+
+/// Apply statically resolvable x86-64 RELA relocations to one executable section.
+/// ET_REL is rejected because it has no final section layout; unresolved/dynamic
+/// absolute relocations are rejected instead of being guessed.
+fn relocate_executable_section(
+    bytes: &[u8],
+    elf: &goblin::elf::Elf<'_>,
+    target_index: usize,
+) -> Result<Vec<u8>, String> {
+    let target = elf.section_headers.get(target_index)
+        .ok_or("invalid target section index")?;
+    let start = usize::try_from(target.sh_offset).map_err(|_| "section offset too large")?;
+    let size = usize::try_from(target.sh_size).map_err(|_| "section size too large")?;
+    let end = start.checked_add(size).ok_or("section bounds overflow")?;
+    let mut code = bytes.get(start..end).ok_or("executable section lies outside file")?.to_vec();
+
+    for (rel_index, rela) in elf.section_headers.iter().enumerate() {
+        if rela.sh_info as usize != target_index
+            || (rela.sh_type != section_header::SHT_RELA && rela.sh_type != section_header::SHT_REL) {
+            continue;
+        }
+        if rela.sh_type == section_header::SHT_REL {
+            return Err(format!("ELF REL relocation section {rel_index} is unsupported; explicit addends are required"));
+        }
+        if elf.header.e_type == header::ET_REL {
+            return Err(format!("ELF relocatable object has no final section layout (relocation section {rel_index})"));
+        }
+        let symtab_index = rela.sh_link as usize;
+        let symtab = elf.section_headers.get(symtab_index)
+            .ok_or_else(|| format!("relocation section {rel_index} references an invalid symbol table"))?;
+        if symtab.sh_type != section_header::SHT_SYMTAB && symtab.sh_type != section_header::SHT_DYNSYM {
+            return Err(format!("relocation section {rel_index} does not reference a symbol table"));
+        }
+        let rela_start = usize::try_from(rela.sh_offset).map_err(|_| "relocation offset too large")?;
+        let rela_size = usize::try_from(rela.sh_size).map_err(|_| "relocation size too large")?;
+        let rela_end = rela_start.checked_add(rela_size).ok_or("relocation bounds overflow")?;
+        let entry_size = usize::try_from(rela.sh_entsize).map_err(|_| "relocation entry size too large")?;
+        if entry_size < 24 || rela_size % entry_size != 0 {
+            return Err(format!("malformed RELA section {rel_index}"));
+        }
+        let sym_start = usize::try_from(symtab.sh_offset).map_err(|_| "symbol table offset too large")?;
+        let sym_size = usize::try_from(symtab.sh_size).map_err(|_| "symbol table size too large")?;
+        let sym_end = sym_start.checked_add(sym_size).ok_or("symbol table bounds overflow")?;
+        let sym_entsize = usize::try_from(symtab.sh_entsize).map_err(|_| "symbol entry size too large")?;
+        if sym_entsize < 24 || sym_size % sym_entsize != 0 {
+            return Err(format!("malformed symbol table for relocation section {rel_index}"));
+        }
+        let rel_data = bytes.get(rela_start..rela_end).ok_or("RELA section lies outside file")?;
+        for entry in (0..rela_size).step_by(entry_size) {
+            let r_offset = read_u64(rel_data, entry)?;
+            let r_info = read_u64(rel_data, entry + 8)?;
+            let addend = read_u64(rel_data, entry + 16)? as i64;
+            let symbol_index = usize::try_from(r_info >> 32).map_err(|_| "symbol index too large")?;
+            let relocation_type = r_info as u32;
+            let symbol_offset = sym_start.checked_add(symbol_index.checked_mul(sym_entsize).ok_or("symbol index overflow")?)
+                .ok_or("symbol offset overflow")?;
+            if symbol_offset.checked_add(24).ok_or("symbol bounds overflow")? > sym_end {
+                return Err(format!("relocation section {rel_index} has an out-of-range symbol index"));
+            }
+            let symbol_section = read_u16(bytes, symbol_offset + 6)?;
+            if symbol_section == 0 {
+                return Err(format!("relocation section {rel_index} references an undefined symbol"));
+            }
+            let symbol_value = read_u64(bytes, symbol_offset + 8)?;
+            let place = r_offset.checked_sub(target.sh_addr)
+                .ok_or_else(|| format!("relocation place precedes target section in section {rel_index}"))?;
+            let place = usize::try_from(place).map_err(|_| "relocation place too large")?;
+            match relocation_type {
+                2 | 4 => { // R_X86_64_PC32 / R_X86_64_PLT32
+                    let value = i128::from(symbol_value) + i128::from(addend)
+                        - i128::from(r_offset);
+                    let value = i32::try_from(value)
+                        .map_err(|_| format!("PC-relative relocation overflows i32 in section {rel_index}"))?;
+                    let patch = code.get_mut(place..place.checked_add(4).ok_or("relocation patch overflow")?)
+                        .ok_or("PC-relative relocation patch lies outside executable section")?;
+                    patch.copy_from_slice(&value.to_le_bytes());
+                }
+                1 => { // R_X86_64_64
+                    if elf.header.e_type == header::ET_DYN {
+                        return Err(format!("absolute R_X86_64_64 relocation in PIE requires a load bias (section {rel_index})"));
+                    }
+                    let value = u64::try_from(i128::from(symbol_value) + i128::from(addend))
+                        .map_err(|_| format!("absolute relocation overflows u64 in section {rel_index}"))?;
+                    let patch = code.get_mut(place..place.checked_add(8).ok_or("relocation patch overflow")?)
+                        .ok_or("absolute relocation patch lies outside executable section")?;
+                    patch.copy_from_slice(&value.to_le_bytes());
+                }
+                other => return Err(format!("unsupported x86-64 relocation type {other} in executable section {target_index}")),
+            }
+        }
+    }
+    Ok(code)
+}
+
 pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let elf = x86_elf(bytes)?;
     let mut output = format!("{TIR_HEADER}\n");
@@ -72,11 +174,12 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
             .ok_or_else(|| format!("section {section_index} bounds overflow"))?;
         section.sh_addr.checked_add(section.sh_size)
             .ok_or_else(|| format!("section {section_index} virtual address overflows"))?;
-        let code = bytes.get(start..end)
+        let _raw_code = bytes.get(start..end)
             .ok_or_else(|| format!("section {section_index} lies outside the file"))?;
+        let code = relocate_executable_section(bytes, &elf, section_index)?;
         executable_sections += 1;
 
-        let mut decoder = Decoder::with_ip(64, code, section.sh_addr, DecoderOptions::NONE);
+        let mut decoder = Decoder::with_ip(64, &code, section.sh_addr, DecoderOptions::NONE);
         while decoder.can_decode() {
             let instruction = decoder.decode();
             let ip = instruction.ip();
