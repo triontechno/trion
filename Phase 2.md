@@ -36,10 +36,10 @@ Develop an adaptive binary/ternary architecture that preserves conventional hard
 **Status: native process hand-off implemented for the restricted Stage G profiles; full isolation incomplete.** The loader now uses Redox address-space selection, user register setup, scheduler/context switching and process-manager exit. Explicit guest fault/signal policy, capability isolation, brokered I/O, resource accounting and full containment remain. See [Stage H](Phase%202%20Stage%20H.md).
 
 ### Stage I — Windows compatibility runtime
-**Status: compatibility boundary implemented; runtime services incomplete.** Typed import/export resolution model and explicit API classification exist; no Windows API is marked operational. Process startup, ABI and kernel-backed Win32/NT services remain; bounded PE import parsing and IAT population are now present. See [Stage I](Phase%202%20Stage%20I.md).
+**Status: restricted freestanding PE32+ launch exists; general Windows runtime services incomplete.** Typed import/export resolution and API classification exist; no Windows API is marked operational. PEB/TEB, standard process startup, TLS, unwind handling and kernel-backed Win32/NT services remain. See [Stage I](Phase%202%20Stage%20I.md).
 
 ### Stage J — macOS compatibility runtime and unified dispatch
-**Status: bundle-planning foundation implemented; runtime and dispatch incomplete.** Broker-fed member path validation, bounded XML bundle planning and explicit unresolved-framework diagnostics exist. Binary plist, Mach-O dyld linking, process startup, framework services and OS launcher/file-manager integration remain; a library-level unified dispatcher now exists. See [Stage J](Phase%202%20Stage%20J.md).
+**Status: restricted freestanding Mach-O launch and XML .app routing implemented; general macOS runtime incomplete.** Broker-fed member validation, XML bundle planning and native segment mapping exist. Binary plist, dyld linking, standard process startup, frameworks, code-signature policy and macOS services remain. See [Stage J](Phase%202%20Stage%20J.md).
 
 ## 3. Global engineering gates
 
