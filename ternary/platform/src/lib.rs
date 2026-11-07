@@ -141,7 +141,6 @@ impl<'a> BinaryBoundary<'a> {
     }
 }
 
-
 /// Result of a bounded, correctness-checked adaptive runtime probe.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdaptiveProbeReport {
@@ -156,9 +155,7 @@ pub struct AdaptiveProbeReport {
 /// Run the same integer workload through binary and balanced-ternary
 /// representations, measure five interleaved samples, validate equal results,
 /// then select using median measured costs. Iterations are capped at 100,000.
-pub fn run_adaptive_integer_probe(
-    iterations: usize,
-) -> Result<AdaptiveProbeReport, &'static str> {
+pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeReport, &'static str> {
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -273,15 +270,16 @@ mod tests {
     #[test]
     fn runtime_uses_shared_adaptive_policy_and_requires_evidence() {
         let report = CapabilityReport::for_build_target();
-        let selected = report.select_runtime_path(SelectionRequest {
-            boundary: Boundary::Internal,
-            candidates: CandidateSet {
-                binary: Some(metrics(100)),
-                ternary: Some(metrics(50)),
-                hybrid: None,
-            },
-        })
-        .unwrap();
+        let selected = report
+            .select_runtime_path(SelectionRequest {
+                boundary: Boundary::Internal,
+                candidates: CandidateSet {
+                    binary: Some(metrics(100)),
+                    ternary: Some(metrics(50)),
+                    hybrid: None,
+                },
+            })
+            .unwrap();
         assert_eq!(selected.representation, Representation::BalancedTernary);
     }
 
