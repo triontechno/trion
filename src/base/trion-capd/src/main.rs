@@ -8,6 +8,64 @@ fn main() {
     daemon::Daemon::new(daemon);
 }
 
+fn pci_inventory_with_retry(
+    mut probe: impl FnMut() -> Option<usize>,
+    max_attempts: usize,
+    retry_delay: std::time::Duration,
+) -> (bool, usize, usize) {
+    for attempt in 1..=max_attempts {
+        if let Some(entries) = probe() {
+            return (true, entries, attempt);
+        }
+        if attempt < max_attempts {
+            std::thread::sleep(retry_delay);
+        }
+    }
+    (false, 0, max_attempts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pci_inventory_with_retry;
+    use std::time::Duration;
+
+    #[test]
+    fn pci_inventory_waits_for_registration_and_returns_enumerated_count() {
+        let mut attempts = 0;
+        let result = pci_inventory_with_retry(
+            || {
+                attempts += 1;
+                (attempts >= 3).then_some(7)
+            },
+            5,
+            Duration::ZERO,
+        );
+        assert_eq!(result, (true, 7, 3));
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn pci_inventory_reports_unavailable_after_bounded_retries() {
+        let mut attempts = 0;
+        let result = pci_inventory_with_retry(
+            || {
+                attempts += 1;
+                None
+            },
+            4,
+            Duration::ZERO,
+        );
+        assert_eq!(result, (false, 0, 4));
+        assert_eq!(attempts, 4);
+    }
+
+    #[test]
+    fn pci_inventory_accepts_an_empty_but_registered_scheme() {
+        let result = pci_inventory_with_retry(|| Some(0), 3, Duration::ZERO);
+        assert_eq!(result, (true, 0, 1));
+    }
+}
+
 fn daemon(daemon: daemon::Daemon) -> ! {
     common::setup_logging(
         "misc",
