@@ -17,8 +17,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
         common::file_level(),
     );
 
-    let capability_report =
-        trion_platform::CapabilityReport::for_build_target().to_report_text();
+    let capability_report = trion_platform::CapabilityReport::for_build_target().to_report_text();
     let adaptive_probe = trion_platform::run_adaptive_integer_probe(16_384)
         .expect("trion-capd: adaptive workload failed semantic validation");
     let runtime_policy = format!(
