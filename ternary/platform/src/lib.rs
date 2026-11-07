@@ -107,7 +107,7 @@ impl CapabilityReport {
         }).collect::<Vec<_>>().join(",");
 
         format!(
-            "TRION-CAPABILITIES {}\narchitecture={}\nos={}\npointer_width={}\nlittle_endian={}\nbinary_execution={}\nnative_ternary_hardware={}\nsoftware_tir_runtime={}\ntir_operations={}\nbinary_external_boundaries={}\natomic_8={}\natomic_16={}\natomic_32={}\natomic_64={}\natomic_128={}\n",
+            "TRION-CAPABILITIES {}\narchitecture={}\nos={}\npointer_width={}\nlittle_endian={}\nbinary_execution={}\nnative_ternary_hardware={}\nsoftware_tir_runtime={}\ntir_operations={}\nbinary_external_boundaries={}\natomic_8={}\natomic_16={}\natomic_32={}\natomic_64={}\n",
             self.schema_version, architecture, self.operating_system, self.pointer_width,
             self.little_endian, self.binary_execution, self.native_ternary_hardware,
             self.software_tir_runtime, operations, self.binary_external_boundaries,
