@@ -182,11 +182,19 @@ pub mod macho{
                 let name=String::from_utf8_lossy(&n[..nn]).into_owned();
                 let va=r64(d,at+24,"segment vmaddr")?;let vs=r64(d,at+32,"segment vmsize")?;
                 let fo=r64(d,at+40,"segment fileoff")?;let fs=r64(d,at+48,"segment filesize")?;
-                let prot=r32(d,at+56,"segment protections")?;let ns=r32(d,at+64,"segment section count")? as usize;
+                let prot=r32(d,at+56,"segment protections")?;
+                let maxprot=r32(d,at+60,"segment maximum protections")?;
+                let ns=r32(d,at+64,"segment section count")? as usize;
                 if 72usize.checked_add(ns.checked_mul(80).ok_or(Error::Overflow)?).ok_or(Error::Overflow)?>size{return Err(Error::Invalid("segment section table"))}
+                if fs>vs || prot&!7!=0 || maxprot&!7!=0 || prot&!maxprot!=0 {
+                    return Err(Error::Invalid("Mach-O segment size/protection flags"));
+                }
                 if fs>0{range(d,fo,fs,"segment file bytes")?;}
                 va.checked_add(vs).ok_or(Error::Overflow)?;
-                if name != "__PAGEZERO" { sections.push(Section{name,address:va,memory_size:vs,file_offset:fo,file_size:fs,readable:prot&1!=0,executable:prot&4!=0,writable:prot&2!=0}); }
+                if name != "__PAGEZERO" {
+                    if vs==0 { return Err(Error::Invalid("empty Mach-O loadable segment")); }
+                    sections.push(Section{name,address:va,memory_size:vs,file_offset:fo,file_size:fs,readable:prot&1!=0,executable:prot&4!=0,writable:prot&2!=0});
+                }
             }else if cmd==LC_LOAD_DYLIB||cmd==LC_LOAD_WEAK_DYLIB||cmd==LC_REEXPORT_DYLIB||cmd==LC_LOAD_UPWARD_DYLIB{
                 if size<24{return Err(Error::Truncated("dylib command"))}
                 let off=r32(d,at+8,"dylib name offset")? as usize;
@@ -200,6 +208,21 @@ pub mod macho{
             at+=size;
         }
         if at!=end{return Err(Error::Invalid("sizeofcmds mismatch"))}
+        for i in 0..sections.len() {
+            let a=&sections[i];
+            let a_end=a.address.checked_add(a.memory_size).ok_or(Error::Overflow)?;
+            let a_file_end=a.file_offset.checked_add(a.file_size).ok_or(Error::Overflow)?;
+            for b in sections.iter().skip(i+1) {
+                let b_end=b.address.checked_add(b.memory_size).ok_or(Error::Overflow)?;
+                let b_file_end=b.file_offset.checked_add(b.file_size).ok_or(Error::Overflow)?;
+                if a.address<b_end && b.address<a_end {
+                    return Err(Error::Invalid("overlapping Mach-O virtual segments"));
+                }
+                if a.file_size>0 && b.file_size>0 && a.file_offset<b_file_end && b.file_offset<a_file_end {
+                    return Err(Error::Invalid("overlapping Mach-O file segments"));
+                }
+            }
+        }
         let file=entry_file.ok_or(Error::Invalid("LC_MAIN missing"))?;
         let mut entry=None;let mut base=u64::MAX;let mut span=0u64;
         for s in &sections{
