@@ -1,5 +1,5 @@
 //! Safe guest-process model primitives. This module does not execute host instructions.
-//! Native execution requires a separately reviewed architecture-specific context switch.
+//! Native execution is provided separately by Redox's process/address-space loader.
 
 use crate::Error;
 use std::collections::BTreeMap;
