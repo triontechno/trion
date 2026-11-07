@@ -151,14 +151,22 @@ fn run_cli_executes_validated_trionex_with_instruction_budget() {
         .arg(&executable)
         .output()
         .expect("package TRIONEX");
-    assert!(packaged.status.success(), "{}", String::from_utf8_lossy(&packaged.stderr));
+    assert!(
+        packaged.status.success(),
+        "{}",
+        String::from_utf8_lossy(&packaged.stderr)
+    );
 
     let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
         .arg("run")
         .arg(&executable)
         .output()
         .expect("run TRIONEX");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(String::from_utf8_lossy(&output.stdout).contains("r0=42"));
 
     let limited = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
@@ -167,7 +175,11 @@ fn run_cli_executes_validated_trionex_with_instruction_budget() {
         .arg("1")
         .output()
         .expect("run TRIONEX with budget");
-    assert!(limited.status.success(), "{}", String::from_utf8_lossy(&limited.stderr));
+    assert!(
+        limited.status.success(),
+        "{}",
+        String::from_utf8_lossy(&limited.stderr)
+    );
 
     fs::remove_file(input).unwrap();
     fs::remove_file(executable).unwrap();
