@@ -21,14 +21,6 @@ pub enum HostArchitecture {
     Other,
 }
 
-/// Operations implemented by the bounded legacy TIR test interpreter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TirOperation {
-    Nop,
-    MovImm64,
-    Ret,
-}
-
 /// Facts guaranteed by the current build target.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CapabilityReport {
@@ -40,9 +32,6 @@ pub struct CapabilityReport {
     pub binary_execution: bool,
     /// False until a hardware-specific adapter positively verifies native ternary.
     pub native_ternary_hardware: bool,
-    /// True only because the bounded research/test interpreter is built in.
-    pub software_tir_runtime: bool,
-    pub tir_operations: &'static [TirOperation],
     /// Established device, DMA, MMIO, syscall, and wire interfaces remain binary.
     pub binary_external_boundaries: bool,
     pub atomic_8: bool,
@@ -62,25 +51,19 @@ impl CapabilityReport {
         };
 
         Self {
-            schema_version: 2,
+            schema_version: 3,
             architecture,
             operating_system: std::env::consts::OS,
             pointer_width: usize::BITS as u8,
             little_endian: cfg!(target_endian = "little"),
             binary_execution: true,
             native_ternary_hardware: false,
-            software_tir_runtime: true,
-            tir_operations: &[TirOperation::Nop, TirOperation::MovImm64, TirOperation::Ret],
             binary_external_boundaries: true,
             atomic_8: cfg!(target_has_atomic = "8"),
             atomic_16: cfg!(target_has_atomic = "16"),
             atomic_32: cfg!(target_has_atomic = "32"),
             atomic_64: cfg!(target_has_atomic = "64"),
         }
-    }
-
-    pub fn supports_tir(&self, operation: TirOperation) -> bool {
-        self.software_tir_runtime && self.tir_operations.contains(&operation)
     }
 
     /// Delegate a workload decision to the shared policy using caller-supplied
@@ -92,7 +75,7 @@ impl CapabilityReport {
         select_representation(request)
     }
 
-    /// Stable key/value diagnostic representation (schema version 2).
+    /// Stable key/value diagnostic representation (schema version 3).
     pub fn to_report_text(&self) -> String {
         let architecture = match self.architecture {
             HostArchitecture::X86_64 => "x86_64",
@@ -100,19 +83,8 @@ impl CapabilityReport {
             HostArchitecture::Riscv64 => "riscv64",
             HostArchitecture::Other => "other",
         };
-        let operations = self
-            .tir_operations
-            .iter()
-            .map(|op| match op {
-                TirOperation::Nop => "NOP",
-                TirOperation::MovImm64 => "MOV_IMM64",
-                TirOperation::Ret => "RET",
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-
         format!(
-            "TRION-CAPABILITIES {}\narchitecture={}\nos={}\npointer_width={}\nlittle_endian={}\nbinary_execution={}\nnative_ternary_hardware={}\nsoftware_tir_runtime={}\ntir_operations={}\nbinary_external_boundaries={}\natomic_8={}\natomic_16={}\natomic_32={}\natomic_64={}\n",
+            "TRION-CAPABILITIES {}\narchitecture={}\nos={}\npointer_width={}\nlittle_endian={}\nbinary_execution={}\nnative_ternary_hardware={}\nbinary_external_boundaries={}\natomic_8={}\natomic_16={}\natomic_32={}\natomic_64={}\n",
             self.schema_version,
             architecture,
             self.operating_system,
@@ -120,8 +92,6 @@ impl CapabilityReport {
             self.little_endian,
             self.binary_execution,
             self.native_ternary_hardware,
-            self.software_tir_runtime,
-            operations,
             self.binary_external_boundaries,
             self.atomic_8,
             self.atomic_16,
@@ -283,7 +253,7 @@ mod tests {
     #[test]
     fn target_report_contains_build_facts_and_never_guesses_ternary_hardware() {
         let report = CapabilityReport::for_build_target();
-        assert_eq!(report.schema_version, 2);
+        assert_eq!(report.schema_version, 3);
         assert_eq!(report.pointer_width, usize::BITS as u8);
         assert_eq!(report.operating_system, std::env::consts::OS);
         assert!(!report.native_ternary_hardware);
@@ -292,12 +262,10 @@ mod tests {
     }
 
     #[test]
-    fn reports_only_the_implemented_legacy_tir_subset() {
-        let report = CapabilityReport::for_build_target();
-        assert!(report.supports_tir(TirOperation::Nop));
-        assert!(report.supports_tir(TirOperation::MovImm64));
-        assert!(report.supports_tir(TirOperation::Ret));
-        assert_eq!(report.tir_operations.len(), 3);
+    fn capability_report_does_not_claim_an_unintegrated_tir_runtime() {
+        let text = CapabilityReport::for_build_target().to_report_text();
+        assert!(!text.contains("software_tir_runtime"));
+        assert!(!text.contains("tir_operations"));
     }
 
     #[test]
