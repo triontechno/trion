@@ -238,3 +238,105 @@ pub fn assess_launch(data:&[u8])->Result<LaunchAssessment,Error>{
     }
     Ok(LaunchAssessment{description,blockers,launchable:false})
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn put16(d: &mut [u8], at: usize, v: u16) { d[at..at+2].copy_from_slice(&v.to_le_bytes()); }
+    fn put32(d: &mut [u8], at: usize, v: u32) { d[at..at+4].copy_from_slice(&v.to_le_bytes()); }
+    fn put64(d: &mut [u8], at: usize, v: u64) { d[at..at+8].copy_from_slice(&v.to_le_bytes()); }
+
+    fn pe_fixture() -> Vec<u8> {
+        let mut d = vec![0u8; 0x400];
+        d[0..2].copy_from_slice(b"MZ");
+        put32(&mut d, 0x3c, 0x80);
+        d[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let coff = 0x84;
+        put16(&mut d, coff, 0x8664);
+        put16(&mut d, coff+2, 1);
+        put16(&mut d, coff+16, 0xf0);
+        let opt = coff+20;
+        put16(&mut d, opt, 0x20b);
+        put32(&mut d, opt+16, 0x1000);
+        put64(&mut d, opt+24, 0x1400_0000_0);
+        put32(&mut d, opt+32, 0x1000);
+        put32(&mut d, opt+36, 0x200);
+        put32(&mut d, opt+56, 0x2000);
+        put32(&mut d, opt+60, 0x200);
+        put32(&mut d, opt+108, 0);
+        let sec = opt+0xf0;
+        d[sec..sec+5].copy_from_slice(b".text");
+        put32(&mut d, sec+8, 0x100);
+        put32(&mut d, sec+12, 0x1000);
+        put32(&mut d, sec+16, 0x200);
+        put32(&mut d, sec+20, 0x200);
+        put32(&mut d, sec+36, 0x6000_0020);
+        d[0x200] = 0x90;
+        d
+    }
+
+    fn macho_fixture() -> Vec<u8> {
+        let mut d = vec![0u8; 0x300];
+        put32(&mut d, 0, 0xfeed_facf);
+        put32(&mut d, 4, 0x0100_0007);
+        put32(&mut d, 12, 2);
+        put32(&mut d, 16, 2);
+        put32(&mut d, 20, 96);
+        let seg = 32;
+        put32(&mut d, seg, 0x19);
+        put32(&mut d, seg+4, 72);
+        d[seg+8..seg+14].copy_from_slice(b"__TEXT");
+        put64(&mut d, seg+24, 0x1_0000_0000);
+        put64(&mut d, seg+32, 0x1000);
+        put64(&mut d, seg+40, 0);
+        put64(&mut d, seg+48, 0x300);
+        put32(&mut d, seg+56, 5);
+        put32(&mut d, seg+64, 0);
+        let main = seg+72;
+        put32(&mut d, main, 0x8000_0028);
+        put32(&mut d, main+4, 24);
+        put64(&mut d, main+8, 0x200);
+        d
+    }
+
+    #[test]
+    fn pe32_plus_inspection_and_inert_mapping() {
+        let input = pe_fixture();
+        let parsed = pe::inspect(&input).unwrap();
+        assert_eq!(parsed.format, Format::Pe32Plus);
+        assert_eq!(parsed.architecture, Architecture::X86_64);
+        assert_eq!(parsed.entry_point, 0x1400_001000);
+        assert_eq!(parsed.sections[0].name, ".text");
+        let mapped = pe::map_preferred(&input).unwrap();
+        assert_eq!(mapped.bytes.len(), 0x2000);
+        assert_eq!(mapped.bytes[0x1000], 0x90);
+        assert!(!assess_launch(&input).unwrap().launchable);
+    }
+
+    #[test]
+    fn macho64_inspection_and_entry_point() {
+        let parsed = macho::inspect(&macho_fixture()).unwrap();
+        assert_eq!(parsed.format, Format::MachO64);
+        assert_eq!(parsed.entry_point, 0x1_0000_0200);
+        assert_eq!(parsed.sections[0].name, "__TEXT");
+    }
+
+    #[test]
+    fn rejects_truncated_and_wrong_architecture_inputs() {
+        assert!(matches!(pe::inspect(b"MZ"), Err(Error::Truncated(_))));
+        let mut input = pe_fixture();
+        put16(&mut input, 0x84, 0x014c);
+        assert_eq!(pe::inspect(&input), Err(Error::Architecture(0x014c)));
+        assert!(matches!(macho::inspect(b"\xcf\xfa\xed\xfe"), Err(Error::Truncated(_))));
+    }
+
+    #[test]
+    fn selects_bundle_executable_without_path_traversal() {
+        let plist = br#"<plist><dict><key>CFBundleExecutable</key><string>Trion</string></dict></plist>"#;
+        assert_eq!(select_app_executable(plist, &["Resources", "Trion"]).unwrap(), "Trion");
+        let bad = br#"<plist><dict><key>CFBundleExecutable</key><string>../Trion</string></dict></plist>"#;
+        assert!(select_app_executable(bad, &["../Trion"]).is_err());
+    }
+}
