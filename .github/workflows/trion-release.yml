@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: trion-release-${{ github.ref }}
+  group: trion-release-v2-${{ github.ref }}
   cancel-in-progress: false
 
 env:
