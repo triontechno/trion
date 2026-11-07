@@ -14,7 +14,7 @@ Provide one direct execution path for original Windows PE32+ .exe files and macO
 - Guest code never runs in kernel mode.
 - Native execution uses a real Redox process address space and user-mode context.
 - Writable/executable mappings are prohibited.
-- Unsupported imports, runtime features, relocations, ABI requirements, and architectures fail closed.
+- Unsupported imports, runtime features, rebase requirements, ABI requirements, and architectures fail closed.
 - Original .exe files and .app bundles remain unchanged.
 
 ## 3. Implemented source
@@ -29,7 +29,7 @@ Provide one direct execution path for original Windows PE32+ .exe files and macO
 - src/relibc/redox-rt/src/proc.rs dispatches original PE32+ and little-endian Mach-O64 images into proc/trion.rs from the standard process execution path.
 - src/relibc/redox-rt/src/proc/trion.rs creates a fresh address space through Redox's existing process/address-space scheme, maps original image segments, enforces W^X, creates the user stack, sets the initial instruction/stack registers through current-addrspace, and hands execution to the normal Redox scheduler and x86-64 context-switch path.
 - A small OS-owned return trampoline invokes ProcCall::Exit through the process-manager scheme and retries interrupted/temporarily unavailable exit requests. It is not translated application code.
-- Native PE32+ profile: x86-64 freestanding images with no imports, TLS callbacks, delay imports, argv or environment block; loaded at the preferred image base. Windows PEB/TEB, Win32/NT APIs, dynamic linking and unwind services are not provided.
+- Native PE32+ profile: x86-64 freestanding images with no imports/IAT, TLS callbacks, delay imports, exception/unwind directory, load-config/CFG metadata, managed-runtime directory, argv or environment block; loaded at the preferred image base. Rebase-required images fail closed. Windows PEB/TEB, Win32/NT APIs, dynamic linking and unwind services are not provided.
 - Native Mach-O64 profile: freestanding MH_EXECUTE images with LC_MAIN, no dyld, dylib dependencies, chained fixups, code signature, argv or environment block; mapped at their declared segment addresses. macOS runtime and framework services are not provided.
 - The process runs in user mode under Redox's actual address-space and scheduler machinery. Unhandled processor faults reach the existing kernel exception path; Stage H still owns the explicit guest fault, signal, capability and containment policy.
 
