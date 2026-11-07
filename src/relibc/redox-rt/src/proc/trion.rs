@@ -110,6 +110,134 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
     Ok(code)
 }
 
+fn finish_native_exec(
+    image_file: FdGuardUpper,
+    thread_fd: &FdGuardUpper,
+    proc_fd: &FdGuardUpper,
+    path: &[u8],
+    extrainfo: &ExtraInfo,
+    grants_fd: FdGuardUpper,
+    entry: usize,
+    stack_return_offset: usize,
+) -> Result<Option<FexecResult>> {
+    let stack_base = super::STACK_TOP
+        .checked_sub(super::STACK_SIZE)
+        .ok_or(Error::new(EOVERFLOW))?;
+    map_writable(&grants_fd, stack_base, super::STACK_SIZE)?;
+
+    let trampoline = exit_trampoline(extrainfo.proc_fd)?;
+    let trampoline_size = page_align(trampoline.len())?;
+    let trampoline_address = mmap_anon_remote(
+        &grants_fd,
+        0,
+        0,
+        trampoline_size,
+        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+    )?;
+    if trampoline_address == 0 || trampoline_address % PAGE_SIZE != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    write_remote(&grants_fd, trampoline_address, &trampoline)?;
+    mprotect_remote(
+        &grants_fd,
+        trampoline_address,
+        trampoline_size,
+        MapFlags::PROT_READ | MapFlags::PROT_EXEC,
+    )?;
+
+    // Both supported raw entry ABIs enter with RSP == 8 (mod 16). PE reserves
+    // the Windows 32-byte home area; the freestanding Mach-O profile does not.
+    let stack_pointer = super::STACK_TOP
+        .checked_sub(stack_return_offset)
+        .ok_or(Error::new(EOVERFLOW))?;
+    if stack_pointer % 16 != 8 {
+        return Err(Error::new(ENOEXEC));
+    }
+    write_remote(
+        &grants_fd,
+        stack_pointer,
+        &trampoline_address.to_ne_bytes(),
+    )?;
+
+    let addrspace_selection_fd = thread_fd.dup_into_upper(b"current-addrspace")?;
+    addrspace_selection_fd.write(&create_set_addr_space_buf(
+        grants_fd.as_raw_fd(),
+        entry,
+        stack_pointer,
+    ))?;
+
+    let mut name = [0u8; 32];
+    let name_len = path.len().min(name.len());
+    name[..name_len].copy_from_slice(&path[..name_len]);
+    let _ = sys_call_wo(
+        proc_fd.as_raw_fd(),
+        &name,
+        CallFlags::empty(),
+        &[ProcCall::Rename as u64],
+    );
+    let _ = sys_call(
+        proc_fd.as_raw_fd(),
+        CallFlags::empty(),
+        &[ProcCall::DisableSetpgid as u64],
+    );
+    if let Ok(sighandler_fd) = thread_fd.dup_into_upper(b"sighandler") {
+        let _ = sighandler_fd.write(&SetSighandlerData {
+            user_handler: 0,
+            excp_handler: 0,
+            thread_control_addr: 0,
+            proc_control_addr: 0,
+        });
+    }
+
+    if extrainfo.same_process {
+        let _siglock = crate::signal::tmp_disable_signals();
+        let fds_to_close = {
+            let guard = crate::current_filetable();
+            guard
+                .iter()
+                .filter_map(|(fd, flags)| {
+                    if fd == addrspace_selection_fd.as_raw_fd() {
+                        None
+                    } else if flags & O_CLOEXEC == O_CLOEXEC || fd == image_file.as_raw_fd() {
+                        Some(fd)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let fds_bytes: &[u8] = unsafe {
+            core::slice::from_raw_parts(
+                fds_to_close.as_ptr().cast::<u8>(),
+                fds_to_close.len() * core::mem::size_of::<usize>(),
+            )
+        };
+        let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
+        let _ = filetable_fd.call_wo(
+            fds_bytes,
+            CallFlags::empty(),
+            &[syscall::FileTableVerb::Close as u64],
+        );
+        {
+            let mut guard = crate::current_filetable();
+            for fd in fds_to_close {
+                let _ = guard.remove(fd);
+            }
+        }
+        unsafe { super::deactivate_tcb(thread_fd)?; }
+        let old_filetable_fd = {
+            let mut guard = crate::current_filetable();
+            guard.take()
+        };
+        drop(old_filetable_fd);
+        drop(addrspace_selection_fd);
+        unreachable!("closing current-addrspace switches into the native image");
+    }
+
+    drop(addrspace_selection_fd);
+    Ok(None)
+}
+
 fn launch_pe(
     image_file: FdGuardUpper,
     thread_fd: &FdGuardUpper,
@@ -325,120 +453,17 @@ fn launch_pe(
         mprotect_remote(&grants_fd, address, section.memory_size, section.protection)?;
     }
 
-    map_writable(
-        &grants_fd,
-        stack_base,
-        super::STACK_SIZE,
-    )?;
-    let trampoline = exit_trampoline(extrainfo.proc_fd)?;
-    let trampoline_size = page_align(trampoline.len())?;
-    let trampoline_address = mmap_anon_remote(
-        &grants_fd,
-        0,
-        0,
-        trampoline_size,
-        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
-    )?;
-    if trampoline_address == 0 || trampoline_address % PAGE_SIZE != 0 {
-        return Err(Error::new(ENOEXEC));
-    }
-    write_remote(&grants_fd, trampoline_address, &trampoline)?;
-    mprotect_remote(
-        &grants_fd,
-        trampoline_address,
-        trampoline_size,
-        MapFlags::PROT_READ | MapFlags::PROT_EXEC,
-    )?;
-
-    // Windows x64 entry alignment: RSP is 8 mod 16 and the 32-byte home area
-    // follows the return address. The return target is a tiny Redox exit stub.
-    let stack_pointer = super::STACK_TOP
-        .checked_sub(40)
-        .ok_or(Error::new(EOVERFLOW))?;
-    write_remote(
-        &grants_fd,
-        stack_pointer,
-        &trampoline_address.to_ne_bytes(),
-    )?;
-
     let entry = image_base.checked_add(entry_rva).ok_or(Error::new(EOVERFLOW))?;
-    let addrspace_selection_fd = thread_fd.dup_into_upper(b"current-addrspace")?;
-    addrspace_selection_fd.write(&create_set_addr_space_buf(
-        grants_fd.as_raw_fd(),
+    finish_native_exec(
+        image_file,
+        thread_fd,
+        proc_fd,
+        path,
+        extrainfo,
+        grants_fd,
         entry,
-        stack_pointer,
-    ))?;
-
-    let mut name = [0u8; 32];
-    let name_len = path.len().min(name.len());
-    name[..name_len].copy_from_slice(&path[..name_len]);
-    let _ = sys_call_wo(
-        proc_fd.as_raw_fd(),
-        &name,
-        CallFlags::empty(),
-        &[ProcCall::Rename as u64],
-    );
-    let _ = sys_call(
-        proc_fd.as_raw_fd(),
-        CallFlags::empty(),
-        &[ProcCall::DisableSetpgid as u64],
-    );
-    if let Ok(sighandler_fd) = thread_fd.dup_into_upper(b"sighandler") {
-        let _ = sighandler_fd.write(&SetSighandlerData {
-            user_handler: 0,
-            excp_handler: 0,
-            thread_control_addr: 0,
-            proc_control_addr: 0,
-        });
-    }
-
-    if extrainfo.same_process {
-        let _siglock = crate::signal::tmp_disable_signals();
-        let fds_to_close = {
-            let guard = crate::current_filetable();
-            guard
-                .iter()
-                .filter_map(|(fd, flags)| {
-                    if fd == addrspace_selection_fd.as_raw_fd() {
-                        None
-                    } else if flags & O_CLOEXEC == O_CLOEXEC || fd == image_file.as_raw_fd() {
-                        Some(fd)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-        };
-        let fds_bytes: &[u8] = unsafe {
-            core::slice::from_raw_parts(
-                fds_to_close.as_ptr().cast::<u8>(),
-                fds_to_close.len() * core::mem::size_of::<usize>(),
-            )
-        };
-        let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
-        let _ = filetable_fd.call_wo(
-            fds_bytes,
-            CallFlags::empty(),
-            &[syscall::FileTableVerb::Close as u64],
-        );
-        {
-            let mut guard = crate::current_filetable();
-            for fd in fds_to_close {
-                let _ = guard.remove(fd);
-            }
-        }
-        unsafe { super::deactivate_tcb(thread_fd)?; }
-        let old_filetable_fd = {
-            let mut guard = crate::current_filetable();
-            guard.take()
-        };
-        drop(old_filetable_fd);
-        drop(addrspace_selection_fd);
-        unreachable!("closing current-addrspace switches into the new PE image");
-    }
-
-    drop(addrspace_selection_fd);
-    Ok(None)
+        40,
+    )
 }
 
 /// Dispatch a PE32+ image through Redox's real address-space and process context
