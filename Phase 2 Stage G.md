@@ -63,6 +63,6 @@ Stage G implementation is complete when:
 2. Address-space permissions, W^X, entry/stack setup, and process exit are connected to the existing Redox process lifecycle.
 3. Every instruction in the declared interpreter subset has defined, bounded semantics and unsupported instructions fail closed.
 4. COSMIC Files routes .exe and supported .app bundles into the direct execution path.
-5. Regression and fuzz test sources cover the implemented parser, decoder, loader, and bundle boundaries.
+5. Regression and fuzz test sources cover the pure format parsers, decoder, guest semantics, and bundle metadata boundaries. Native kernel process-path validation is reserved for the post-Phase-2 validation pass.
 
-**Current result:** all five implementation criteria are present in source on main. Runtime validation remains deliberately deferred. This does not claim general Windows or macOS application compatibility.
+**Current result:** the Stage G implementation criteria are present in source on main. Runtime validation remains deliberately deferred. This does not claim general Windows or macOS application compatibility.
