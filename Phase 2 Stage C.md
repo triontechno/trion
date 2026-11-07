@@ -2,11 +2,11 @@
 
 **Status:** Implemented and CI-verified in main  
 **Prerequisites:** Stage A adaptive policy and Stage B checked packed memory  
-**Current input:** Canonical textual TRION-TIR v1
+**Input:** Canonical textual TRION-TIR v1 (standalone runtime tests only)
 
 ## 1. Purpose
 
-Execute the exact small instruction subset emitted by the current translator in a bounded software interpreter. This makes TIR execution a separately testable capability without claiming that TIR is a native executable or that the OS can yet load and run translated applications.
+Execute a small, explicitly defined TIR v1 instruction subset in a bounded software interpreter. This remains an isolated research/runtime component; TIR is not the application executable format and is not used to launch Windows or macOS applications.
 
 ## 2. Supported operations
 
@@ -36,4 +36,4 @@ Tests cover all supported operations, canonical immediate parsing, malformed inp
 
 ## 6. Non-goals
 
-Stage C does not add translator instructions, control flow, a JIT, a native ternary CPU backend, a binary executable format, a system-call ABI, or kernel execution. These require separate design and semantic tests in Stages D and E.
+Stage C does not add translator instructions, control flow, a JIT, a native ternary CPU backend, a binary executable format, a system-call ABI, or kernel execution. The former translator and TRIONEX path are retired. Direct application loading and execution are specified in Stage G.
