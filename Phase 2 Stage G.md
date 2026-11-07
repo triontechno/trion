@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage G: Direct Executable Engine
 
-**Status: foundational implementation expanded; execution and compatibility remain incomplete.**  
+**Status: direct preparation and a bounded interpreted execution path are implemented; native kernel execution and full platform compatibility remain incomplete.**  
 **Branch:** main  
 **Validation:** deliberately deferred until all Phase 2 implementation stages are complete.
 
@@ -29,11 +29,11 @@ The engine preserves the original executable format. It must not translate appli
 - XML Info.plist CFBundleExecutable selection against broker-enumerated bundle members.
 
 ### New shared execution primitives
-- `guest.rs`: bounded guest address-space model, page alignment, mapping overlap checks, memory quotas, read/write permission checks, W^X enforcement, and process/CPU-state records. It is a safe model only; it is not wired to the Redox scheduler or hardware execution context.
-- `decoder.rs`: conservative bounded x86-64 decoder subset for NOP, RET, INT3, HLT, SYSCALL, register push/pop, MOV reg64 immediate, relative CALL/JMP and near conditional branches. Unknown opcodes fail closed. This is not a complete x86-64 decoder and does not execute instructions.
+- `guest.rs`: bounded guest address-space model, page alignment, mapping overlap checks, memory quotas, permission checks, W^X enforcement, CPU state, and a bounded interpreter for the decoder subset. It executes original instruction bytes without translating them and yields syscall/breakpoint events instead of forwarding guest syscalls directly. It is not wired to the Redox scheduler or hardware execution context.
+- `decoder.rs`: conservative bounded x86-64 decoder subset for NOP, RET, INT3, HLT, SYSCALL, register push/pop, MOV reg64 immediate, relative CALL/JMP and near conditional branches. Unknown opcodes fail closed. This is not a complete x86-64 decoder.
 - `loader.rs`: checked PE32+ DIR64 base relocation application over an inert mapped image; bounded import-by-name/ordinal parsing, export-table resolution and deferred IAT population. IAT writes are applied only after every import resolves. Unsupported relocation types and unresolved imports fail closed. A verified DLL catalog and operational Windows API exports are still required.
-- `windows.rs`: import symbol/export table model and explicit API classification. No Windows API shim is advertised as implemented; unresolved imports fail closed.
-- `macos.rs`: broker-fed .app member path validation, bounded bundle planning, and explicit unresolved-framework decisions. It does not traverse host filesystems or implement dyld.
+- `engine.rs`: format-neutral PE32+ and dependency-free Mach-O load-plan preparation, image segment permission derivation, entry-point-in-executable-region checks, W^X enforcement, and materialization into the bounded guest-memory model. A brokered interpreter loop handles syscall events without issuing host syscalls on behalf of the guest. The kernel execution backend is not connected.
+- `launch.rs`: unified dispatch for original PE32+ files, Mach-O executables, and broker-enumerated .app bundles; validates argument/environment bounds and returns explicit compatibility blockers.\n- `windows.rs`: import symbol/export table model and explicit API classification. No Windows API shim is advertised as implemented; unresolved imports fail closed.\n- `macos.rs`: broker-fed .app member path validation, bounded bundle planning, and explicit unresolved-framework decisions. It does not traverse host filesystems or implement dyld.
 
 ### Fuzzing source
 - Fuzz targets exist for PE32+, Mach-O 64, app bundle metadata, packed ternary memory, TRN3 deserialization, and the x86-64 decoder.
@@ -46,8 +46,8 @@ The engine preserves the original executable format. It must not translate appli
 - Architecture-specific native execution boundary and context switching integrated with Redox process/thread lifecycle.
 - Syscall/fault transitions, signal delivery, thread lifecycle, resource accounting and process teardown.
 - Enforced isolation and brokered filesystem/network/device access.
-- Loader-to-address-space mapping with page permissions and entry-point validation.
-- Launcher/file-manager dispatch and compatibility diagnostics.
+- Loader-to-kernel-address-space mapping with page permissions and entry-point validation. The current load plan only materializes the bounded in-crate guest-memory model.
+- OS launcher/file-manager dispatch and compatibility diagnostics. The current unified dispatcher is a broker-facing library API, not an integrated desktop launch action.
 
 ### 4.2 Windows PE32+ path
 - Versioned DLL catalog, dependency search policy, forwarder resolution and operational platform export table. The bounded import parser/resolver and IAT population primitive now exist.
@@ -81,4 +81,4 @@ Stage G is complete only when:
 7. Differential, malformed-input, process-isolation and end-to-end launch tests pass on the declared supported TRION configuration.
 8. A compatibility matrix identifies tested architectures, imports, APIs and application classes.
 
-**Current result:** useful source foundations now exist for address-space policy, a conservative decoder subset, PE DIR64 relocation, Windows import modeling and macOS bundle planning. These are not a functioning executable runtime. No .exe/.app launch support is claimed.
+**Current result:** direct image preparation, a bounded interpreter for a small x86-64 subset, a brokered syscall loop, PE relocation/import primitives, a dependency-free Mach-O load profile, and unified original-file/.app dispatch now exist in source. They do not yet provide native kernel execution or Windows/macOS application compatibility. No general .exe/.app launch support is claimed.
