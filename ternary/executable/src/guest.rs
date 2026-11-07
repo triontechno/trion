@@ -378,6 +378,33 @@ mod execution_tests {
     }
 
     #[test]
+    fn user_mode_hlt_transitions_to_faulted() {
+        let mut process = GuestProcess::new(10, 8).unwrap();
+        process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.address_space.write(0x400000, &[0xF4]).unwrap();
+        process.address_space.protect(0x400000, Permissions::READ_EXECUTE).unwrap();
+        process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.set_entry(0x400000, 0x701000).unwrap();
+        assert!(process.run().is_err());
+        assert_eq!(process.state, ProcessState::Faulted);
+    }
+
+    #[test]
+    fn breakpoint_requires_explicit_resume() {
+        let mut process = GuestProcess::new(11, 8).unwrap();
+        process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.address_space.write(0x400000, &[0xCC]).unwrap();
+        process.address_space.protect(0x400000, Permissions::READ_EXECUTE).unwrap();
+        process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
+        process.set_entry(0x400000, 0x701000).unwrap();
+        assert_eq!(process.run().unwrap(), ExecutionEvent::Breakpoint { rip: 0x400000 });
+        assert_eq!(process.state, ProcessState::BlockedBreakpoint);
+        assert!(process.resume_with_syscall_result(0).is_err());
+        process.resume_from_breakpoint().unwrap();
+        assert_eq!(process.state, ProcessState::Ready);
+    }
+
+    #[test]
     fn instruction_fetch_requires_execute_permission() {
         let mut process = GuestProcess::new(9, 8).unwrap();
         process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
