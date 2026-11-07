@@ -628,6 +628,64 @@ mod tests {
     }
 
     #[test]
+    fn imports_thin_x86_64_macho_executable_section() {
+        let mut bytes = vec![0u8; 185];
+        bytes[0..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        bytes[4..8].copy_from_slice(&0x0100_0007u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&2u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        bytes[20..24].copy_from_slice(&152u32.to_le_bytes());
+        let command = 32usize;
+        bytes[command..command + 4].copy_from_slice(&0x19u32.to_le_bytes());
+        bytes[command + 4..command + 8].copy_from_slice(&152u32.to_le_bytes());
+        bytes[command + 24..command + 32].copy_from_slice(&0x1000u64.to_le_bytes());
+        bytes[command + 32..command + 40].copy_from_slice(&1u64.to_le_bytes());
+        bytes[command + 48..command + 56].copy_from_slice(&1u64.to_le_bytes());
+        bytes[command + 60..command + 64].copy_from_slice(&5u32.to_le_bytes());
+        bytes[command + 64..command + 68].copy_from_slice(&1u32.to_le_bytes());
+        let section = command + 72;
+        bytes[section + 32..section + 40].copy_from_slice(&0x1000u64.to_le_bytes());
+        bytes[section + 40..section + 48].copy_from_slice(&1u64.to_le_bytes());
+        bytes[section + 48..section + 52].copy_from_slice(&184u32.to_le_bytes());
+        bytes[184] = 0xc3;
+        let tir = translate_macho_to_tir(&bytes).unwrap();
+        assert_eq!(
+            std::str::from_utf8(&tir).unwrap(),
+            "TRION-TIR 1 x86_64\n0000000000001000 RET\n"
+        );
+    }
+
+    #[test]
+    fn imports_minimal_x86_64_pe_executable_section() {
+        let mut bytes = vec![0u8; 0x201];
+        bytes[0..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let coff = 0x84usize;
+        bytes[coff..coff + 2].copy_from_slice(&0x8664u16.to_le_bytes());
+        bytes[coff + 2..coff + 4].copy_from_slice(&1u16.to_le_bytes());
+        bytes[coff + 16..coff + 18].copy_from_slice(&240u16.to_le_bytes());
+        bytes[coff + 18..coff + 20].copy_from_slice(&0x0022u16.to_le_bytes());
+        let optional = coff + 20;
+        bytes[optional..optional + 2].copy_from_slice(&0x20bu16.to_le_bytes());
+        bytes[optional + 24..optional + 32].copy_from_slice(&0x1400_0000_0u64.to_le_bytes());
+        bytes[optional + 32..optional + 36].copy_from_slice(&0x1000u32.to_le_bytes());
+        bytes[optional + 36..optional + 40].copy_from_slice(&0x200u32.to_le_bytes());
+        bytes[optional + 56..optional + 60].copy_from_slice(&0x2000u32.to_le_bytes());
+        bytes[optional + 60..optional + 64].copy_from_slice(&0x200u32.to_le_bytes());
+        let section = optional + 240;
+        bytes[section..section + 5].copy_from_slice(b".text");
+        bytes[section + 8..section + 12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[section + 12..section + 16].copy_from_slice(&0x1000u32.to_le_bytes());
+        bytes[section + 16..section + 20].copy_from_slice(&1u32.to_le_bytes());
+        bytes[section + 20..section + 24].copy_from_slice(&0x200u32.to_le_bytes());
+        bytes[section + 36..section + 40].copy_from_slice(&0x6000_0020u32.to_le_bytes());
+        bytes[0x200] = 0xc3;
+        let tir = translate_pe_to_tir(&bytes).unwrap();
+        assert!(std::str::from_utf8(&tir).unwrap().contains("RET"));
+    }
+
+    #[test]
     fn rejects_bad_architecture_malformed_elf_and_unsupported_instructions() {
         assert!(
             translate_elf_to_tir(b"not an ELF")
