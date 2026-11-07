@@ -254,7 +254,7 @@ fn launch_pe(
     }
 
     let dos = read_vec(&image_file, 0, 64)?;
-    if dos.get(0..2) != Some(b"MZ") {
+    if dos.get(0..2) != Some(&b"MZ"[..]) {
         return Err(Error::new(ENOEXEC));
     }
     let pe_offset = u64::from(u32_at(&dos, 0x3C)?);
@@ -481,7 +481,7 @@ fn launch_macho64(
         return Err(Error::new(ENOEXEC));
     }
     let header = read_vec(&image_file, 0, 32)?;
-    if header.get(0..4) != Some(&[0xCF, 0xFA, 0xED, 0xFE])
+    if header.get(0..4) != Some(&[0xCF, 0xFA, 0xED, 0xFE][..])
         || u32_at(&header, 4)? != 0x0100_0007
         || u32_at(&header, 12)? != 2
     {
