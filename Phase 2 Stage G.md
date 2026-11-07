@@ -7,7 +7,7 @@
 
 Build TRION's single application compatibility engine. Users should be able to open supported Windows .exe files and macOS .app bundles directly, as users open applications in Windows and macOS.
 
-TRION loads the original executable format, validates it, decodes machine instructions as execution proceeds, and executes supported instructions in its own controlled execution environment. The source application is not converted into TIR or repackaged as .trx.
+TRION's loader maps the original executable format and executes the original machine-code image directly. When the guest ISA matches the host CPU, the preferred path is native CPU execution under a TRION-managed process and compatibility environment. A decoder is used for instruction inspection, validation, diagnostics, and any explicitly supported emulation path; it must not become an application-to-intermediate translation pipeline. If a guest ISA differs from the host ISA, software emulation may be added without generating translated executable files. The source application is not converted into TIR or repackaged as .trx.
 
 ## 2. Non-negotiable architecture
 
@@ -49,9 +49,11 @@ Windows and macOS services remain distinct platform layers over shared engine pr
 
 ### 4.4 Instruction engine
 
-- Decode instructions from the original loaded guest image at runtime.
-- Execute supported source-ISA semantics in a bounded interpreter/emulator.
-- Do not emit TIR, .trx, or another intermediate executable.
+- Load and map the original PE/Mach-O image according to its native executable format and guest ABI.
+- Prefer direct native CPU execution when the guest ISA matches the host ISA.
+- Use instruction decoding for validation, inspection, diagnostics, and defined emulation requirements.
+- Add instruction emulation only when required for a non-native guest ISA or an explicitly virtualized execution mode.
+- Do not emit TIR, .trx, translated machine code, or another intermediate executable.
 - Implement instruction semantics in complete, tested groups.
 - Model architectural state and memory accurately.
 - Handle faults, exceptions, control flow, calls, returns, and system transitions.
@@ -78,8 +80,8 @@ Do not claim that arbitrary Windows or macOS applications run until those servic
 ## 5. Implementation milestones
 
 1. Specify the guest architecture, process model, fault model, and compatibility contract.
-2. Implement and fuzz the instruction decoder.
-3. Implement the execution engine and verify instruction semantics against trusted references.
+2. Implement and fuzz instruction decoding/validation and define the guest CPU execution boundary.
+3. Implement direct native execution for the initial matching ISA, with process isolation and ABI enforcement; add only explicitly scoped emulation where necessary.
 4. Implement validated PE32+ loading and the Windows guest process foundation.
 5. Implement validated Mach-O loading and macOS .app bundle selection.
 6. Implement dependency loading and platform ABI/system-service layers.
@@ -91,7 +93,7 @@ Do not claim that arbitrary Windows or macOS applications run until those servic
 
 - Supported .exe and .app fixtures launch from their original formats.
 - No TIR or .trx artifacts are created or required.
-- Decoder and execution semantics pass differential and regression tests.
+- Direct native execution, instruction validation, and any implemented emulation semantics pass differential and regression tests.
 - PE and Mach-O loaders pass malformed-input, relocation, dependency, and memory-permission tests.
 - Required Windows/macOS APIs and ABI behavior are documented and tested for every claimed application class.
 - Sandboxing, resource controls, fuzzing, and fault handling pass their security gates.
