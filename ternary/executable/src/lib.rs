@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_tir_payload() {
-        let invalid = b"TRION-TIR 1 x86_64\n0000000000400000 ADD r0 r1\n";
+        let invalid = b"TRION-TIR 1 x86_64\n0000000000400000 INVALID\n";
         assert_eq!(
             TrionExecutable::from_tir(invalid),
             Err(ExecutableError::InvalidTirPayload)

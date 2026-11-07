@@ -112,7 +112,8 @@ fn package_cli_wraps_validated_tir_and_refuses_overwrite() {
         String::from_utf8_lossy(&output.stderr)
     );
     let container = fs::read(&output_path).unwrap();
-    assert_eq!(&container[..8], b"TRIONEX\0");
+    assert_eq!(&container[..7], b"TRIONEX");
+    assert_eq!(container[7], 0);
     assert_eq!(u16::from_le_bytes([container[8], container[9]]), 1);
     assert_eq!(&container[36..], tir);
 
@@ -183,4 +184,45 @@ fn run_cli_executes_validated_trionex_with_instruction_budget() {
 
     fs::remove_file(input).unwrap();
     fs::remove_file(executable).unwrap();
+}
+
+#[test]
+fn import_cli_translates_and_packages_elf_into_trionex() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let base = std::env::temp_dir().join(format!("trion-import-{}-{nonce}", std::process::id()));
+    let input = base.with_extension("elf");
+    let output_path = base.with_extension("trx");
+    fs::write(&input, minimal_x86_64_elf(&[0x90, 0xc3])).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("import")
+        .arg(&input)
+        .arg(&output_path)
+        .output()
+        .expect("run executable importer");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let container = fs::read(&output_path).unwrap();
+    assert_eq!(&container[..7], b"TRIONEX");
+    assert_eq!(container[7], 0);
+
+    let run = Command::new(env!("CARGO_BIN_EXE_trion-translate"))
+        .arg("run")
+        .arg(&output_path)
+        .output()
+        .expect("run imported TRIONEX executable");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    fs::remove_file(input).unwrap();
+    fs::remove_file(output_path).unwrap();
 }

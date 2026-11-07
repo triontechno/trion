@@ -45,7 +45,7 @@ Stage B is a logical storage abstraction, not a kernel physical-memory allocator
 - Do not execute untrusted TIR in the kernel.
 
 ### Stage D — Translator expansion and executable compatibility
-**Status:** TRIONEX v1 packaging and bounded user-space execution CLI implemented; PE/Mach-O and `.app` format inspection added. Control flow, relocation application, broad translation, platform execution compatibility, and OS loader integration remain in progress.
+**Status: Complete for the declared Stage D v1 scope; CI verified.** The user-space translator/runtime imports supported ELF64, PE32+ x86-64, and thin x86-64 Mach-O/.app inputs into TRIONEX, with bounded execution and defined ELF RELA handling. This is not general Windows/macOS application or kernel process compatibility; see the Stage D document for the exact supported subset. Kernel/OS process integration remains in Stage E.
 
 - Expand instruction support only in semantically complete, independently tested groups.
 - Add control-flow and relocation handling before accepting binaries that require them.
