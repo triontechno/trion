@@ -23,7 +23,7 @@ The service starts after both `hwd` and the initfs PCI driver spawner. It uses t
 
 ## Build and test
 
-Testing is deferred until Phase 2 implementation is complete.
+Run these checks as part of Stage E; do not defer them until Stage G.
 
 ```sh
 cargo test --manifest-path src/base/Cargo.toml -p trion-capd
