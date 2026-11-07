@@ -206,6 +206,14 @@ impl GuestProcess {
     /// Execute one instruction from the original guest image. This is a bounded
     /// interpreter for the explicitly decoded subset, not native host execution.
     pub fn step(&mut self) -> Result<ExecutionEvent, Error> {
+        let result = self.step_inner();
+        if result.is_err() {
+            self.state = ProcessState::Faulted;
+        }
+        result
+    }
+
+    fn step_inner(&mut self) -> Result<ExecutionEvent, Error> {
         if !matches!(self.state, ProcessState::Ready | ProcessState::Running) {
             return Err(Error::Invalid("guest process is not runnable"));
         }
@@ -249,6 +257,11 @@ impl GuestProcess {
                 self.cpu.rip=u64::from_le_bytes(data);
             }
             I::Syscall=>{
+                // Intel SYSCALL saves the next instruction and user flags in RCX/R11.
+                // The host broker handles the transition; guest syscall numbers are never
+                // forwarded directly to the host kernel.
+                self.cpu.rcx=next;
+                self.cpu.r11=self.cpu.rflags;
                 self.cpu.rip=next;
                 self.instruction_budget-=1;
                 self.state=ProcessState::Blocked;
@@ -265,9 +278,7 @@ impl GuestProcess {
                 return Ok(ExecutionEvent::Breakpoint{rip});
             }
             I::Hlt=>{
-                self.instruction_budget-=1;
-                self.state=ProcessState::Exited(0);
-                return Ok(ExecutionEvent::Halted);
+                return Err(Error::Unsupported("HLT is privileged and faults in a userspace guest"));
             }
         }
         self.instruction_budget-=1;
@@ -305,7 +316,7 @@ mod execution_tests {
     use super::*;
 
     #[test]
-    fn executes_original_x86_bytes_and_stops_at_hlt() {
+    fn privileged_hlt_faults_the_guest_process() {
         let mut process = GuestProcess::new(7, 32).unwrap();
         process.address_space.map(0x400000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
         // mov rax, 42; hlt
@@ -314,9 +325,9 @@ mod execution_tests {
         process.address_space.protect(0x400000, Permissions::READ_EXECUTE).unwrap();
         process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
         process.set_entry(0x400000, 0x701000).unwrap();
-        assert_eq!(process.run().unwrap(), ExecutionEvent::Halted);
+        assert!(process.run().is_err());
         assert_eq!(process.cpu.rax, 42);
-        assert_eq!(process.state, ProcessState::Exited(0));
+        assert_eq!(process.state, ProcessState::Faulted);
     }
 
     #[test]
