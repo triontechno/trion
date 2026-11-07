@@ -208,11 +208,13 @@ mod tests {
     use super::*;
 
     fn caller() -> CallerCtx {
+        // Id wraps a u32; every bit pattern, including zero, is a valid request id.
+        let id = unsafe { std::mem::zeroed() };
         CallerCtx {
             pid: 1,
             uid: 0,
             gid: 0,
-            id: 1,
+            id,
         }
     }
 
