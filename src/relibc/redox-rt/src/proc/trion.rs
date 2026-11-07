@@ -310,18 +310,21 @@ fn launch_pe(
     }
 
     if image_base < 0x1_0000
+        || image_base % 0x1_0000 != 0
         || image_base % PAGE_SIZE != 0
         || section_alignment < PAGE_SIZE
         || !section_alignment.is_power_of_two()
-        || file_alignment == 0
+        || !(512..=65_536).contains(&file_alignment)
         || !file_alignment.is_power_of_two()
         || file_alignment > section_alignment
         || image_size == 0
         || image_size > MAX_PE_IMAGE
+        || image_size % section_alignment != 0
         || image_size % PAGE_SIZE != 0
         || headers_size == 0
         || headers_size > MAX_PE_HEADERS
         || headers_size > image_size
+        || headers_size % file_alignment != 0
         || entry_rva == 0
         || entry_rva >= image_size
     {
