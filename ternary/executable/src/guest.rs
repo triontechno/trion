@@ -139,7 +139,8 @@ impl GuestProcess {
 
 pub const RFLAGS_CF: u64 = 1 << 0;
 pub const RFLAGS_ZF: u64 = 1 << 6;
-pub const RFLAGS_PF: u64 = 1 << 2;\npub const RFLAGS_SF: u64 = 1 << 7;
+pub const RFLAGS_PF: u64 = 1 << 2;
+pub const RFLAGS_SF: u64 = 1 << 7;
 pub const RFLAGS_OF: u64 = 1 << 11;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -191,7 +192,8 @@ impl CpuState {
         let cf=self.rflags&RFLAGS_CF!=0;
         let zf=self.rflags&RFLAGS_ZF!=0;
         let sf=self.rflags&RFLAGS_SF!=0;
-        let pf=self.rflags&RFLAGS_PF!=0;\n        let of=self.rflags&RFLAGS_OF!=0;
+        let pf=self.rflags&RFLAGS_PF!=0;
+        let of=self.rflags&RFLAGS_OF!=0;
         match code {
             0=>of,1=>!of,2=>cf,3=>!cf,4=>zf,5=>!zf,6=>cf||zf,7=>!cf&&!zf,
             8=>sf,9=>!sf,10=>pf,11=>!pf,12=>sf!=of,13=>sf==of,
