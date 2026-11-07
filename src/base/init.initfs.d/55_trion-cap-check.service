@@ -1,0 +1,7 @@
+[unit]
+description = "Verify TRION capability service integration"
+requires_weak = ["50_trion-capd.service"]
+
+[service]
+cmd = "trion-cap-check"
+type = "oneshot"
