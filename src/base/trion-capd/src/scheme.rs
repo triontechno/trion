@@ -99,6 +99,9 @@ impl SchemeSync for CapabilityScheme {
         _flags: u32,
         _ctx: &CallerCtx,
     ) -> Result<usize> {
+        if id == ROOT_ID {
+            return Err(Error::new(EISDIR));
+        }
         let content = self.content(id)?;
         let Ok(start) = usize::try_from(offset) else {
             return Ok(0);
@@ -176,6 +179,8 @@ impl SchemeSync for CapabilityScheme {
         if id == ROOT_ID {
             stat.st_mode = MODE_DIR | 0o555;
             stat.st_size = FILE_NAMES.len() as u64;
+            stat.st_blksize = 4096;
+            stat.st_blocks = 0;
             stat.st_nlink = 2;
             return Ok(());
         }
@@ -246,7 +251,6 @@ mod tests {
             .count();
         assert_eq!(entry_count, FILE_NAMES.len());
     }
-
 
     #[test]
     fn open_rejects_write_access_and_unknown_paths() {
