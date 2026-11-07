@@ -120,19 +120,21 @@ pub struct GuestProcess {
     pub address_space: AddressSpace,
     pub cpu: CpuState,
     pub instruction_budget: u64,
+    entry_return_slot: Option<u64>,
 }
 impl GuestProcess {
     pub fn new(id: u64, instruction_budget: u64) -> Result<Self, Error> {
         if id == 0 || instruction_budget == 0 { return Err(Error::Invalid("guest process identity or budget")); }
         let mut cpu = CpuState::default();
         cpu.rflags = RFLAGS_RESERVED_ONE;
-        Ok(Self { id, state: ProcessState::Created, address_space: AddressSpace::new(), cpu, instruction_budget })
+        Ok(Self { id, state: ProcessState::Created, address_space: AddressSpace::new(), cpu, instruction_budget, entry_return_slot: None })
     }
     pub fn set_entry(&mut self, entry: u64, stack: u64) -> Result<(), Error> {
         if self.state != ProcessState::Created { return Err(Error::Invalid("entry can only be set before start")); }
         self.address_space.find(entry, 1)?;
         let return_slot = stack.checked_sub(8).ok_or(Error::Overflow)?;
         self.address_space.write(return_slot, &0u64.to_le_bytes())?;
+        self.entry_return_slot = Some(return_slot);
         self.cpu.rip = entry;
         self.cpu.rsp = return_slot;
         self.state = ProcessState::Ready;
@@ -262,10 +264,11 @@ impl GuestProcess {
                 self.cpu.rip=if self.cpu.condition(condition){add_relative(next,displacement)?}else{next};
             }
             I::Ret=>{
-                let mut data=[0u8;8];self.address_space.read(self.cpu.rsp,&mut data)?;
+                let return_slot=self.cpu.rsp;
+                let mut data=[0u8;8];self.address_space.read(return_slot,&mut data)?;
                 self.cpu.rsp=self.cpu.rsp.checked_add(8).ok_or(Error::Overflow)?;
                 let target=u64::from_le_bytes(data);
-                if target==0 {
+                if target==0 && self.entry_return_slot==Some(return_slot) {
                     self.instruction_budget-=1;
                     self.state=ProcessState::Exited(0);
                     return Ok(ExecutionEvent::Halted);
