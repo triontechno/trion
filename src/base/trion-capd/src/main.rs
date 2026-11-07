@@ -47,7 +47,7 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     let mut capability_scheme =
         scheme::CapabilityScheme::new(capability_report, runtime_policy, hardware_evidence);
     let socket = Socket::nonblock().expect("trion-capd: failed to create scheme socket");
-    let mut handler = Blocking::new(Box::new(socket), 16);
+    let handler = Blocking::new(Box::new(socket), 16);
 
     register_sync_scheme(handler.socket(), "trion", &mut capability_scheme)
         .expect("trion-capd: failed to register trion scheme");
