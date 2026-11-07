@@ -304,8 +304,12 @@ fn launch_pe(
         .map_err(|_| Error::new(EOVERFLOW))?;
     let directory_count = usize::try_from(u32_at(&optional, 108)?)
         .map_err(|_| Error::new(EOVERFLOW))?;
+    let directory_bytes = directory_count.checked_mul(8).ok_or(Error::new(EOVERFLOW))?;
+    if directory_count > 16 || optional_size < 112usize.checked_add(directory_bytes).ok_or(Error::new(EOVERFLOW))? {
+        return Err(Error::new(ENOEXEC));
+    }
 
-    if image_base == 0
+    if image_base < 0x1_0000
         || image_base % PAGE_SIZE != 0
         || section_alignment < PAGE_SIZE
         || !section_alignment.is_power_of_two()
@@ -339,6 +343,11 @@ fn launch_pe(
         if u32_at(&optional, 120)? != 0 || u32_at(&optional, 124)? != 0 {
             return Err(Error::new(ENOEXEC));
         }
+    }
+    if directory_count > 3
+        && (u32_at(&optional, 136)? != 0 || u32_at(&optional, 140)? != 0)
+    {
+        return Err(Error::new(ENOEXEC));
     }
     if directory_count > 9 {
         if optional_size < 192 {
@@ -401,6 +410,7 @@ fn launch_pe(
         if virtual_end > image_size {
             return Err(Error::new(ENOEXEC));
         }
+        raw_offset.checked_add(raw_size as u64).ok_or(Error::new(EOVERFLOW))?;
         let mapped_size = page_align(memory_size)?;
         let absolute_start = image_base.checked_add(virtual_address).ok_or(Error::new(EOVERFLOW))?;
         let absolute_end = absolute_start.checked_add(mapped_size).ok_or(Error::new(EOVERFLOW))?;
@@ -555,9 +565,14 @@ fn launch_macho64(
                     return Err(Error::new(ENOEXEC));
                 }
                 if !is_pagezero {
-                    if vm_size == 0 || vm_address % PAGE_SIZE != 0 || file_offset % PAGE_SIZE as u64 != 0 {
+                    if vm_size == 0
+                        || vm_address < 0x1_0000
+                        || vm_address % PAGE_SIZE != 0
+                        || file_offset % PAGE_SIZE as u64 != 0
+                    {
                         return Err(Error::new(ENOEXEC));
                     }
+                    file_offset.checked_add(file_size as u64).ok_or(Error::new(EOVERFLOW))?;
                     let mapped_size = page_align(vm_size)?;
                     let absolute_end = vm_address
                         .checked_add(mapped_size)
