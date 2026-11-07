@@ -186,7 +186,7 @@ pub mod macho{
                 if 72usize.checked_add(ns.checked_mul(80).ok_or(Error::Overflow)?).ok_or(Error::Overflow)?>size{return Err(Error::Invalid("segment section table"))}
                 if fs>0{range(d,fo,fs,"segment file bytes")?;}
                 va.checked_add(vs).ok_or(Error::Overflow)?;
-                sections.push(Section{name,address:va,memory_size:vs,file_offset:fo,file_size:fs,readable:prot&1!=0,executable:prot&4!=0,writable:prot&2!=0});
+                if name != "__PAGEZERO" { sections.push(Section{name,address:va,memory_size:vs,file_offset:fo,file_size:fs,readable:prot&1!=0,executable:prot&4!=0,writable:prot&2!=0}); }
             }else if cmd==LC_LOAD_DYLIB||cmd==LC_LOAD_WEAK_DYLIB||cmd==LC_REEXPORT_DYLIB||cmd==LC_LOAD_UPWARD_DYLIB{
                 if size<24{return Err(Error::Truncated("dylib command"))}
                 let off=r32(d,at+8,"dylib name offset")? as usize;
