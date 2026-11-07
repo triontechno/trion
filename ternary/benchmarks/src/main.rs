@@ -4,6 +4,7 @@
 //! raw samples and workload metadata; it never asserts a performance winner.
 
 use std::hint::black_box;
+use std::process::Command;
 use std::time::Instant;
 use trion_ternary::Ternary;
 use trion_ternary_memory::PackedTritBuffer;
@@ -33,6 +34,39 @@ fn median(samples: &[u128]) -> u128 {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
     sorted[sorted.len() / 2]
+}
+
+fn host_cpu() -> String {
+    if let Ok(identifier) = std::env::var("PROCESSOR_IDENTIFIER") {
+        return identifier;
+    }
+    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+        if let Some(model) = cpuinfo.lines().find_map(|line| {
+            line.strip_prefix("model name")
+                .and_then(|value| value.split_once(':').map(|(_, value)| value.trim()))
+        }) {
+            return model.to_owned();
+        }
+    }
+    if let Ok(output) = Command::new("sysctl")
+        .args(["-n", "machdep.cpu.brand_string"])
+        .output()
+    {
+        if output.status.success() {
+            return String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        }
+    }
+    "unavailable; record host CPU manually".to_owned()
+}
+
+fn rustc_version() -> String {
+    Command::new("rustc")
+        .arg("-Vv")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).replace('\n', ";"))
+        .unwrap_or_else(|| "unavailable; record rustc -Vv manually".to_owned())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -92,8 +126,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("TRION_PHASE2_BENCHMARK 2");
     println!("host_arch={}", std::env::consts::ARCH);
     println!("host_os={}", std::env::consts::OS);
+    println!("host_cpu={}", host_cpu());
     println!("pointer_width_bits={}", usize::BITS);
-    println!("rustc_version=record_with_rustc_-Vv");
+    println!("rustc_version={}", rustc_version());
     println!("workload=deterministic_integer_sum_and_balanced_trit_roundtrip");
     println!("input_count={VALUES}");
     println!("samples={SAMPLES}");
