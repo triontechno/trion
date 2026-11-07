@@ -156,12 +156,85 @@ impl<'a> BinaryBoundary<'a> {
     }
 }
 
+
+/// Result of a bounded, correctness-checked adaptive runtime probe.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdaptiveProbeReport {
+    pub iterations: usize,
+    pub binary_cost_ns: u128,
+    pub ternary_cost_ns: u128,
+    pub checksum: i128,
+    pub selection: Selection,
+}
+
+/// Run the same integer round-trip workload through binary and balanced-ternary
+/// representations, measure each path, validate equal results, then select
+/// using the measured costs. The iteration count is clamped to 1..=100_000.
+pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeReport, &'static str> {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let iterations = iterations.clamp(1, 100_000);
+    let midpoint = (iterations / 2) as i128;
+
+    let start = Instant::now();
+    let mut binary_sum = 0i128;
+    for index in 0..iterations {
+        let value = index as i128 - midpoint;
+        binary_sum = binary_sum.wrapping_add(black_box(value));
+    }
+    let binary_cost_ns = start.elapsed().as_nanos();
+
+    let start = Instant::now();
+    let mut ternary_sum = 0i128;
+    for index in 0..iterations {
+        let value = index as i128 - midpoint;
+        let encoded = trion_adaptive::binary_i128_to_balanced(black_box(value));
+        let decoded = trion_adaptive::balanced_to_binary_i128(&encoded)
+            .map_err(|_| "balanced-ternary round-trip overflowed")?;
+        ternary_sum = ternary_sum.wrapping_add(black_box(decoded));
+    }
+    let ternary_cost_ns = start.elapsed().as_nanos();
+
+    if binary_sum != ternary_sum {
+        return Err("binary and balanced-ternary workload results differ");
+    }
+
+    let selection = select_representation(SelectionRequest {
+        boundary: Boundary::Internal,
+        candidates: CandidateSet {
+            binary: Some(CandidateMetrics::new(binary_cost_ns, true, true, true)),
+            ternary: Some(CandidateMetrics::new(ternary_cost_ns, true, true, true)),
+            hybrid: None,
+        },
+    }).map_err(|_| "no validated runtime representation candidate")?;
+
+    Ok(AdaptiveProbeReport {
+        iterations,
+        binary_cost_ns,
+        ternary_cost_ns,
+        checksum: binary_sum,
+        selection,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn metrics(cost: u128) -> CandidateMetrics {
         CandidateMetrics::new(cost, true, true, true)
+    }
+
+    #[test]
+    fn measured_adaptive_probe_validates_both_paths_before_selection() {
+        let report = run_adaptive_integer_probe(256).unwrap();
+        assert_eq!(report.iterations, 256);
+        assert_eq!(report.checksum, 0);
+        assert!(report.binary_cost_ns > 0);
+        assert!(report.ternary_cost_ns > 0);
+        assert!(matches!(report.selection.representation,
+            Representation::Binary | Representation::BalancedTernary));
     }
 
     #[test]
