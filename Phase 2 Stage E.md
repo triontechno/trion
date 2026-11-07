@@ -5,7 +5,7 @@
 ## Delivered in this stage slice
 
 - `ternary/platform` exposes a versioned capability report.
-- The report distinguishes ordinary binary execution from the software TIR runtime.
+- The report distinguishes ordinary binary execution from the standalone software TIR test runtime.
 - The current TIR operation set is explicit: NOP, MOV_IMM64, RET.
 - Native ternary hardware is reported as unavailable unless a future verified platform adapter explicitly establishes it; the current host report never guesses.
 - Conventional device, DMA, MMIO, network, and persistent-format boundaries remain binary.
@@ -15,7 +15,7 @@
 
 1. Capability reports are evidence, not assumptions. A platform adapter must identify its source and validation method before reporting a hardware feature.
 2. The adaptive selector consumes measured candidate costs and semantic-validation flags. It must not infer ternary capability from the CPU architecture name.
-3. TIR remains a user-space bounded interpreter. No untrusted TIR is executed in the kernel.
+3. The legacy TIR test runtime remains isolated in user space and is not an application loader or launcher. No untrusted TIR is executed in the kernel.
 4. Physical page allocation, page tables, DMA descriptors, MMIO registers, driver ABIs, syscalls, and network frames retain their established binary representation.
 5. Packed ternary memory is an application/runtime data structure over ordinary binary-backed memory. It is not wired into the kernel physical-memory allocator.
 
