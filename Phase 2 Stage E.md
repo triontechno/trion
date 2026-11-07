@@ -1,6 +1,6 @@
 # TRION Phase 2 — Stage E: Runtime and Platform Integration
 
-<badge>Implementation updated; testing deferred until Phase 2 completion</badge>
+**Status: implementation delivered; verification pending.**
 
 Stage E connects the adaptive binary/ternary runtime to the actual Redox user-space boot and platform service model. It does not implement application loading; direct Windows `.exe` and macOS `.app` execution belongs exclusively to Stage G.
 
@@ -51,7 +51,7 @@ The service is integrated with Redox's existing daemon readiness, scheme registr
 
 ## Verification commands
 
-Testing is intentionally deferred until all Phase 2 implementation stages are complete. At that point run:
+Run Stage E verification now, independently of the later Stage F/G work:
 
 ```sh
 cargo test --manifest-path ternary/adaptive/Cargo.toml
@@ -63,7 +63,7 @@ cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -
 cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets -- -D warnings
 ```
 
-The full Redox image build and QEMU boot validation also belong to the post-Phase-2 test pass. Stage E implementation must not be represented as boot-verified before those checks run.
+The full Redox image build and QEMU boot validation are Stage E completion gates, not work deferred to the end of Phase 2. Stage E must remain open until the relevant checks pass on `main`.
 
 ## Scope and limitations
 
@@ -71,3 +71,8 @@ The full Redox image build and QEMU boot validation also belong to the post-Phas
 - PCI/ACPI inventory records only what the existing Redox schemes expose. It does not probe arbitrary device features, benchmark devices, or infer ternary capability.
 - There is no ternary physical-memory allocator, page-table encoding, kernel TIR execution, translator, TRIONEX path, or application executable engine in Stage E.
 - Direct `.exe` and `.app` loading/execution remain Stage G work.
+
+
+## Stage E completion gate
+
+Implementation is present in `main`. Do not mark Stage E complete until the adaptive-policy workflow, Redox capability-service tests/checks/formatting/Clippy, full x86_64 image build, and QEMU smoke test all pass. The QEMU test must observe kernel entry, `/scheme/trion` registration, and successful reads/validation of all three report endpoints from the one-shot user-space checker. A successful library test run alone is insufficient.
