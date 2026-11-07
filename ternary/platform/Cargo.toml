@@ -1,6 +1,9 @@
 [package]
 name = "trion-platform"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-description = "Explicit TRION host capability reporting and binary boundary contracts"
+description = "Target capability discovery and adaptive runtime integration for TRION"
 license = "MIT"
+
+[dependencies]
+trion-adaptive = { path = "../adaptive" }
