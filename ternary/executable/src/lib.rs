@@ -103,7 +103,7 @@ pub mod pe{
             if rs>0{range(d,rp,rs,"section bytes")?;}
             sections.push(Section{name,address:va,memory_size:vs.max(rs),file_offset:rp,file_size:rs,readable:flags&0x4000_0000!=0,executable:flags&0x2000_0000!=0,writable:flags&0x8000_0000!=0});
         }
-        for i in 0..sections.len(){for b in sections.iter().skip(i+1){
+        if !sections.iter().any(|s| s.executable && entry>=s.address && entry<s.address.saturating_add(s.memory_size)) {\n            return Err(Error::Invalid("PE entry point is not in an executable section"));\n        }\n        for i in 0..sections.len(){for b in sections.iter().skip(i+1){
             let a=&sections[i];let ae=a.address.checked_add(a.memory_size).ok_or(Error::Overflow)?;
             let be=b.address.checked_add(b.memory_size).ok_or(Error::Overflow)?;
             if a.address<be&&b.address<ae{return Err(Error::Invalid("overlapping virtual sections"))}
