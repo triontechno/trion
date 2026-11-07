@@ -569,7 +569,12 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
         return Err("ELF contains no translatable instructions".to_string());
     }
     let output = output.into_bytes();
-    validate_tir(&output)?;
+    validate_tir(&output).map_err(|error| {
+        format!(
+            "{error}; generated TIR:\\n{}",
+            String::from_utf8_lossy(&output)
+        )
+    })?;
     Ok(output)
 }
 
@@ -725,7 +730,7 @@ mod tests {
 
     #[test]
     fn applies_internal_elf_pc32_relocation_before_decoding() {
-        let mut elf = vec![0u8; 390];
+        let mut elf = vec![0u8; 392];
         elf[..4].copy_from_slice(b"\x7fELF");
         elf[4] = 2;
         elf[5] = 1;
