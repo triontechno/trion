@@ -392,17 +392,30 @@ fn relocate_executable_section(
                 ));
             }
             let symbol_section = read_u16(bytes, symbol_offset + 6)?;
-            if symbol_section == 0 {
+            let symbol_value = read_u64(bytes, symbol_offset + 8)?;
+            if relocation_type != 8 && symbol_section == 0 {
                 return Err(format!(
                     "relocation section {rel_index} references an undefined symbol"
                 ));
             }
-            let symbol_value = read_u64(bytes, symbol_offset + 8)?;
             let place = r_offset.checked_sub(target.sh_addr).ok_or_else(|| {
                 format!("relocation place precedes target section in section {rel_index}")
             })?;
             let place = usize::try_from(place).map_err(|_| "relocation place too large")?;
             match relocation_type {
+                8 => {
+                    // R_X86_64_RELATIVE: the TIR image uses a zero-based load
+                    // bias, so the image-relative addend is the resolved value.
+                    if symbol_index != 0 {
+                        return Err(format!("R_X86_64_RELATIVE must use symbol zero in section {rel_index}"));
+                    }
+                    let value = u64::try_from(i128::from(addend))
+                        .map_err(|_| format!("relative relocation addend is out of range in section {rel_index}"))?;
+                    let patch = code
+                        .get_mut(place..place.checked_add(8).ok_or("relocation patch overflow")?)
+                        .ok_or("relative relocation patch lies outside executable section")?;
+                    patch.copy_from_slice(&value.to_le_bytes());
+                }
                 2 | 4 => {
                     // R_X86_64_PC32 / R_X86_64_PLT32
                     let value =
@@ -417,11 +430,6 @@ fn relocate_executable_section(
                 }
                 1 => {
                     // R_X86_64_64
-                    if elf.header.e_type == header::ET_DYN {
-                        return Err(format!(
-                            "absolute R_X86_64_64 relocation in PIE requires a load bias (section {rel_index})"
-                        ));
-                    }
                     let value = u64::try_from(i128::from(symbol_value) + i128::from(addend))
                         .map_err(|_| {
                             format!("absolute relocation overflows u64 in section {rel_index}")
@@ -709,6 +717,59 @@ mod tests {
                 .unwrap_err()
                 .contains("invalid")
         );
+    }
+
+    #[test]
+    fn applies_internal_elf_pc32_relocation_before_decoding() {
+        let mut elf = vec![0u8; 390];
+        elf[..4].copy_from_slice(b"\x7fELF");
+        elf[4] = 2;
+        elf[5] = 1;
+        elf[6] = 1;
+        elf[16..18].copy_from_slice(&2u16.to_le_bytes());
+        elf[18..20].copy_from_slice(&header::EM_X86_64.to_le_bytes());
+        elf[20..24].copy_from_slice(&1u32.to_le_bytes());
+        elf[24..32].copy_from_slice(&0x400000u64.to_le_bytes());
+        elf[40..48].copy_from_slice(&64u64.to_le_bytes());
+        elf[52..54].copy_from_slice(&64u16.to_le_bytes());
+        elf[58..60].copy_from_slice(&64u16.to_le_bytes());
+        elf[60..62].copy_from_slice(&4u16.to_le_bytes());
+
+        let text = 128usize;
+        elf[text + 4..text + 8].copy_from_slice(&section_header::SHT_PROGBITS.to_le_bytes());
+        elf[text + 8..text + 16].copy_from_slice(
+            &((section_header::SHF_ALLOC | section_header::SHF_EXECINSTR) as u64).to_le_bytes(),
+        );
+        elf[text + 16..text + 24].copy_from_slice(&0x400000u64.to_le_bytes());
+        elf[text + 24..text + 32].copy_from_slice(&384u64.to_le_bytes());
+        elf[text + 32..text + 40].copy_from_slice(&6u64.to_le_bytes());
+        elf[text + 48..text + 56].copy_from_slice(&1u64.to_le_bytes());
+
+        let rela = 192usize;
+        elf[rela + 4..rela + 8].copy_from_slice(&section_header::SHT_RELA.to_le_bytes());
+        elf[rela + 24..rela + 32].copy_from_slice(&320u64.to_le_bytes());
+        elf[rela + 32..rela + 40].copy_from_slice(&24u64.to_le_bytes());
+        elf[rela + 40..rela + 44].copy_from_slice(&3u32.to_le_bytes());
+        elf[rela + 44..rela + 48].copy_from_slice(&1u32.to_le_bytes());
+        elf[rela + 56..rela + 64].copy_from_slice(&24u64.to_le_bytes());
+
+        let symtab = 256usize;
+        elf[symtab + 4..symtab + 8].copy_from_slice(&2u32.to_le_bytes());
+        elf[symtab + 24..symtab + 32].copy_from_slice(&344u64.to_le_bytes());
+        elf[symtab + 32..symtab + 40].copy_from_slice(&48u64.to_le_bytes());
+        elf[symtab + 56..symtab + 64].copy_from_slice(&24u64.to_le_bytes());
+
+        elf[320..328].copy_from_slice(&0x400001u64.to_le_bytes());
+        elf[328..336].copy_from_slice(&((1u64 << 32) | 2).to_le_bytes());
+        elf[336..344].copy_from_slice(&(-4i64).to_le_bytes());
+        elf[368 + 6..368 + 8].copy_from_slice(&1u16.to_le_bytes());
+        elf[368 + 8..368 + 16].copy_from_slice(&0x400005u64.to_le_bytes());
+        elf[384..390].copy_from_slice(&[0xe9, 0, 0, 0, 0, 0xc3]);
+
+        let tir = translate_elf_to_tir(&elf).unwrap();
+        let text = std::str::from_utf8(&tir).unwrap();
+        assert!(text.contains("JMP 0000000000400005"));
+        assert!(text.contains("0000000000400005 RET"));
     }
 
     #[test]
