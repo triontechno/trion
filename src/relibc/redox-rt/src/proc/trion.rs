@@ -259,7 +259,7 @@ fn launch_pe(
     }
     let pe_offset = u64::from(u32_at(&dos, 0x3C)?);
     let coff = read_vec(&image_file, pe_offset, 24)?;
-    if coff.get(0..4) != Some(b"PE\0\0") {
+    if coff.get(0..4) != Some(&b"PE\0\0"[..]) {
         return Err(Error::new(ENOEXEC));
     }
     if u16_at(&coff, 4)? != 0x8664 {
