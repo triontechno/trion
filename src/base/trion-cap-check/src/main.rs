@@ -95,6 +95,14 @@ fn main() {
             "trion-cap-check: inventory entries reported while scheme is unavailable"
         );
     }
+    let probe_attempts = required_field(&hardware, "pci_probe_attempts=")
+        .parse::<usize>()
+        .expect("trion-cap-check: invalid PCI probe-attempt count");
+    assert!((1..=50).contains(&probe_attempts));
+    assert_eq!(
+        required_field(&hardware, "pci_wait_limit_ms="),
+        "5000"
+    );
     assert_eq!(
         required_field(&hardware, "optional_device_capabilities="),
         "not_probed"
