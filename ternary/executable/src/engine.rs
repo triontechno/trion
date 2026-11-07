@@ -233,3 +233,75 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+
+/// Host-side policy boundary for interpreted guest syscalls. Implementations
+/// must authorize every operation; guest pointers are never dereferenced here.
+pub trait SyscallBroker {
+    fn dispatch(&mut self, number: u64, arguments: [u64; 6]) -> Result<i64, Error>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExecutionOutcome {
+    Exited(i32),
+    Breakpoint { rip: u64 },
+    BudgetExhausted,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExecutionSummary {
+    pub process_id: u64,
+    pub outcome: ExecutionOutcome,
+    pub syscalls_dispatched: u64,
+    pub instructions_remaining: u64,
+}
+
+/// Execute a prepared image through the bounded direct x86-64 interpreter.
+/// All syscall effects are delegated to the explicit broker; no guest syscall
+/// number is forwarded to the host kernel directly.
+pub fn execute_with_broker(
+    plan: &LoadPlan,
+    process_id: u64,
+    broker: &mut impl SyscallBroker,
+) -> Result<ExecutionSummary, Error> {
+    let mut process = materialize(plan, process_id)?;
+    let mut syscalls = 0u64;
+    loop {
+        match process.run()? {
+            crate::guest::ExecutionEvent::Syscall { number, arguments, .. } => {
+                let result = broker.dispatch(number, arguments)?;
+                process.resume_with_syscall_result(result)?;
+                syscalls = syscalls.checked_add(1).ok_or(Error::Overflow)?;
+            }
+            crate::guest::ExecutionEvent::Halted => {
+                let code = match process.state {
+                    crate::guest::ProcessState::Exited(code) => code,
+                    _ => 0,
+                };
+                return Ok(ExecutionSummary {
+                    process_id,
+                    outcome: ExecutionOutcome::Exited(code),
+                    syscalls_dispatched: syscalls,
+                    instructions_remaining: process.instruction_budget,
+                });
+            }
+            crate::guest::ExecutionEvent::Breakpoint { rip } => {
+                return Ok(ExecutionSummary {
+                    process_id,
+                    outcome: ExecutionOutcome::Breakpoint { rip },
+                    syscalls_dispatched: syscalls,
+                    instructions_remaining: process.instruction_budget,
+                });
+            }
+            crate::guest::ExecutionEvent::BudgetExhausted => {
+                return Ok(ExecutionSummary {
+                    process_id,
+                    outcome: ExecutionOutcome::BudgetExhausted,
+                    syscalls_dispatched: syscalls,
+                    instructions_remaining: 0,
+                });
+            }
+            crate::guest::ExecutionEvent::Continue => unreachable!("run consumes continue events"),
+        }
+    }
+}
