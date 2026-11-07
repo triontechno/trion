@@ -81,7 +81,7 @@ pub fn prepare_pe32_plus(
         if section.memory_size == 0 { continue; }
         let writable = section.writable;
         let executable = section.executable;
-        let permissions = Permissions { read: true, write: writable, execute: executable };
+        let permissions = Permissions { read: section.readable, write: writable, execute: executable };
         permissions.validate()?;
         let start = usize::try_from(section.address).map_err(|_| Error::Overflow)?;
         let file_len = usize::try_from(section.file_size).map_err(|_| Error::Overflow)?;
