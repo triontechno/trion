@@ -1,7 +1,7 @@
-# TRION Phase 1 — Ternary Foundations and Translator Contract
+# TRION Phase 1 — Ternary Foundations and Binary/Ternary Boundary
 
 **Status:** Proposed engineering specification  
-**Scope:** Phase 1 only: define representation semantics, the binary/ternary boundary, and the translator's initial contract.  
+**Scope:** Phase 1 only: define representation semantics and the binary/ternary boundary.  
 **Audience:** GHC and contributors implementing the next phase.
 
 The terms MUST, MUST NOT, SHOULD, and MAY are normative.
@@ -10,7 +10,7 @@ The terms MUST, MUST NOT, SHOULD, and MAY are normative.
 
 TRION supports both binary and ternary representations on conventional x86-64 and ARM64 hardware. Ternary should be used where its representation or semantics are useful; binary remains available where it is more efficient, required for compatibility, or required by hardware interfaces.
 
-Phase 1 defines interoperable rules before implementation expands. It does not claim that ternary automatically saves energy, that current CPUs execute native ternary instructions, or that the translator already translates whole executables.
+Phase 1 defines interoperable rules before implementation expands. It does not claim that ternary automatically saves energy, that current CPUs execute native ternary instructions, or that TRION translates applications between binary and ternary.
 
 **Governing rule:** Preserve program semantics and safety first. Select a representation based on explicit requirements and measured total cost, including storage, conversion, execution, memory use, and compatibility.
 
@@ -248,6 +248,5 @@ The following decisions finalize representation details needed by the Phase 1 im
 
 - **Signed integers:** a balanced sequence `d[0..n]` represents `sum(d[i] * 3^i)` with each digit in `{-1,0,+1}` and index zero least significant. Its finite n-trit range is `[-(3^n-1)/2, +(3^n-1)/2]`. Canonical values have no high zero trits; zero is exactly one zero trit. This representation is separate from packed U3 digits. Conversion to/from fixed-width binary integers is exact when in range and reports overflow or negative-to-unsigned conversion as an error.
 - **Serialized values:** `TRN3` version 1 stores balanced values with the 10-byte header and least-significant-first U3-coded payload documented in `ternary/core/README.md`. Unknown versions and domains are rejected. A future incompatible format must use a new version; v1 bytes are not silently reinterpreted.
-- **Translator output:** the first actual translation output is the textual `TRION-TIR 1 x86_64` intermediate format documented in `ternary/translator/README.md`. It translates only the exact listed instruction subset, rejects ELF files with REL/RELA sections until relocation semantics are supported, and is not an executable, interpreter, ABI, or syscall implementation.
 
 The pre-existing specification intentionally leaves compiler annotations, runtime strategy, broader instruction coverage, and hardware integration for later review.
