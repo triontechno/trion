@@ -466,6 +466,214 @@ fn launch_pe(
     )
 }
 
+fn launch_macho64(
+    image_file: FdGuardUpper,
+    thread_fd: &FdGuardUpper,
+    proc_fd: &FdGuardUpper,
+    path: &[u8],
+    args: &[&[u8]],
+    envs: &[&[u8]],
+    extrainfo: &ExtraInfo,
+) -> Result<Option<FexecResult>> {
+    // The Stage G Mach-O profile is freestanding: no dyld, dylibs, relocations,
+    // code-signature enforcement, TLS, argv/env block or macOS framework services.
+    if args.len() > 1 || !envs.is_empty() {
+        return Err(Error::new(ENOEXEC));
+    }
+    let header = read_vec(&image_file, 0, 32)?;
+    if header.get(0..4) != Some(&[0xCF, 0xFA, 0xED, 0xFE])
+        || u32_at(&header, 4)? != 0x0100_0007
+        || u32_at(&header, 12)? != 2
+    {
+        return Err(Error::new(ENOEXEC));
+    }
+    let command_count = usize::try_from(u32_at(&header, 16)?)
+        .map_err(|_| Error::new(EOVERFLOW))?;
+    let command_bytes = usize::try_from(u32_at(&header, 20)?)
+        .map_err(|_| Error::new(EOVERFLOW))?;
+    if command_count == 0 || command_count > 4096 || command_bytes > MAX_PE_HEADERS {
+        return Err(Error::new(ENOEXEC));
+    }
+    let commands = read_vec(&image_file, 32, command_bytes)?;
+    let mut segments = Vec::<Section>::new();
+    let mut ranges = Vec::<(usize, usize)>::new();
+    let mut entry_file_offset = None;
+    let mut base = usize::MAX;
+    let mut image_end = 0usize;
+    let mut has_header_segment = false;
+    let mut at = 0usize;
+
+    for _ in 0..command_count {
+        let command = u32_at(&commands, at)?;
+        let command_size = usize::try_from(u32_at(&commands, at + 4)?)
+            .map_err(|_| Error::new(EOVERFLOW))?;
+        let command_end = at.checked_add(command_size).ok_or(Error::new(EOVERFLOW))?;
+        if command_size < 8 || command_end > commands.len() {
+            return Err(Error::new(ENOEXEC));
+        }
+        match command {
+            0x19 => { // LC_SEGMENT_64
+                if command_size < 72 {
+                    return Err(Error::new(ENOEXEC));
+                }
+                let name_bytes = commands
+                    .get(at + 8..at + 24)
+                    .ok_or(Error::new(ENOEXEC))?;
+                let name_len = name_bytes.iter().position(|byte| *byte == 0).unwrap_or(16);
+                let is_pagezero = name_bytes.get(..name_len) == Some(b"__PAGEZERO");
+                let vm_address = usize::try_from(u64_at(&commands, at + 24)?)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let vm_size = usize::try_from(u64_at(&commands, at + 32)?)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let file_offset = u64_at(&commands, at + 40)?;
+                let file_size = usize::try_from(u64_at(&commands, at + 48)?)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let max_protection = u32_at(&commands, at + 56)?;
+                let initial_protection = u32_at(&commands, at + 60)?;
+                let section_count = usize::try_from(u32_at(&commands, at + 64)?)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let section_table_size = section_count
+                    .checked_mul(80)
+                    .and_then(|size| size.checked_add(72))
+                    .ok_or(Error::new(EOVERFLOW))?;
+                if section_table_size > command_size
+                    || file_size > vm_size
+                    || initial_protection & !7 != 0
+                    || max_protection & !7 != 0
+                    || initial_protection & !max_protection != 0
+                    || initial_protection & 6 == 6
+                {
+                    return Err(Error::new(ENOEXEC));
+                }
+                if !is_pagezero {
+                    if vm_size == 0 || vm_address % PAGE_SIZE != 0 {
+                        return Err(Error::new(ENOEXEC));
+                    }
+                    let mapped_size = page_align(vm_size)?;
+                    let absolute_end = vm_address
+                        .checked_add(mapped_size)
+                        .ok_or(Error::new(EOVERFLOW))?;
+                    for (old_start, old_end) in &ranges {
+                        if vm_address < *old_end && *old_start < absolute_end {
+                            return Err(Error::new(ENOEXEC));
+                        }
+                    }
+                    ranges.push((vm_address, absolute_end));
+                    base = base.min(vm_address);
+                    image_end = image_end.max(absolute_end);
+                    if file_offset == 0 && file_size >= 32 + command_bytes {
+                        has_header_segment = true;
+                    }
+                    let mut protection = MapFlags::empty();
+                    if initial_protection & 1 != 0 { protection |= MapFlags::PROT_READ; }
+                    if initial_protection & 2 != 0 { protection |= MapFlags::PROT_WRITE; }
+                    if initial_protection & 4 != 0 { protection |= MapFlags::PROT_EXEC; }
+                    segments.push(Section {
+                        virtual_address: vm_address,
+                        memory_size: mapped_size,
+                        raw_offset: file_offset,
+                        raw_size: file_size,
+                        protection,
+                    });
+                }
+            }
+            0x8000_0028 => { // LC_MAIN
+                if command_size < 24 || entry_file_offset.is_some() {
+                    return Err(Error::new(ENOEXEC));
+                }
+                entry_file_offset = Some(u64_at(&commands, at + 8)?);
+            }
+            // These commands require dyld, dependency resolution, relocations,
+            // TLS, signing or platform startup services not in the raw profile.
+            0x0C | 0x0D | 0x0E | 0x1D | 0x1E | 0x20 | 0x21 | 0x22
+            | 0x8000_0018 | 0x8000_001C | 0x8000_001F | 0x8000_0022
+            | 0x8000_0023 | 0x8000_0033 | 0x8000_0034 => {
+                return Err(Error::new(ENOEXEC));
+            }
+            // Standard metadata commands which do not participate in the
+            // freestanding image's address fixups are accepted.
+            0x02 | 0x0B | 0x16 | 0x17 | 0x1B | 0x24 | 0x26 | 0x29 | 0x2A
+            | 0x2E | 0x31 | 0x32 => {}
+            _ => return Err(Error::new(ENOEXEC)),
+        }
+        at = command_end;
+    }
+    if at != commands.len() || !has_header_segment || base == usize::MAX {
+        return Err(Error::new(ENOEXEC));
+    }
+    let image_size = image_end.checked_sub(base).ok_or(Error::new(EOVERFLOW))?;
+    if image_size == 0 || image_size > MAX_PE_IMAGE {
+        return Err(Error::new(ENOEXEC));
+    }
+    let stack_base = super::STACK_TOP
+        .checked_sub(super::STACK_SIZE)
+        .ok_or(Error::new(EOVERFLOW))?;
+    if image_end > stack_base {
+        return Err(Error::new(ENOEXEC));
+    }
+
+    let entry_file_offset = entry_file_offset.ok_or(Error::new(ENOEXEC))?;
+    let mut entry = None;
+    for segment in &segments {
+        let file_end = segment
+            .raw_offset
+            .checked_add(segment.raw_size as u64)
+            .ok_or(Error::new(EOVERFLOW))?;
+        if entry_file_offset >= segment.raw_offset && entry_file_offset < file_end {
+            if !segment.protection.contains(MapFlags::PROT_EXEC) {
+                return Err(Error::new(ENOEXEC));
+            }
+            let delta = usize::try_from(entry_file_offset - segment.raw_offset)
+                .map_err(|_| Error::new(EOVERFLOW))?;
+            entry = Some(segment.virtual_address.checked_add(delta).ok_or(Error::new(EOVERFLOW))?);
+        }
+    }
+    let entry = entry.ok_or(Error::new(ENOEXEC))?;
+
+    let grants_fd = {
+        let current_addrspace_fd = thread_fd.dup_into_upper(b"addrspace")?;
+        current_addrspace_fd.dup_into_upper(b"empty")?
+    };
+    grants_fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
+
+    for segment in &segments {
+        map_writable(&grants_fd, segment.virtual_address, segment.memory_size)?;
+        if segment.raw_size > 0 {
+            let raw = read_vec(&image_file, segment.raw_offset, segment.raw_size)?;
+            write_remote(&grants_fd, segment.virtual_address, &raw)?;
+        }
+        mprotect_remote(
+            &grants_fd,
+            segment.virtual_address,
+            segment.memory_size,
+            segment.protection,
+        )?;
+    }
+
+    finish_native_exec(
+        image_file,
+        thread_fd,
+        proc_fd,
+        path,
+        extrainfo,
+        grants_fd,
+        entry,
+        8,
+    )
+}
+
+pub(super) fn fexec_macho64(
+    image_file: FdGuardUpper,
+    thread_fd: &FdGuardUpper,
+    proc_fd: &FdGuardUpper,
+    path: &[u8],
+    args: &[&[u8]],
+    envs: &[&[u8]],
+    extrainfo: &ExtraInfo,
+) -> Result<Option<FexecResult>> {
+    launch_macho64(image_file, thread_fd, proc_fd, path, args, envs, extrainfo)
+}
+
 /// Dispatch a PE32+ image through Redox's real address-space and process context
 /// interfaces. The kernel scheduler and x86-64 context switch enter the original
 /// image bytes; unsupported Windows runtime features fail closed.
