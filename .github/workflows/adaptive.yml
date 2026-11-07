@@ -71,9 +71,11 @@ jobs:
           components: rustfmt, clippy
       - name: Test Redox capability scheme
         run: cargo test --manifest-path src/base/Cargo.toml -p trion-capd
-      - name: Check Redox capability service
-        run: cargo check --manifest-path src/base/Cargo.toml -p trion-capd
+      - name: Test boot integration checker
+        run: cargo test --manifest-path src/base/Cargo.toml -p trion-cap-check
+      - name: Check Redox capability services
+        run: cargo check --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
       - name: Check service formatting
-        run: cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -- --check
-      - name: Lint capability service
-        run: cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd --all-targets -- -D warnings
+        run: cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -- --check
+      - name: Lint capability services
+        run: cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets -- -D warnings
