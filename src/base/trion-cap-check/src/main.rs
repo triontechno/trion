@@ -77,19 +77,24 @@ fn main() {
     let hardware = fs::read_to_string("/scheme/trion/hardware-evidence")
         .expect("trion-cap-check: cannot read hardware evidence");
     assert!(
-        hardware.starts_with("TRION-HARDWARE-EVIDENCE 1\n"),
+        hardware.starts_with("TRION-HARDWARE-EVIDENCE 2\n"),
         "trion-cap-check: unsupported hardware-evidence schema"
     );
-    let pci_available = required_field(&hardware, "pci_scheme_available=")
-        .parse::<bool>()
-        .expect("trion-cap-check: invalid PCI availability flag");
-    let pci_entries = required_field(&hardware, "pci_function_entries=")
-        .parse::<usize>()
-        .expect("trion-cap-check: invalid PCI inventory count");
-    assert!(
-        pci_available || pci_entries == 0,
-        "trion-cap-check: PCI entries reported while PCI scheme is unavailable"
-    );
+    for (available_key, count_key) in [
+        ("pci_scheme_available=", "pci_function_entries="),
+        ("acpi_symbols_available=", "acpi_symbol_entries="),
+    ] {
+        let available = required_field(&hardware, available_key)
+            .parse::<bool>()
+            .expect("trion-cap-check: invalid hardware scheme availability flag");
+        let count = required_field(&hardware, count_key)
+            .parse::<usize>()
+            .expect("trion-cap-check: invalid hardware inventory count");
+        assert!(
+            available || count == 0,
+            "trion-cap-check: inventory entries reported while scheme is unavailable"
+        );
+    }
     assert_eq!(
         required_field(&hardware, "optional_device_capabilities="),
         "not_probed"
