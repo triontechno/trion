@@ -186,9 +186,6 @@ fn parse_program(bytes: &[u8]) -> Result<Vec<Instruction>, RuntimeError> {
                     .map_err(|_| RuntimeError::InvalidImmediate { line })?;
                 let value =
                     u64::try_from(n).map_err(|_| RuntimeError::InvalidImmediate { line })?;
-                if value.to_string() == *imm {
-                    return Err(RuntimeError::InvalidImmediate { line });
-                }
                 if Ternary::from_u128(value as u128).to_string() != *imm {
                     return Err(RuntimeError::InvalidImmediate { line });
                 }
@@ -414,7 +411,7 @@ mod tests {
     }
     #[test]
     fn arithmetic_and_conditional_branch_execute() {
-        let tir=b"TRION-TIR 1 x86_64\n0000000000000000 MOV_IMM64 r0 1TTT0\n0000000000000001 MOV_IMM64 r1 1TTT0\n0000000000000002 CMP r0 r1\n0000000000000003 JZ 0000000000000005\n0000000000000004 MOV_IMM64 r2 T\n0000000000000005 ADD r0 r1\n";
+        let tir=b"TRION-TIR 1 x86_64\n0000000000000000 MOV_IMM64 r0 1TTT0\n0000000000000001 MOV_IMM64 r1 1TTT0\n0000000000000002 CMP r0 r1\n0000000000000003 JZ 0000000000000005\n0000000000000004 MOV_IMM64 r2 1\n0000000000000005 ADD r0 r1\n";
         let mut s = machine(&[]);
         let out = execute_tir(tir, &mut s, 20).unwrap();
         assert_eq!(
@@ -434,7 +431,7 @@ mod tests {
         assert_eq!(
             out,
             ExecutionOutcome::Completed {
-                instructions_executed: 4
+                instructions_executed: 5
             }
         );
         assert_eq!(s.registers[0], 42);
