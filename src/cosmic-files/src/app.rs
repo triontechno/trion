@@ -113,12 +113,17 @@ fn resolve_trion_app_bundle(bundle: &Path) -> Result<PathBuf, String> {
     let plist = fs::read(&plist_path).map_err(|error| error.to_string())?;
 
     let mut members = Vec::<BundleMember>::new();
+    let mut visited_members = 0usize;
     for entry in walkdir::WalkDir::new(&contents)
         .follow_links(false)
         .max_depth(16)
         .max_open(32)
     {
         let entry = entry.map_err(|error| error.to_string())?;
+        visited_members = visited_members.checked_add(1).ok_or_else(|| "application bundle member count overflow".to_string())?;
+        if visited_members > MAX_BUNDLE_MEMBERS {
+            return Err("application bundle contains too many filesystem entries".into());
+        }
         let metadata = fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
         if metadata.file_type().is_symlink() {
             return Err("application bundle contains a symlink".into());
