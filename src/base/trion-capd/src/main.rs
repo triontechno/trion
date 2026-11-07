@@ -22,8 +22,9 @@ fn daemon(daemon: daemon::Daemon) -> ! {
     let adaptive_probe = trion_platform::run_adaptive_integer_probe(16_384)
         .expect("trion-capd: adaptive workload failed semantic validation");
     let runtime_policy = format!(
-        "TRION-ADAPTIVE-POLICY 1\nworkload=integer-roundtrip\niterations={}\nbinary_cost_ns={}\nternary_cost_ns={}\nchecksum={}\nselected={:?}\nselection_reason={:?}\n",
+        "TRION-ADAPTIVE-POLICY 1\nworkload=integer-roundtrip\niterations={}\nsamples={}\nbinary_cost_ns={}\nternary_cost_ns={}\nchecksum={}\nselected={:?}\nselection_reason={:?}\n",
         adaptive_probe.iterations,
+        adaptive_probe.samples,
         adaptive_probe.binary_cost_ns,
         adaptive_probe.ternary_cost_ns,
         adaptive_probe.checksum,
