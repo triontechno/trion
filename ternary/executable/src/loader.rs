@@ -22,53 +22,81 @@ fn u64le(b:&[u8],o:usize)->Result<u64,Error>{
 /// preferred base. Unsupported relocation types fail closed. A zero relocation
 /// directory is accepted only when the requested base equals the preferred base.
 pub fn rebase_pe32_plus(image:&mut InertImage, actual_base:u64)->Result<(),Error>{
-    if image.description.format!=Format::Pe32Plus { return Err(Error::Unsupported("PE relocation requested for non-PE image")); }
+    if image.description.format!=Format::Pe32Plus {
+        return Err(Error::Unsupported("PE relocation requested for non-PE image"));
+    }
     let preferred=image.description.preferred_base;
     if actual_base==preferred { return Ok(()); }
-    if image.bytes.len()<0x40 { return Err(Error::Truncated("mapped PE headers")); }
-    let pe=u32le(&image.bytes,0x3c)? as usize;
+    actual_base.checked_add(image.description.image_size).ok_or(Error::Overflow)?;
+    preferred.checked_add(image.description.image_size).ok_or(Error::Overflow)?;
+    let bytes=&image.bytes;
+    if bytes.len()<0x40 { return Err(Error::Truncated("mapped PE headers")); }
+    let pe=u32le(bytes,0x3c)? as usize;
     let coff=pe.checked_add(4).ok_or(Error::Overflow)?;
-    let opt=coff.checked_add(20).ok_or(Error::Overflow)?;
-    let directory=opt.checked_add(112).ok_or(Error::Overflow)?;
-    let reloc=directory.checked_add(5*8).ok_or(Error::Overflow)?;
-    let rva=u32le(&image.bytes,reloc)? as usize;
-    let size=u32le(&image.bytes,reloc+4)? as usize;
+    let optional=coff.checked_add(20).ok_or(Error::Overflow)?;
+    let optional_size=u16le(bytes,coff+16)? as usize;
+    if optional_size<112 { return Err(Error::Truncated("PE32+ optional header")); }
+    let optional_end=optional.checked_add(optional_size).ok_or(Error::Overflow)?;
+    if optional_end>bytes.len() { return Err(Error::Truncated("PE optional header")); }
+    if u16le(bytes,optional)?!=0x20b { return Err(Error::Unsupported("PE32 relocation")); }
+    let directory_count=u32le(bytes,optional+108)?;
+    if directory_count<=5 || optional_size<160 {
+        return Err(Error::Unsupported("PE image has no base relocation directory"));
+    }
+    let reloc=optional.checked_add(112+5*8).ok_or(Error::Overflow)?;
+    let rva=u32le(bytes,reloc)? as usize;
+    let size=u32le(bytes,reloc+4)? as usize;
     if rva==0 || size==0 { return Err(Error::Unsupported("PE image has no base relocation directory")); }
     let end=rva.checked_add(size).ok_or(Error::Overflow)?;
-    if end>image.bytes.len() { return Err(Error::Truncated("PE base relocation directory")); }
+    if end>bytes.len() { return Err(Error::Truncated("PE base relocation directory")); }
     let delta=actual_base as i128-preferred as i128;
     let mut at=rva;
     let mut count=0usize;
+    let mut writes:Vec<(usize,u64)>=Vec::new();
     while at<end {
         if end-at<8 { return Err(Error::Invalid("partial PE relocation block")); }
-        let page=u32le(&image.bytes,at)? as usize;
-        let block_size=u32le(&image.bytes,at+4)? as usize;
+        let page=u32le(bytes,at)? as usize;
+        let block_size=u32le(bytes,at+4)? as usize;
         if block_size<8 || block_size%2!=0 || at.checked_add(block_size).ok_or(Error::Overflow)?>end {
             return Err(Error::Invalid("invalid PE relocation block size"));
+        }
+        if page%0x1000!=0 || page>=bytes.len() {
+            return Err(Error::Invalid("invalid PE relocation page RVA"));
         }
         let entries=(block_size-8)/2;
         for i in 0..entries {
             count=count.checked_add(1).ok_or(Error::Overflow)?;
             if count>1_000_000 { return Err(Error::Limit("PE relocation count")); }
-            let item=u16le(&image.bytes,at+8+i*2)?;
+            let item=u16le(bytes,at+8+i*2)?;
             let kind=item>>12;
             let offset=(item&0x0fff) as usize;
             if kind==0 { continue; }
             if kind!=10 { return Err(Error::Unsupported("PE relocation type outside DIR64 subset")); }
             let target=page.checked_add(offset).ok_or(Error::Overflow)?;
-            let old=u64le(&image.bytes,target)?;
+            let target_end=target.checked_add(8).ok_or(Error::Overflow)?;
+            if target_end>bytes.len() { return Err(Error::Truncated("PE relocation target")); }
+            if writes.iter().any(|(old,_)| *old==target) {
+                return Err(Error::Invalid("duplicate PE relocation target"));
+            }
+            let old=u64le(bytes,target)?;
             let adjusted=if delta>=0 { old.checked_add(delta as u64) } else { old.checked_sub((-delta) as u64) }
                 .ok_or(Error::Overflow)?;
-            let dst=image.bytes.get_mut(target..target.checked_add(8).ok_or(Error::Overflow)?)
-                .ok_or(Error::Truncated("PE relocation target"))?;
-            dst.copy_from_slice(&adjusted.to_le_bytes());
+            writes.push((target,adjusted));
         }
         at=at.checked_add(block_size).ok_or(Error::Overflow)?;
     }
     if at!=end { return Err(Error::Invalid("PE relocation directory size mismatch")); }
-    image.description.entry_point=if delta>=0 {
+    let new_entry=if delta>=0 {
         image.description.entry_point.checked_add(delta as u64)
-    } else { image.description.entry_point.checked_sub((-delta) as u64) }.ok_or(Error::Overflow)?;
+    } else {
+        image.description.entry_point.checked_sub((-delta) as u64)
+    }.ok_or(Error::Overflow)?;
+
+    // Commit only after every relocation has been validated.
+    for (target,value) in writes {
+        image.bytes[target..target+8].copy_from_slice(&value.to_le_bytes());
+    }
+    image.description.entry_point=new_entry;
     image.description.preferred_base=actual_base;
     Ok(())
 }
