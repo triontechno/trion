@@ -8,7 +8,7 @@ Stage E connects the adaptive binary/ternary runtime to the actual Redox user-sp
 
 ### 1. Target capability reporting
 
-The `trion-platform` crate provides a versioned schema-v2 capability report containing:
+The `trion-platform` crate provides a versioned schema-v3 capability report containing:
 
 - Target architecture and operating system.
 - Pointer width and target endianness.
