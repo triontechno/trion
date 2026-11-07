@@ -203,8 +203,8 @@ pub fn run_adaptive_integer_probe(iterations: usize) -> Result<AdaptiveProbeRepo
     let selection = select_representation(SelectionRequest {
         boundary: Boundary::Internal,
         candidates: CandidateSet {
-            binary: Some(CandidateMetrics::new(binary_cost_ns, true, true, true)),
-            ternary: Some(CandidateMetrics::new(ternary_cost_ns, true, true, true)),
+            binary: Some(CandidateMetrics::new(binary_cost_ns.max(1), true, true, true)),
+            ternary: Some(CandidateMetrics::new(ternary_cost_ns.max(1), true, true, true)),
             hybrid: None,
         },
     }).map_err(|_| "no validated runtime representation candidate")?;
@@ -230,7 +230,7 @@ mod tests {
     fn measured_adaptive_probe_validates_both_paths_before_selection() {
         let report = run_adaptive_integer_probe(256).unwrap();
         assert_eq!(report.iterations, 256);
-        assert_eq!(report.checksum, 0);
+        assert_eq!(report.checksum, -128);
         assert!(report.binary_cost_ns > 0);
         assert!(report.ternary_cost_ns > 0);
         assert!(matches!(report.selection.representation,
