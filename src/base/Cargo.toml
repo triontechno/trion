@@ -16,6 +16,7 @@ members = [
     "ramfs",
     "randd",
     "trion-capd",
+    "trion-cap-check",
     "scheme-utils",
     "zerod",
 
