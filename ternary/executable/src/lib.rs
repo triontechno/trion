@@ -87,7 +87,12 @@ pub mod pe{
         if image==0||image>MAX_IMAGE_SIZE as u64{return Err(Error::Limit("PE image size"))}
         if headers>image||headers>d.len() as u64||align==0||entry>=image{return Err(Error::Invalid("PE image/header alignment or entry point"))}
         let table=opt.checked_add(opt_size).ok_or(Error::Overflow)?;
-        range(d,table as u64,(count.checked_mul(40).ok_or(Error::Overflow)?) as u64,"section table")?;
+        let table_bytes=count.checked_mul(40).ok_or(Error::Overflow)?;
+        let table_end=table.checked_add(table_bytes).ok_or(Error::Overflow)?;
+        if table_end as u64 > headers {
+            return Err(Error::Invalid("PE section table is outside SizeOfHeaders"));
+        }
+        range(d,table as u64,table_bytes as u64,"section table")?;
         let mut sections=Vec::new();
         sections.try_reserve_exact(count).map_err(|_|Error::Limit("section metadata allocation"))?;
         for i in 0..count{
