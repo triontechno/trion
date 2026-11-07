@@ -113,3 +113,30 @@ pub fn prepare_application(
         compatibility,
     })
 }
+
+
+/// Integration contract implemented by the isolated process backend (Phase 2
+/// Stage H). The engine owns parsing and image preparation; the backend owns
+/// process creation, native execution, waiting, and teardown.
+pub trait GuestExecutionBackend {
+    type Handle;
+    fn launch(
+        &mut self,
+        request: &ApplicationLaunchPlan,
+        arguments: &[String],
+        environment: &[String],
+    ) -> Result<Self::Handle, Error>;
+}
+
+/// One entry point for launcher/file-manager integrations. The backend is
+/// invoked only after format parsing, bundle selection, image preparation and
+/// argument/environment validation have all succeeded.
+pub fn launch_with_backend<B: GuestExecutionBackend>(
+    input: ApplicationInput,
+    arguments: &[String],
+    environment: &[String],
+    backend: &mut B,
+) -> Result<B::Handle, Error> {
+    let request = prepare_application(input, arguments, environment)?;
+    backend.launch(&request, arguments, environment)
+}
