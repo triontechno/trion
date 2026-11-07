@@ -106,7 +106,7 @@ impl AddressSpace {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProcessState { Created, Ready, Running, Blocked, Exited(i32), Faulted }
+pub enum ProcessState { Created, Ready, Running, Blocked, BlockedSyscall, BlockedBreakpoint, Exited(i32), Faulted }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CpuState {
     pub rax:u64,pub rbx:u64,pub rcx:u64,pub rdx:u64,pub rsi:u64,pub rdi:u64,
@@ -281,7 +281,7 @@ impl GuestProcess {
                 self.cpu.rflags=(self.cpu.rflags & !SYSCALL_RFLAGS_MASK) | RFLAGS_RESERVED_ONE;
                 self.cpu.rip=next;
                 self.instruction_budget-=1;
-                self.state=ProcessState::Blocked;
+                self.state=ProcessState::BlockedSyscall;
                 return Ok(ExecutionEvent::Syscall{
                     number:self.cpu.rax,
                     arguments:[self.cpu.rdi,self.cpu.rsi,self.cpu.rdx,self.cpu.r10,self.cpu.r8,self.cpu.r9],
@@ -291,7 +291,7 @@ impl GuestProcess {
             I::Int3=>{
                 self.cpu.rip=next;
                 self.instruction_budget-=1;
-                self.state=ProcessState::Blocked;
+                self.state=ProcessState::BlockedBreakpoint;
                 return Ok(ExecutionEvent::Breakpoint{rip});
             }
             I::Hlt=>{
@@ -315,10 +315,18 @@ impl GuestProcess {
     }
 
     pub fn resume_with_syscall_result(&mut self, result: i64) -> Result<(), Error> {
-        if self.state!=ProcessState::Blocked {return Err(Error::Invalid("guest is not blocked at a syscall boundary"));}
+        if self.state!=ProcessState::BlockedSyscall {return Err(Error::Invalid("guest is not blocked at a syscall boundary"));}
         self.cpu.rax=result as u64;
         self.cpu.rflags=self.cpu.r11 | RFLAGS_RESERVED_ONE;
         self.state=ProcessState::Ready;
+        Ok(())
+    }
+
+    pub fn resume_from_breakpoint(&mut self) -> Result<(), Error> {
+        if self.state != ProcessState::BlockedBreakpoint {
+            return Err(Error::Invalid("guest is not blocked at a breakpoint"));
+        }
+        self.state = ProcessState::Ready;
         Ok(())
     }
 }
@@ -357,11 +365,16 @@ mod execution_tests {
         process.address_space.map(0x700000, PAGE_SIZE, Permissions::READ_WRITE).unwrap();
         process.set_entry(0x400000, 0x701000).unwrap();
         process.cpu.rax = 0x1234;
+        process.cpu.rflags = 0x4702;
         assert_eq!(process.run().unwrap(), ExecutionEvent::Syscall {
             number: 0x1234, arguments: [0;6], return_rip: 0x400002
         });
+        assert_eq!(process.cpu.rcx, 0x400002);
+        assert_eq!(process.cpu.r11, 0x4702);
+        assert_eq!(process.cpu.rflags, RFLAGS_RESERVED_ONE);
         process.resume_with_syscall_result(5).unwrap();
         assert_eq!(process.cpu.rax, 5);
+        assert_eq!(process.cpu.rflags, 0x4702);
     }
 
     #[test]
