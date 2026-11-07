@@ -15,6 +15,7 @@ members = [
     "ptyd",
     "ramfs",
     "randd",
+    "trion-capd",
     "scheme-utils",
     "zerod",
 
