@@ -68,15 +68,11 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
             .map_err(|_| format!("section {section_index} offset is too large"))?;
         let size = usize::try_from(section.sh_size)
             .map_err(|_| format!("section {section_index} size is too large"))?;
-        let end = start
-            .checked_add(size)
+        let end = start.checked_add(size)
             .ok_or_else(|| format!("section {section_index} bounds overflow"))?;
-        section
-            .sh_addr
-            .checked_add(section.sh_size)
+        section.sh_addr.checked_add(section.sh_size)
             .ok_or_else(|| format!("section {section_index} virtual address overflows"))?;
-        let code = bytes
-            .get(start..end)
+        let code = bytes.get(start..end)
             .ok_or_else(|| format!("section {section_index} lies outside the file"))?;
         executable_sections += 1;
 
@@ -85,34 +81,58 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
             let instruction = decoder.decode();
             let ip = instruction.ip();
             if instruction.is_invalid() {
-                return Err(format!(
-                    "invalid x86-64 instruction encoding at 0x{ip:016x}"
-                ));
+                return Err(format!("invalid x86-64 instruction encoding at 0x{ip:016x}"));
             }
-
-            if instruction.mnemonic() == Mnemonic::Nop {
-                writeln!(output, "{ip:016x} NOP").expect("writing to String cannot fail");
-            } else if instruction.code() == Code::Mov_r64_imm64 {
-                let register = register_id(instruction.op0_register()).ok_or_else(|| {
-                    format!("unsupported MOV destination register at 0x{ip:016x}")
-                })?;
-                let immediate = Ternary::from_u128(instruction.immediate64() as u128);
-                writeln!(output, "{ip:016x} MOV_IMM64 r{register} {immediate}")
-                    .expect("writing to String cannot fail");
-            } else if instruction.code() == Code::Retnq {
-                writeln!(output, "{ip:016x} RET").expect("writing to String cannot fail");
-            } else {
-                return Err(format!(
+            let op = match instruction.mnemonic() {
+                Mnemonic::Nop => "NOP".to_string(),
+                Mnemonic::Ret => "RET".to_string(),
+                Mnemonic::Mov if instruction.op_count() == 2
+                    && instruction.op_kind(0) == iced_x86::OpKind::Register
+                    && instruction.op_kind(1) == iced_x86::OpKind::Register => {
+                    let dst = register_id(instruction.op_register(0))
+                        .ok_or_else(|| format!("unsupported MOV destination at 0x{ip:016x}"))?;
+                    let src = register_id(instruction.op_register(1))
+                        .ok_or_else(|| format!("unsupported MOV source at 0x{ip:016x}"))?;
+                    format!("MOV r{dst} r{src}")
+                }
+                Mnemonic::Add | Mnemonic::Sub | Mnemonic::Cmp
+                    if instruction.op_count() == 2
+                    && instruction.op_kind(0) == iced_x86::OpKind::Register
+                    && instruction.op_kind(1) == iced_x86::OpKind::Register => {
+                    let dst = register_id(instruction.op_register(0))
+                        .ok_or_else(|| format!("unsupported arithmetic destination at 0x{ip:016x}"))?;
+                    let src = register_id(instruction.op_register(1))
+                        .ok_or_else(|| format!("unsupported arithmetic source at 0x{ip:016x}"))?;
+                    format!("{:?} r{dst} r{src}", instruction.mnemonic()).to_ascii_uppercase()
+                }
+                Mnemonic::Jmp | Mnemonic::Je | Mnemonic::Jne | Mnemonic::Jl
+                | Mnemonic::Jle | Mnemonic::Jg | Mnemonic::Jge | Mnemonic::Call => {
+                    if instruction.op_kind(0) != iced_x86::OpKind::NearBranch64 {
+                        return Err(format!("indirect control flow is unsupported at 0x{ip:016x}"));
+                    }
+                    let mnemonic = match instruction.mnemonic() {
+                        Mnemonic::Jmp => "JMP", Mnemonic::Je => "JZ", Mnemonic::Jne => "JNZ",
+                        Mnemonic::Jl => "JL", Mnemonic::Jle => "JLE", Mnemonic::Jg => "JG",
+                        Mnemonic::Jge => "JGE", Mnemonic::Call => "CALL", _ => unreachable!(),
+                    };
+                    format!("{mnemonic} {:016x}", instruction.near_branch_target())
+                }
+                _ if instruction.code() == Code::Mov_r64_imm64 => {
+                    let register = register_id(instruction.op0_register())
+                        .ok_or_else(|| format!("unsupported MOV destination register at 0x{ip:016x}"))?;
+                    let immediate = Ternary::from_u128(instruction.immediate64() as u128);
+                    format!("MOV_IMM64 r{register} {immediate}")
+                }
+                _ => return Err(format!(
                     "unsupported x86-64 instruction {:?} at 0x{ip:016x}",
                     instruction.mnemonic()
-                ));
-            }
-            instructions = instructions
-                .checked_add(1)
+                )),
+            };
+            writeln!(output, "{ip:016x} {op}").expect("writing to String cannot fail");
+            instructions = instructions.checked_add(1)
                 .ok_or_else(|| "instruction count overflow".to_string())?;
         }
     }
-
     if executable_sections == 0 {
         return Err("ELF contains no nonempty executable sections".to_string());
     }
@@ -124,65 +144,9 @@ pub fn translate_elf_to_tir(bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(output)
 }
 
-/// Validate a canonical textual TIR v1 stream and return its instruction count.
+/// Validate TIR with the exact parser and limits used by the execution runtime.
 pub fn validate_tir(bytes: &[u8]) -> Result<usize, String> {
-    let text = std::str::from_utf8(bytes).map_err(|error| format!("TIR is not UTF-8: {error}"))?;
-    if !text.ends_with('\n') {
-        return Err("TIR must end with a newline".to_string());
-    }
-    let mut lines = text.split_terminator('\n');
-    if lines.next() != Some(TIR_HEADER) {
-        return Err("unsupported TIR header or version".to_string());
-    }
-
-    let mut count = 0usize;
-    for (index, line) in lines.enumerate() {
-        let fields: Vec<&str> = line.split(' ').collect();
-        if fields.iter().any(|field| field.is_empty()) || fields.len() < 2 {
-            return Err(format!("invalid TIR record on line {}", index + 2));
-        }
-        if fields[0].len() != 16
-            || !fields[0]
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-        {
-            return Err(format!("invalid instruction address on line {}", index + 2));
-        }
-        u64::from_str_radix(fields[0], 16)
-            .map_err(|_| format!("invalid instruction address on line {}", index + 2))?;
-        match fields.as_slice() {
-            [_, "NOP"] | [_, "RET"] => {}
-            [_, "MOV_IMM64", register, immediate] => {
-                let register_id = register
-                    .strip_prefix('r')
-                    .and_then(|value| value.parse::<u8>().ok())
-                    .filter(|value| *value < 16)
-                    .ok_or_else(|| format!("invalid register on line {}", index + 2))?;
-                if register.as_bytes() != format!("r{register_id}").as_bytes() {
-                    return Err(format!("noncanonical register on line {}", index + 2));
-                }
-                let value = Ternary::parse(immediate)
-                    .map_err(|error| format!("invalid immediate on line {}: {error}", index + 2))?;
-                let unsigned = value
-                    .to_u128()
-                    .map_err(|_| format!("immediate is negative on line {}", index + 2))?;
-                if value.to_string().as_str() != *immediate || unsigned > u64::MAX as u128 {
-                    return Err(format!(
-                        "noncanonical or out-of-range immediate on line {}",
-                        index + 2
-                    ));
-                }
-            }
-            _ => return Err(format!("unsupported TIR operation on line {}", index + 2)),
-        }
-        count = count
-            .checked_add(1)
-            .ok_or_else(|| "TIR instruction count overflow".to_string())?;
-    }
-    if count == 0 {
-        return Err("TIR contains no instructions".to_string());
-    }
-    Ok(count)
+    trion_tir_runtime::validate_tir(bytes).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
