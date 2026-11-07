@@ -1,6 +1,12 @@
 //! Direct executable-format foundations. Parsed bytes remain inert: this crate
 //! does not execute guest code or translate applications to TIR or .trx.
 
+pub mod decoder;
+pub mod guest;
+pub mod macos;
+pub mod windows;
+
+
 use core::fmt;
 
 pub const MAX_IMAGE_SIZE: usize = 512 * 1024 * 1024;
