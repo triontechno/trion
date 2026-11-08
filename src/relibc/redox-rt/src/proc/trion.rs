@@ -118,6 +118,20 @@ fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
     Ok(code)
 }
 
+fn enable_guest_policy(thread_fd: &FdGuardUpper, proc_fd: usize) -> Result<()> {
+    let exit_verb = usize::try_from(ProcCall::Exit as u64).map_err(|_| Error::new(ENOEXEC))?;
+    let mut policy = Vec::new();
+    policy
+        .try_reserve_exact(3 * size_of::<usize>())
+        .map_err(|_| Error::new(ENOMEM))?;
+    for value in [1usize, proc_fd, exit_verb] {
+        policy.extend_from_slice(&value.to_ne_bytes());
+    }
+    let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
+    guest_policy_fd.write(&policy)?;
+    Ok(())
+}
+
 fn finish_native_exec(
     image_file: FdGuardUpper,
     thread_fd: &FdGuardUpper,
@@ -238,12 +252,9 @@ fn finish_native_exec(
         // Set the irreversible kernel policy after all loader syscalls, but
         // before the close that commits the address-space switch. The kernel
         // policy explicitly permits SYS_CLOSE so this transition can complete.
-        let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
-        guest_policy_fd.write(&1usize.to_ne_bytes())?;
-        // Do not leave the process-manager policy capability in the guest's
-        // inherited descriptor table. SYS_CLOSE remains permitted after the
-        // policy is enabled, so close it before the address-space handoff.
-        drop(guest_policy_fd);
+        // The kernel binds the guest's only non-close syscall to this process
+        // descriptor and the ProcCall::Exit operation.
+        enable_guest_policy(thread_fd, proc_fd.as_raw_fd())?;
         let old_filetable_fd = {
             let mut guard = crate::current_filetable();
             guard.take()
@@ -255,11 +266,9 @@ fn finish_native_exec(
 
     // The child loader has completed setup; deny syscalls before returning the
     // context to the process manager for guest entry.
-    let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
-    guest_policy_fd.write(&1usize.to_ne_bytes())?;
     // The irreversible policy is now kernel-owned; the guest must not inherit
     // the loader's policy-control descriptor.
-    drop(guest_policy_fd);
+    enable_guest_policy(thread_fd, proc_fd.as_raw_fd())?;
     drop(addrspace_selection_fd);
     Ok(None)
 }

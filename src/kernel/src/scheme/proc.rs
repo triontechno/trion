@@ -1242,13 +1242,36 @@ impl ContextHandle {
                 Ok(size_of::<usize>())
             }
             Self::GuestPolicy => {
-                let mut values = buf.usizes();
-                let enable = values.next().ok_or(Error::new(EINVAL))??;
-                if values.next().is_some() || enable != 1 {
+                if buf.len() != 3 * size_of::<usize>() {
                     return Err(Error::new(EINVAL));
                 }
-                context.write(token.token()).guest_syscalls_denied = true;
-                Ok(size_of::<usize>())
+                let mut values = buf.usizes();
+                let enable = values.next().ok_or(Error::new(EINVAL))??;
+                let exit_fd = values.next().ok_or(Error::new(EINVAL))??;
+                let exit_verb = values.next().ok_or(Error::new(EINVAL))??;
+                if values.next().is_some()
+                    || enable != 1
+                    || exit_fd == usize::MAX
+                    || exit_verb > u32::MAX as usize
+                {
+                    return Err(Error::new(EINVAL));
+                }
+                let mut lock_token = token.token();
+                let context_guard = context.read(lock_token.token());
+                let (context_guard, mut lock_token) = context_guard.token_split();
+                context_guard
+                    .get_file(FileHandle::from(exit_fd), &mut lock_token)
+                    .ok_or(Error::new(EBADF))?;
+                drop(context_guard);
+                drop(lock_token);
+                let mut context = context.write(token.token());
+                if context.guest_syscalls_denied {
+                    return Err(Error::new(EPERM));
+                }
+                context.guest_exit_fd = Some(exit_fd);
+                context.guest_exit_verb = Some(exit_verb);
+                context.guest_syscalls_denied = true;
+                Ok(3 * size_of::<usize>())
             }
             Self::SchedAffinity => {
                 let cpuset = unsafe { buf.read_exact::<CpuSet>()? };

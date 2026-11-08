@@ -12,12 +12,11 @@
 - Before native entry, inherited user and exception signal handlers are now cleared as a required operation. Failure to reset signal state aborts the launch rather than entering guest code with stale handlers.
 - Kernel unhandled processor exceptions are retained in `CtxtStsBuf`. The process manager now maps x86-64 exception vectors to POSIX wait signals (SIGFPE, SIGTRAP, SIGSEGV, SIGILL, SIGBUS), instead of reporting the invalid signal number 1.
 - The portable guest model provides bounded address-space mappings, checked memory access, W^X enforcement, memory/mapping quotas, process states, instruction budgets, brokered syscall events, breakpoint suspension and fault transitions.
-- **Initial kernel-enforced syscall isolation is implemented:** the native loader irreversibly marks the target context as a restricted guest before entry; the common kernel syscall dispatcher checks this context-owned flag before dispatch and returns `EPERM` for every syscall except the narrowly permitted `SYS_CLOSE` handoff operation. The policy cannot be cleared through the guest-policy proc handle. This is a deny-all baseline, not yet a useful brokered syscall surface.
-- The kernel guest deny policy permits only `SYS_CLOSE`, required to complete the final address-space handoff; all other direct syscalls return `EPERM`.
+- **Kernel-enforced syscall isolation and guest exit are implemented as a restricted baseline:** the native loader irreversibly marks the target context before entry, registering the exact process descriptor and `ProcCall::Exit` verb for its exit trampoline. The common kernel syscall dispatcher permits `SYS_CLOSE` and only a flag-free, payload-free exit call on that descriptor with a conventional 8-bit process status; every other syscall is rejected before scheme dispatch. Policy activation is one-shot and cannot be changed through the guest-policy proc handle.
+- This narrow exit exception does not provide a general syscall broker or make the guest runtime usable for ordinary I/O.
 
 ## Remaining implementation
 
-- The current deny-all policy also denies the guest return trampoline's process-exit syscall; returning guest code therefore falls through to the existing invalid-instruction fault path. A dedicated kernel-owned guest-exit operation is still required.
 - Explicit per-process capability allowlists for filesystem, network, device and IPC scheme handles, with a broker that enforces the allowlists.
 - Kernel-enforced guest memory/CPU/file-descriptor quotas and accounting; the portable model's memory quota is not a substitute for kernel enforcement.
 - Safe cancellation and thread lifecycle policy specific to guest processes, including policy for descendants and newly created threads.
