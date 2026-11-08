@@ -240,6 +240,10 @@ fn finish_native_exec(
         // policy explicitly permits SYS_CLOSE so this transition can complete.
         let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
         guest_policy_fd.write(&1usize.to_ne_bytes())?;
+        // Do not leave the process-manager policy capability in the guest's
+        // inherited descriptor table. SYS_CLOSE remains permitted after the
+        // policy is enabled, so close it before the address-space handoff.
+        drop(guest_policy_fd);
         let old_filetable_fd = {
             let mut guard = crate::current_filetable();
             guard.take()
@@ -253,6 +257,9 @@ fn finish_native_exec(
     // context to the process manager for guest entry.
     let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
     guest_policy_fd.write(&1usize.to_ne_bytes())?;
+    // The irreversible policy is now kernel-owned; the guest must not inherit
+    // the loader's policy-control descriptor.
+    drop(guest_policy_fd);
     drop(addrspace_selection_fd);
     Ok(None)
 }
