@@ -49,7 +49,13 @@ The 20-question quiz established the adaptive architecture baseline. The complet
 
 | Question | Recovered answer / decision | Record quality |
 |---|---|---|
-| Q1–Q7 | Exact individual selections are not present in the retained notes. The approved subsystem decisions are captured in Section 4. | Exact answers unavailable |
+| Q1 | C — Adaptive hybrid architecture: use ternary wherever it is best; use binary wherever it is best or required. | Reconfirmed 2026-11-08 |
+| Q2 | C — Both binary and ternary data representations; choose by data type and operation. | Reconfirmed 2026-11-08 |
+| Q3 | C — Support both instruction types; choose according to hardware support and what works best. | Reconfirmed 2026-11-08 |
+| Q4 | C — Adaptive registers and CPU state: native ternary where supported and beneficial; otherwise binary. | Reconfirmed 2026-11-08 |
+| Q5 | C — Adaptive RAM: binary or packed ternary according to hardware, workload and efficiency. | Reconfirmed 2026-11-08 |
+| Q6 | C — Support binary and packed-ternary storage, choosing the suitable format. | Reconfirmed 2026-11-08 |
+| Q7 | C — Support existing binary hardware and future native ternary hardware through an adaptive architecture. | Reconfirmed 2026-11-08 |
 | Q8 | Both directions, with optimization and compatibility (binary ↔ ternary). | Answer direction recorded |
 | Q9 | Both binary and ternary executable formats. | Explicit answer recorded |
 | Q10 | RAM / ternary-instruction-to-binary compatibility bridge was the subject of the answer. The exact original option wording is unavailable. | Partial |
@@ -254,3 +260,4 @@ When a decision changes:
 ### Decision history
 
 - **2026-11-08:** Initial consolidated decision record created from retained project memory, prior-conversation summaries, and the current `main` architecture/phase documents. Missing quiz option text and unresolved answers are explicitly identified rather than inferred.
+- **2026-11-08:** Re-ran Q1–Q7 interactively and recorded the user's explicit answers (all C) with their confirmed meanings. Q8–Q20 retained from the recovered quiz record; Q16 remains unresolved and unavailable option wording remains explicitly unknown.
