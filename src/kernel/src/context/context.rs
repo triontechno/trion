@@ -185,6 +185,10 @@ pub struct Context {
     // TODO: id can reappear after wraparound?
     pub owner_proc_id: Option<NonZeroUsize>,
 
+    /// True for native guest contexts whose direct syscall surface is disabled by the kernel.
+    /// This is monotonic: once enabled it cannot be cleared by the guest.
+    pub guest_syscalls_denied: bool,
+
     // TODO: Temporary replacement for existing kernel logic, replace with capabilities!
     pub euid: u32,
     pub egid: u32,
@@ -252,6 +256,7 @@ impl Context {
             queue_key: None,
             being_sigkilled: false,
             owner_proc_id,
+            guest_syscalls_denied: false,
 
             euid: 0,
             egid: 0,
