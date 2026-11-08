@@ -12,7 +12,7 @@
 - Before native entry, inherited user and exception signal handlers are now cleared as a required operation. Failure to reset signal state aborts the launch rather than entering guest code with stale handlers.
 - Kernel unhandled processor exceptions are retained in `CtxtStsBuf`. The process manager now maps x86-64 exception vectors to POSIX wait signals (SIGFPE, SIGTRAP, SIGSEGV, SIGILL, SIGBUS), instead of reporting the invalid signal number 1.
 - The portable guest model provides bounded address-space mappings, checked memory access, W^X enforcement, memory/mapping quotas, process states, instruction budgets, brokered syscall events, breakpoint suspension and fault transitions.
-- **Initial kernel-enforced syscall isolation is implemented:** the native loader irreversibly marks the target context as a restricted guest before entry; the common kernel syscall dispatcher checks this context-owned flag before dispatch and returns `EPERM` for every syscall. The policy cannot be cleared through the guest-policy proc handle. This is a deny-all baseline, not yet a useful brokered syscall surface.
+- **Initial kernel-enforced syscall isolation is implemented:** the native loader irreversibly marks the target context as a restricted guest before entry; the common kernel syscall dispatcher checks this context-owned flag before dispatch and returns `EPERM` for every syscall except the narrowly permitted `SYS_CLOSE` handoff operation. The policy cannot be cleared through the guest-policy proc handle. This is a deny-all baseline, not yet a useful brokered syscall surface.
 - The kernel guest deny policy permits only `SYS_CLOSE`, required to complete the final address-space handoff; all other direct syscalls return `EPERM`.
 
 ## Remaining implementation
