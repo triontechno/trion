@@ -1,7 +1,7 @@
 # TRION Phase 2 — Stage B: Packed Ternary Logical Memory
 
 **Status:** Implementation  
-**Parent:** [Phase 2 master plan](Phase%202.md) and [TRION architecture](TRION-ARCHITECTURE.md)
+**Parent:** [Phase 2 master plan](Phase%202.md) and [TRION architecture](../architecture/TRION-ARCHITECTURE.md)
 
 ## 1. Purpose
 
