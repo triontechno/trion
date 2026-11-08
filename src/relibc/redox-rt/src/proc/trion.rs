@@ -199,6 +199,11 @@ fn finish_native_exec(
         proc_control_addr: 0,
     })?;
 
+    // Tighten the kernel-owned context policy before guest entry. The policy is
+    // monotonic and the common syscall dispatcher denies every guest syscall.
+    let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
+    guest_policy_fd.write(&1usize.to_ne_bytes())?;
+
     if extrainfo.same_process {
         let _siglock = crate::signal::tmp_disable_signals();
         let fds_to_close = {
