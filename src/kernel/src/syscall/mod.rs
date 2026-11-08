@@ -76,7 +76,7 @@ pub fn syscall(
         // Native guest contexts start with a deny-all syscall policy. This check is
         // performed at the common kernel syscall boundary, before scheme dispatch,
         // so guests cannot bypass it by choosing another syscall number or scheme.
-        if context::current().read(token.token()).guest_syscalls_denied {
+        if context::current().read(token.token()).guest_syscalls_denied && a != SYS_CLOSE {
             return Err(Error::new(EPERM));
         }
         let fd = FileHandle::from(b);
