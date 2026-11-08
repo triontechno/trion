@@ -235,15 +235,16 @@ fn finish_native_exec(
             }
         }
         unsafe { super::deactivate_tcb(thread_fd)?; }
+        // Set the irreversible kernel policy after all loader syscalls, but
+        // before the close that commits the address-space switch. The kernel
+        // policy explicitly permits SYS_CLOSE so this transition can complete.
+        let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
+        guest_policy_fd.write(&1usize.to_ne_bytes())?;
         let old_filetable_fd = {
             let mut guard = crate::current_filetable();
             guard.take()
         };
         drop(old_filetable_fd);
-        // Set the irreversible kernel policy only after the loader has finished
-        // its own syscalls, immediately before the address-space switch.
-        let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
-        guest_policy_fd.write(&1usize.to_ne_bytes())?;
         drop(addrspace_selection_fd);
         unreachable!("closing current-addrspace switches into the native image");
     }
