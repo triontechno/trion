@@ -15,14 +15,16 @@
 
 ## Remaining implementation
 
-- A kernel-enforced per-process guest policy that mediates or denies direct syscalls; native guest code currently executes with the normal Redox syscall surface.
+- **Initial kernel-enforced syscall isolation is implemented:** the native loader irreversibly marks the target context as a restricted guest before entry; the common kernel syscall dispatcher checks this context-owned flag before dispatch and returns `EPERM` for every syscall. The policy cannot be cleared through the guest-policy proc handle. This is a deny-all baseline, not yet a useful brokered syscall surface.
+- The current deny-all policy also denies the guest return trampoline's process-exit syscall; returning guest code therefore falls through to the existing invalid-instruction fault path. A dedicated kernel-owned guest-exit operation is still required.
 - Explicit per-process capability allowlists for filesystem, network, device and IPC scheme handles, with a broker that enforces the allowlists.
 - Kernel-enforced guest memory/CPU/file-descriptor quotas and accounting; the portable model's memory quota is not a substitute for kernel enforcement.
 - Safe cancellation and thread lifecycle policy specific to guest processes, including policy for descendants and newly created threads.
 - Structured fault details delivered to the launcher (the wait status now carries the mapped signal, but exception address/code and crash reporting are not yet exposed through a guest-specific report).
 - Audited cleanup/recovery for every partial-load and process-failure path.
 - Isolation and runtime integration for broader Windows/macOS profiles as Stages I and J implement those services.
+- A narrow, authenticated guest-exit capability and explicit syscall broker/allowlist. Do not loosen the deny-all policy until the broker validates the target capability and operation.
 
 ## Security boundary
 
-The bounded Rust interpreter model is not a hardware address space. Native freestanding images use actual Redox address spaces and user-mode contexts, but they are **not yet a complete sandbox**. Until the kernel-enforced syscall/capability policy is implemented, do not treat arbitrary PE/Mach-O code as safely isolated or run untrusted applications under this profile.
+The bounded Rust interpreter model is not a hardware address space. Native freestanding images use actual Redox address spaces and user-mode contexts, but they are **not yet a complete sandbox**. The deny-all syscall baseline now blocks guest attempts to enter the normal syscall/scheme surface, but it does not yet provide a functional guest broker, filesystem/network/device/IPC capability model, or kernel-enforced resource quotas. Do not treat Stage H as complete or claim general-purpose safe execution of arbitrary untrusted PE/Mach-O applications.
