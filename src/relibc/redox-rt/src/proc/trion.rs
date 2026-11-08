@@ -199,11 +199,6 @@ fn finish_native_exec(
         proc_control_addr: 0,
     })?;
 
-    // Tighten the kernel-owned context policy before guest entry. The policy is
-    // monotonic and the common syscall dispatcher denies every guest syscall.
-    let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
-    guest_policy_fd.write(&1usize.to_ne_bytes())?;
-
     if extrainfo.same_process {
         let _siglock = crate::signal::tmp_disable_signals();
         let fds_to_close = {
@@ -245,10 +240,18 @@ fn finish_native_exec(
             guard.take()
         };
         drop(old_filetable_fd);
+        // Set the irreversible kernel policy only after the loader has finished
+        // its own syscalls, immediately before the address-space switch.
+        let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
+        guest_policy_fd.write(&1usize.to_ne_bytes())?;
         drop(addrspace_selection_fd);
         unreachable!("closing current-addrspace switches into the native image");
     }
 
+    // The child loader has completed setup; deny syscalls before returning the
+    // context to the process manager for guest entry.
+    let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
+    guest_policy_fd.write(&1usize.to_ne_bytes())?;
     drop(addrspace_selection_fd);
     Ok(None)
 }
