@@ -156,6 +156,7 @@ enum ContextHandle {
     // directory.
     OpenViaDup,
     SchedAffinity,
+    GuestPolicy,
 
     MmapMinAddr(Arc<AddrSpaceWrapper>),
 }
@@ -260,6 +261,8 @@ impl ProcScheme {
                 false,
             ),
             "sched-affinity" => (ContextHandle::SchedAffinity, true),
+            // The process manager/loader may only tighten a context's policy.
+            "guest-policy" => (ContextHandle::GuestPolicy, false),
             "status" => (ContextHandle::Status { privileged: false }, false),
             _ if path.starts_with("auth-") => {
                 let nonprefix = &path["auth-".len()..];
@@ -1236,6 +1239,15 @@ impl ContextHandle {
                 }
                 let mut lock_token = token.token();
                 addrspace.acquire_write(lock_token.downgrade()).mmap_min = val;
+                Ok(size_of::<usize>())
+            }
+            Self::GuestPolicy => {
+                let mut values = buf.usizes();
+                let enable = values.next().ok_or(Error::new(EINVAL))??;
+                if values.next().is_some() || enable != 1 {
+                    return Err(Error::new(EINVAL));
+                }
+                context.write(token.token()).guest_syscalls_denied = true;
                 Ok(size_of::<usize>())
             }
             Self::SchedAffinity => {
