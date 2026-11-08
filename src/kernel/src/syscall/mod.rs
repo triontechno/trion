@@ -15,14 +15,14 @@ pub use self::{fs::*, futex::futex, process::*, time::*, usercopy::validate_regi
 use self::{
     data::{Map, TimeSpec},
     debug::{debug_end, debug_start},
-    error::{Error, Result, EINVAL, ENOSYS},
+    error::{Error, Result, EINVAL, ENOSYS, EPERM},
     flag::{CallFlags, EventFlags, MapFlags, RwFlags},
     number::*,
     usercopy::UserSlice,
 };
 
 use crate::{
-    context::memory::AddrSpace,
+    context::{self, memory::AddrSpace},
     percpu::PercpuBlock,
     scheme::{
         memory::{MemoryScheme, MemoryType},
@@ -73,6 +73,12 @@ pub fn syscall(
         g: usize,
         token: &mut CleanLockToken,
     ) -> Result<usize> {
+        // Native guest contexts start with a deny-all syscall policy. This check is
+        // performed at the common kernel syscall boundary, before scheme dispatch,
+        // so guests cannot bypass it by choosing another syscall number or scheme.
+        if context::current().read(token.token()).guest_syscalls_denied {
+            return Err(Error::new(EPERM));
+        }
         let fd = FileHandle::from(b);
         //SYS_* is declared in kernel/syscall/src/number.rs
         match a {
