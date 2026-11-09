@@ -437,6 +437,42 @@ fn write_u64_at(bytes: &mut [u8], offset: usize, value: u64) -> Result<()> {
     Ok(())
 }
 
+fn macho_initial_stack(stack_top: usize, argv0: &[u8]) -> Result<Vec<u8>> {
+    if argv0.len() > 4096 || argv0.contains(&0) || stack_top % 16 != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    let string_offset = 5 * size_of::<u64>();
+    let unaligned_size = string_offset
+        .checked_add(argv0.len())
+        .and_then(|size| size.checked_add(1))
+        .ok_or(Error::new(EOVERFLOW))?;
+    let stack_size = unaligned_size
+        .checked_add(15)
+        .map(|size| size & !15)
+        .ok_or(Error::new(EOVERFLOW))?;
+    let stack_address = stack_top
+        .checked_sub(stack_size)
+        .ok_or(Error::new(EOVERFLOW))?;
+    let argv_address = stack_address
+        .checked_add(string_offset)
+        .ok_or(Error::new(EOVERFLOW))?;
+    let mut stack = Vec::new();
+    stack
+        .try_reserve_exact(stack_size)
+        .map_err(|_| Error::new(ENOMEM))?;
+    stack.resize(stack_size, 0);
+    write_u64_at(&mut stack, 0, 1)?;
+    write_u64_at(&mut stack, size_of::<u64>(), argv_address as u64)?;
+    let string_end = string_offset
+        .checked_add(argv0.len())
+        .ok_or(Error::new(EOVERFLOW))?;
+    stack
+        .get_mut(string_offset..string_end)
+        .ok_or(Error::new(ENOEXEC))?
+        .copy_from_slice(argv0);
+    Ok(stack)
+}
+
 #[cfg(target_arch = "x86_64")]
 fn initialize_windows_environment(
     addrspace: &FdGuardUpper,
@@ -648,6 +684,7 @@ fn finish_native_exec(
     grants_fd: FdGuardUpper,
     entry: usize,
     stack_return_offset: usize,
+    initial_stack: Option<Vec<u8>>,
     windows_gsbase: Option<usize>,
 ) -> Result<Option<FexecResult>> {
     let stack_base = super::STACK_TOP
@@ -655,45 +692,68 @@ fn finish_native_exec(
         .ok_or(Error::new(EOVERFLOW))?;
     map_writable(&grants_fd, stack_base, super::STACK_SIZE)?;
 
-    let trampoline = exit_trampoline()?;
-    let trampoline_size = page_align(trampoline.len())?;
-    let trampoline_address = mmap_anon_remote(
-        &grants_fd,
-        0,
-        0,
-        trampoline_size,
-        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
-    )?;
-    if trampoline_address == 0 || trampoline_address % PAGE_SIZE != 0 {
-        return Err(Error::new(ENOEXEC));
-    }
-    if let Err(error) = write_remote(&grants_fd, trampoline_address, &trampoline) {
-        let _ = munmap_remote(&grants_fd, trampoline_address, trampoline_size);
-        return Err(error);
-    }
-    if let Err(error) = mprotect_remote(
-        &grants_fd,
-        trampoline_address,
-        trampoline_size,
-        MapFlags::PROT_READ | MapFlags::PROT_EXEC,
-    ) {
-        let _ = munmap_remote(&grants_fd, trampoline_address, trampoline_size);
-        return Err(error);
-    }
+    let trampoline_address = if initial_stack.is_none() {
+        let trampoline = exit_trampoline()?;
+        let trampoline_size = page_align(trampoline.len())?;
+        let address = mmap_anon_remote(
+            &grants_fd,
+            0,
+            0,
+            trampoline_size,
+            MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+        )?;
+        if address == 0 || address % PAGE_SIZE != 0 {
+            return Err(Error::new(ENOEXEC));
+        }
+        if let Err(error) = write_remote(&grants_fd, address, &trampoline) {
+            let _ = munmap_remote(&grants_fd, address, trampoline_size);
+            return Err(error);
+        }
+        if let Err(error) = mprotect_remote(
+            &grants_fd,
+            address,
+            trampoline_size,
+            MapFlags::PROT_READ | MapFlags::PROT_EXEC,
+        ) {
+            let _ = munmap_remote(&grants_fd, address, trampoline_size);
+            return Err(error);
+        }
+        Some(address)
+    } else {
+        None
+    };
 
-    // Both supported raw entry ABIs enter with RSP == 8 (mod 16). PE reserves
-    // the Windows 32-byte home area; the freestanding Mach-O profile does not.
-    let stack_pointer = super::STACK_TOP
-        .checked_sub(stack_return_offset)
-        .ok_or(Error::new(EOVERFLOW))?;
-    if stack_pointer % 16 != 8 {
-        return Err(Error::new(ENOEXEC));
-    }
-    write_remote(
-        &grants_fd,
-        stack_pointer,
-        &trampoline_address.to_ne_bytes(),
-    )?;
+    let stack_pointer = if let Some(initial_stack) = initial_stack {
+        if initial_stack.is_empty()
+            || initial_stack.len() > super::STACK_SIZE
+            || initial_stack.len() % 16 != 0
+        {
+            return Err(Error::new(ENOEXEC));
+        }
+        let stack_pointer = super::STACK_TOP
+            .checked_sub(initial_stack.len())
+            .filter(|pointer| pointer % 16 == 0)
+            .ok_or(Error::new(EOVERFLOW))?;
+        write_remote(&grants_fd, stack_pointer, &initial_stack)?;
+        stack_pointer
+    } else {
+        // PE entry follows the Microsoft x64 function-entry stack contract:
+        // RSP is 8 mod 16 and the 32-byte home area follows the return slot.
+        let stack_pointer = super::STACK_TOP
+            .checked_sub(stack_return_offset)
+            .ok_or(Error::new(EOVERFLOW))?;
+        if stack_pointer % 16 != 8 {
+            return Err(Error::new(ENOEXEC));
+        }
+        write_remote(
+            &grants_fd,
+            stack_pointer,
+            &trampoline_address
+                .ok_or(Error::new(ENOEXEC))?
+                .to_ne_bytes(),
+        )?;
+        stack_pointer
+    };
 
     let addrspace_selection_fd = thread_fd.dup_into_upper(b"current-addrspace")?;
 
@@ -1180,6 +1240,7 @@ fn launch_pe(
         grants_fd,
         entry,
         40,
+        None,
         Some(teb_address),
     )
 }
@@ -1194,7 +1255,8 @@ fn launch_macho64(
     extrainfo: &ExtraInfo,
 ) -> Result<Option<FexecResult>> {
     // The Stage G Mach-O profile is freestanding: no dyld, dylibs, relocations,
-    // code-signature enforcement, TLS, argv/env block or macOS framework services.
+    // code-signature enforcement, TLS, arguments beyond argv[0], environment
+    // variables or macOS framework services.
     if args.len() > 1 || !envs.is_empty() {
         return Err(Error::new(ENOEXEC));
     }
@@ -1379,6 +1441,8 @@ fn launch_macho64(
         )?;
     }
 
+    let argv0 = args.first().copied().unwrap_or(path);
+    let initial_stack = macho_initial_stack(super::STACK_TOP, argv0)?;
     finish_native_exec(
         image_file,
         thread_fd,
@@ -1387,7 +1451,8 @@ fn launch_macho64(
         extrainfo,
         grants_fd,
         entry,
-        8,
+        0,
+        Some(initial_stack),
         None,
     )
 }
@@ -1422,6 +1487,30 @@ pub(super) fn fexec_pe32_plus(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macho_initial_stack_contains_bounded_empty_vectors_and_argv0() {
+        let stack_top = 0x8000_0000usize;
+        let argv0 = b"/Applications/Sample";
+        let stack = macho_initial_stack(stack_top, argv0).unwrap();
+        assert_eq!(stack.len() % 16, 0);
+        assert_eq!(u64::from_le_bytes(stack[0..8].try_into().unwrap()), 1);
+        let stack_address = stack_top - stack.len();
+        assert_eq!(
+            u64::from_le_bytes(stack[8..16].try_into().unwrap()) as usize,
+            stack_address + 40
+        );
+        assert_eq!(&stack[16..40], &[0; 24]);
+        assert_eq!(&stack[40..40 + argv0.len()], argv0);
+        assert_eq!(stack[40 + argv0.len()], 0);
+    }
+
+    #[test]
+    fn macho_initial_stack_rejects_unbounded_or_unaligned_input() {
+        assert!(macho_initial_stack(0x8000_0008, b"/sample").is_err());
+        assert!(macho_initial_stack(0x8000_0000, b"/bad\0path").is_err());
+        assert!(macho_initial_stack(0x8000_0000, &[b'x'; 4097]).is_err());
+    }
 
     #[test]
     fn guest_exit_thunks_encode_the_syscall_immediate_at_the_correct_offset() {
