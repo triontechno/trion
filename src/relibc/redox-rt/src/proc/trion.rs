@@ -353,6 +353,128 @@ fn write_remote(addrspace: &FdGuardUpper, address: usize, bytes: &[u8]) -> Resul
     Ok(())
 }
 
+fn map_windows_runtime_page(addrspace: &FdGuardUpper, stack_base: usize) -> Result<usize> {
+    let address = mmap_anon_remote(
+        addrspace,
+        0,
+        0,
+        PAGE_SIZE,
+        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+    )?;
+    let end = address.checked_add(PAGE_SIZE).ok_or(Error::new(EOVERFLOW))?;
+    if address < 0x1_0000 || address % PAGE_SIZE != 0 || end > stack_base {
+        let _ = munmap_remote(addrspace, address, PAGE_SIZE);
+        return Err(Error::new(ENOEXEC));
+    }
+    Ok(address)
+}
+
+fn write_u64_at(bytes: &mut [u8], offset: usize, value: u64) -> Result<()> {
+    let end = offset.checked_add(size_of::<u64>()).ok_or(Error::new(EOVERFLOW))?;
+    bytes
+        .get_mut(offset..end)
+        .ok_or(Error::new(ENOEXEC))?
+        .copy_from_slice(&value.to_le_bytes());
+    Ok(())
+}
+
+#[cfg(target_arch = "x86_64")]
+fn initialize_windows_environment(
+    addrspace: &FdGuardUpper,
+    image_base: usize,
+    stack_base: usize,
+) -> Result<usize> {
+    let parameters_address = map_windows_runtime_page(addrspace, stack_base)?;
+    let peb_address = map_windows_runtime_page(addrspace, stack_base)?;
+    let teb_address = map_windows_runtime_page(addrspace, stack_base)?;
+    let mut parameters = Vec::new();
+    parameters
+        .try_reserve_exact(PAGE_SIZE)
+        .map_err(|_| Error::new(ENOMEM))?;
+    parameters.resize(PAGE_SIZE, 0);
+    parameters[0..4].copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
+    parameters[4..8].copy_from_slice(&0x100u32.to_le_bytes());
+
+    let mut peb = Vec::new();
+    peb.try_reserve_exact(PAGE_SIZE)
+        .map_err(|_| Error::new(ENOMEM))?;
+    peb.resize(PAGE_SIZE, 0);
+    write_u64_at(&mut peb, 0x10, image_base as u64)?;
+    write_u64_at(&mut peb, 0x20, parameters_address as u64)?;
+
+    let mut teb = Vec::new();
+    teb.try_reserve_exact(PAGE_SIZE)
+        .map_err(|_| Error::new(ENOMEM))?;
+    teb.resize(PAGE_SIZE, 0);
+    write_u64_at(&mut teb, 0x08, super::STACK_TOP as u64)?;
+    write_u64_at(&mut teb, 0x10, stack_base as u64)?;
+    write_u64_at(&mut teb, 0x30, teb_address as u64)?;
+    write_u64_at(&mut teb, 0x60, peb_address as u64)?;
+
+    write_remote(addrspace, parameters_address, &parameters)?;
+    write_remote(addrspace, peb_address, &peb)?;
+    write_remote(addrspace, teb_address, &teb)?;
+    Ok(teb_address)
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn initialize_windows_environment(
+    _addrspace: &FdGuardUpper,
+    _image_base: usize,
+    _stack_base: usize,
+) -> Result<usize> {
+    Err(Error::new(ENOEXEC))
+}
+
+struct GuestEnvironment {
+    fd: FdGuardUpper,
+    previous: syscall::EnvRegisters,
+    next: syscall::EnvRegisters,
+}
+
+fn prepare_guest_environment(
+    thread_fd: &FdGuardUpper,
+    gsbase: Option<usize>,
+) -> Result<Option<GuestEnvironment>> {
+    let Some(gsbase) = gsbase else {
+        return Ok(None);
+    };
+    #[cfg(target_arch = "x86_64")]
+    {
+        let fd = thread_fd.dup_into_upper(b"regs/env")?;
+        fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
+        let mut previous = syscall::EnvRegisters::default();
+        fd.read(&mut previous)?;
+        let next = syscall::EnvRegisters {
+            fsbase: previous.fsbase,
+            gsbase: gsbase.try_into().map_err(|_| Error::new(EOVERFLOW))?,
+        };
+        Ok(Some(GuestEnvironment { fd, previous, next }))
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (thread_fd, gsbase);
+        Err(Error::new(ENOEXEC))
+    }
+}
+
+fn select_addrspace_with_environment(
+    addrspace_selection_fd: &FdGuardUpper,
+    selection: &[u8],
+    guest_environment: Option<&GuestEnvironment>,
+) -> Result<()> {
+    if let Some(environment) = guest_environment {
+        environment.fd.write(&environment.next)?;
+    }
+    if let Err(error) = addrspace_selection_fd.write(selection) {
+        if let Some(environment) = guest_environment {
+            environment.fd.write(&environment.previous)?;
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn exit_trampoline() -> Result<Vec<u8>> {
     guest_exit_thunk([0x89, 0xC7])
 }
@@ -448,6 +570,7 @@ fn finish_native_exec(
     grants_fd: FdGuardUpper,
     entry: usize,
     stack_return_offset: usize,
+    windows_gsbase: Option<usize>,
 ) -> Result<Option<FexecResult>> {
     let stack_base = super::STACK_TOP
         .checked_sub(super::STACK_SIZE)
@@ -520,6 +643,7 @@ fn finish_native_exec(
         thread_control_addr: 0,
         proc_control_addr: 0,
     })?;
+    let guest_environment = prepare_guest_environment(thread_fd, windows_gsbase)?;
 
     if extrainfo.same_process {
         let guest_policy_fd = preflight_guest_policy(thread_fd, &grants_fd)?;
@@ -532,6 +656,9 @@ fn finish_native_exec(
                     if fd == addrspace_selection_fd.as_raw_fd()
                         || fd == guest_policy_fd.as_raw_fd()
                         || fd == grants_fd.as_raw_fd()
+                        || guest_environment
+                            .as_ref()
+                            .is_some_and(|environment| fd == environment.fd.as_raw_fd())
                     {
                         None
                     } else if flags & O_CLOEXEC == O_CLOEXEC || fd == image_file.as_raw_fd() {
@@ -562,11 +689,14 @@ fn finish_native_exec(
         }
         drop(filetable_fd);
         unsafe { super::deactivate_tcb(thread_fd)?; }
-        addrspace_selection_fd.write(&create_set_addr_space_buf(
-            grants_fd.as_raw_fd(),
-            entry,
-            stack_pointer,
-        ))?;
+        select_addrspace_with_environment(
+            &addrspace_selection_fd,
+            &create_set_addr_space_buf(grants_fd.as_raw_fd(), entry, stack_pointer),
+            guest_environment.as_ref(),
+        )?;
+        if let Some(environment) = guest_environment {
+            drop(environment.fd);
+        }
         drop(guest_policy_fd);
         drop(grants_fd);
         let old_filetable_fd = {
@@ -582,12 +712,15 @@ fn finish_native_exec(
     // space, before the pending switch can be committed.
     clear_guest_filetable(thread_fd)?;
     let guest_policy_fd = preflight_guest_policy(thread_fd, &grants_fd)?;
-    addrspace_selection_fd.write(&create_set_addr_space_buf(
-        grants_fd.as_raw_fd(),
-        entry,
-        stack_pointer,
-    ))?;
+    select_addrspace_with_environment(
+        &addrspace_selection_fd,
+        &create_set_addr_space_buf(grants_fd.as_raw_fd(), entry, stack_pointer),
+        guest_environment.as_ref(),
+    )?;
     crate::sys::close(addrspace_selection_fd.take())?;
+    if let Some(environment) = guest_environment {
+        drop(environment.fd);
+    }
     // The guest must not inherit the loader's policy-control descriptor.
     drop(guest_policy_fd);
     Ok(None)
@@ -959,6 +1092,7 @@ fn launch_pe(
     }
 
     let entry = actual_base.checked_add(entry_rva).ok_or(Error::new(EOVERFLOW))?;
+    let teb_address = initialize_windows_environment(&grants_fd, actual_base, stack_base)?;
     finish_native_exec(
         image_file,
         thread_fd,
@@ -968,6 +1102,7 @@ fn launch_pe(
         grants_fd,
         entry,
         40,
+        Some(teb_address),
     )
 }
 
@@ -1175,6 +1310,7 @@ fn launch_macho64(
         grants_fd,
         entry,
         8,
+        None,
     )
 }
 

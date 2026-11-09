@@ -14,10 +14,11 @@ Target x86-64 PE32+ Windows console-subsystem images with direct entry and no ar
 - COSMIC Files and Redox exec dispatch can launch the restricted no-import PE32+ profile through the real Redox process/address-space path.
 - The PE32+ loader validates bounded image/section layouts, maps the image with W^X protections, prefers the requested image base, and applies `IMAGE_REL_BASED_DIR64` relocations when it must use another base. Unsupported relocation types and malformed relocation blocks are rejected.
 - Bounded import descriptors for the selected profile are resolved into an executable `ExitProcess` thunk that enters the restricted guest-exit syscall. Unsupported libraries, names, ordinals and malformed tables are rejected; when the PE declares an IAT directory, every resolved slot must be contained in it.
+- The selected direct-entry profile now initializes a minimal x64 PEB, TEB and empty process-parameters block, including the image base, stack bounds, TEB self pointer and PEB pointer in GS. This does not implement the loader module lists, heaps, TLS, argument/environment strings or other NT process services.
 
 ## Remaining
 - Versioned DLL catalog, dependency search policy, forwarder resolution and a broader operational platform export table. The bounded PE import-by-name/ordinal parser and IAT population primitive exist in the executable library but are not wired into this native loader.
-- Windows process parameters, PEB/TEB, full x64 startup ABI, TLS, exception/unwind handling.
+- Full Windows process parameters, PEB loader data/module lists, thread IDs and runtime services, TLS, exception/unwind handling.
 - Kernel-backed Win32/NT service implementations for a narrowly declared profile.
 - Filesystem, synchronization, process/thread, console and timing semantics.
 - Integration of the full Windows runtime with the isolated guest process backend.
