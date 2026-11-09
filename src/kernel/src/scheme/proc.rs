@@ -512,11 +512,18 @@ impl KernelScheme for ProcScheme {
                             .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
                         new.acquire_write(token.token())
                             .set_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
+                    }
+                    let guest_files = if activate_guest_policy {
+                        let mut files = context.files.write(token.token());
+                        files.validate_max_files(GUEST_DESCRIPTOR_LIMIT)?;
+                        let guest_files = files.take_all()?;
+                        files.set_max_files(GUEST_DESCRIPTOR_LIMIT)?;
+                        guest_files
+                    } else {
+                        Vec::new()
+                    };
+                    if activate_guest_policy {
                         new.activate_guest_policy(GUEST_CPU_LIMIT_NS);
-                        context
-                            .files
-                            .write(token.token())
-                            .set_max_files(GUEST_DESCRIPTOR_LIMIT)?;
                         context.guest_addr_space = Some(Arc::clone(&new));
                         context.guest_policy_prepared_addr_space = None;
                         context.guest_exit_status = None;
@@ -546,8 +553,14 @@ impl KernelScheme for ProcScheme {
                         wakeup_context(sibling, cpu_id, &mut token.downgrade());
                     }
 
-                    Ok(old_addr_space)
+                    Ok((old_addr_space, guest_files))
                 })?;
+                let (old_ctx, guest_files) = old_ctx;
+                for (fd, file) in guest_files {
+                    if let Err(err) = file.close(token) {
+                        error!("failed to close guest-inherited descriptor {fd}: {err:?}");
+                    }
+                }
                 if let Some(old_ctx) = old_ctx
                     && let Some(addrspace) = Arc::into_inner(old_ctx)
                 {

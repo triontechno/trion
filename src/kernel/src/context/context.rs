@@ -915,6 +915,26 @@ impl FdTbl {
         });
         self.active_count = 0;
     }
+
+    pub fn take_all(&mut self) -> Result<Vec<(usize, FileDescriptor)>> {
+        let mut handles = Vec::new();
+        handles
+            .try_reserve_exact(self.active_count)
+            .map_err(|_| Error::new(ENOMEM))?;
+        handles.extend(self.enumerate_fds().map(|(index, _)| index));
+
+        let mut files = Vec::new();
+        files
+            .try_reserve_exact(self.active_count)
+            .map_err(|_| Error::new(ENOMEM))?;
+        for handle in handles {
+            let file = self
+                .remove_file(FileHandle::from(handle))
+                .expect("enumerated file descriptor disappeared");
+            files.push((handle, file));
+        }
+        Ok(files)
+    }
 }
 
 impl FdTbl {
