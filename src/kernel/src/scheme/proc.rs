@@ -42,6 +42,10 @@ use hashbrown::{
 };
 use syscall::{data::GlobalSchemes, CpuSet, Error, NumaMemoryPolicy};
 
+const GUEST_MEMORY_LIMIT_PAGES: usize = (512 * 1024 * 1024) / PAGE_SIZE;
+const GUEST_DESCRIPTOR_LIMIT: usize = 256;
+const GUEST_CPU_LIMIT_NS: u128 = 60_000_000_000;
+
 fn read_from(dst: UserSliceWo, src: &[u8], offset: u64) -> Result<usize> {
     let avail_src = usize::try_from(offset)
         .ok()
@@ -144,6 +148,7 @@ enum ContextHandle {
         new_sp: usize,
         new_ip: usize,
         arg1: Option<usize>,
+        activate_guest_policy: bool,
     },
 
     CurrentFiletable,
@@ -451,9 +456,53 @@ impl KernelScheme for ProcScheme {
                         new_sp,
                         new_ip,
                         arg1,
+                        activate_guest_policy,
                     },
             } => {
-                let old_ctx = try_stop_context(context, token, |context, token| {
+                let old_ctx = try_stop_context(context, token, |context, mut token| {
+                    let guest_policy_prepared = context
+                        .guest_policy_prepared_addr_space
+                        .as_ref()
+                        .is_some_and(|prepared| Arc::ptr_eq(prepared, &new));
+                    if context.guest_syscalls_denied
+                        && !context
+                            .guest_addr_space
+                            .as_ref()
+                            .is_some_and(|bound| Arc::ptr_eq(bound, &new))
+                    {
+                        return Err(Error::new(EPERM));
+                    }
+                    if activate_guest_policy && context.guest_syscalls_denied {
+                        return Err(Error::new(EPERM));
+                    }
+                    if context.guest_policy_prepared_addr_space.is_some()
+                        && !guest_policy_prepared
+                    {
+                        return Err(Error::new(EPERM));
+                    }
+                    if context.regs().is_none() {
+                        return Err(Error::new(EBADFD));
+                    }
+                    if activate_guest_policy {
+                        context
+                            .files
+                            .read(token.token())
+                            .validate_max_files(GUEST_DESCRIPTOR_LIMIT)?;
+                        new.acquire_read(token.token())
+                            .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
+                        new.acquire_write(token.token())
+                            .set_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
+                        context
+                            .files
+                            .write(token.token())
+                            .set_max_files(GUEST_DESCRIPTOR_LIMIT)?;
+                        context.guest_addr_space = Some(Arc::clone(&new));
+                        context.guest_policy_prepared_addr_space = None;
+                        context.guest_exit_status = None;
+                        context.guest_cpu_limit_ns = Some(GUEST_CPU_LIMIT_NS);
+                        context.guest_cpu_time_ns = 0;
+                        context.guest_syscalls_denied = true;
+                    }
                     let regs = context.regs_mut().ok_or(Error::new(EBADFD))?;
                     regs.set_instr_pointer(new_ip);
                     regs.set_stack_pointer(new_sp);
@@ -490,6 +539,15 @@ impl KernelScheme for ProcScheme {
                 context,
             } => {
                 context.write(token.token()).files = new_ft;
+            }
+            Handle {
+                kind: ContextHandle::GuestPolicy,
+                context,
+            } => {
+                let mut context = context.write(token.token());
+                if !context.guest_syscalls_denied {
+                    context.guest_policy_prepared_addr_space = None;
+                }
             }
             _ => (),
         }
@@ -1206,21 +1264,35 @@ impl ContextHandle {
                 verify_scheme(hopefully_this_scheme)?;
 
                 let mut handles = HANDLES.write(token.token());
-                let &Handle {
-                    kind: ContextHandle::AddrSpace { ref addrspace },
-                    ..
-                } = handles.get(&number).ok_or(Error::new(EBADF))?
-                else {
-                    return Err(Error::new(EBADF));
+                let new_addrspace = match &handles.get(&number).ok_or(Error::new(EBADF))?.kind {
+                    ContextHandle::AddrSpace { addrspace } => Arc::clone(addrspace),
+                    _ => return Err(Error::new(EBADF)),
                 };
+                let context_state = context.read(token.token());
+                let guest_policy_prepared = context_state
+                    .guest_policy_prepared_addr_space
+                    .as_ref()
+                    .is_some_and(|prepared| Arc::ptr_eq(prepared, &new_addrspace));
+                if (context_state.guest_syscalls_denied
+                    && !context_state
+                        .guest_addr_space
+                        .as_ref()
+                        .is_some_and(|bound| Arc::ptr_eq(bound, &new_addrspace)))
+                    || (context_state.guest_policy_prepared_addr_space.is_some()
+                        && !guest_policy_prepared)
+                {
+                    return Err(Error::new(EPERM));
+                }
+                drop(context_state);
 
                 *handles.get_mut(&id).ok_or(Error::new(EBADF))? = Handle {
                     context,
                     kind: Self::AwaitingAddrSpaceChange {
-                        new: Arc::clone(addrspace),
+                        new: new_addrspace,
                         new_sp: sp,
                         new_ip: ip,
                         arg1,
+                        activate_guest_policy: guest_policy_prepared,
                     },
                 };
 
@@ -1242,36 +1314,55 @@ impl ContextHandle {
                 Ok(size_of::<usize>())
             }
             Self::GuestPolicy => {
-                if buf.len() != 3 * size_of::<usize>() {
+                if buf.len() != 2 * size_of::<usize>() {
                     return Err(Error::new(EINVAL));
                 }
                 let mut values = buf.usizes();
                 let enable = values.next().ok_or(Error::new(EINVAL))??;
-                let exit_fd = values.next().ok_or(Error::new(EINVAL))??;
-                let exit_verb = values.next().ok_or(Error::new(EINVAL))??;
-                if values.next().is_some()
-                    || enable != 1
-                    || exit_fd == usize::MAX
-                    || exit_verb > u32::MAX as usize
-                {
+                if enable != 0 {
                     return Err(Error::new(EINVAL));
                 }
-                let mut lock_token = token.token();
-                let context_guard = context.read(lock_token.token());
-                let (context_guard, mut lock_token) = context_guard.token_split();
-                context_guard
-                    .get_file(FileHandle::from(exit_fd), &mut lock_token)
-                    .ok_or(Error::new(EBADF))?;
-                drop(context_guard);
-                drop(lock_token);
+                let addrspace_fd = values.next().ok_or(Error::new(EINVAL))??;
+                if values.next().is_some() {
+                    return Err(Error::new(EINVAL));
+                }
+
+                let (scheme, number) = extract_scheme_number(addrspace_fd, token)?;
+                verify_scheme(scheme)?;
+                let addrspace = {
+                    let handles = HANDLES.read(token.token());
+                    if handles.values().any(|candidate| {
+                        Arc::ptr_eq(&candidate.context, &context)
+                            && matches!(
+                                &candidate.kind,
+                                ContextHandle::AwaitingAddrSpaceChange { .. }
+                            )
+                    }) {
+                        return Err(Error::new(EPERM));
+                    }
+                    let handle = handles.get(&number).ok_or(Error::new(EBADF))?;
+                    if !Arc::ptr_eq(&handle.context, &context) {
+                        return Err(Error::new(EPERM));
+                    }
+                    let addrspace = match &handle.kind {
+                        ContextHandle::AddrSpace { addrspace } => Arc::clone(addrspace),
+                        _ => return Err(Error::new(EBADF)),
+                    };
+                    addrspace
+                };
+
                 let mut context = context.write(token.token());
-                if context.guest_syscalls_denied {
+                if context.guest_syscalls_denied
+                    || context.guest_policy_prepared_addr_space.is_some()
+                {
                     return Err(Error::new(EPERM));
                 }
-                context.guest_exit_fd = Some(exit_fd);
-                context.guest_exit_verb = Some(exit_verb);
-                context.guest_syscalls_denied = true;
-                Ok(3 * size_of::<usize>())
+                let (context, mut lock_token) = context.token_split();
+                addrspace
+                    .acquire_read(lock_token.token())
+                    .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
+                context.guest_policy_prepared_addr_space = Some(Arc::clone(&addrspace));
+                Ok(2 * size_of::<usize>())
             }
             Self::SchedAffinity => {
                 let cpuset = unsafe { buf.read_exact::<CpuSet>()? };
@@ -1570,12 +1661,25 @@ impl ContextHandle {
                         {
                             ContextStatus::ForceKilled
                         }
+                        Status::Dead { excp: None }
+                            if let Some(exit_status) = context.guest_exit_status =>
+                        {
+                            let mut report = syscall::CtxtStsBuf::default();
+                            report.status = ContextStatus::GuestExit as usize;
+                            report.excp = syscall::Exception::unpack(exit_status as usize, 0);
+                            return buf.copy_common_bytes_from_slice(&report);
+                        }
                         Status::Dead { excp: None } => ContextStatus::Dead,
                         Status::Dead { excp: Some(excp) } => {
                             let (status, payload) =
                                 buf.split_at(size_of::<usize>()).ok_or(Error::new(EINVAL))?;
                             status.copy_from_slice(
-                                &(ContextStatus::UnhandledExcp as usize).to_ne_bytes(),
+                                &(if context.guest_syscalls_denied {
+                                    ContextStatus::GuestFault
+                                } else {
+                                    ContextStatus::UnhandledExcp
+                                } as usize)
+                                    .to_ne_bytes(),
                             )?;
                             let len = payload.copy_common_bytes_from_slice(&excp)?;
                             return Ok(size_of::<usize>() + len);

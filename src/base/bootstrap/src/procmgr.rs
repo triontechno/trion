@@ -166,11 +166,29 @@ pub fn run(write_fd: FdGuard, socket: Socket, auth: FdGuard, event: FdGuard) -> 
             let mut sts_buf = CtxtStsBuf::default();
             thread.status_hndl.read(&mut sts_buf).unwrap();
 
+            if sts_buf.status == ContextStatus::GuestFault as usize {
+                let exception = sts_buf.excp;
+                let kind = exception.kind;
+                let code = exception.code;
+                let address = exception.address;
+                log::warn!(
+                    "guest fault: pid={} vector={} code={:#x} address={:#x}",
+                    pid.0,
+                    kind,
+                    code,
+                    address
+                );
+            }
+
             let status = if sts_buf.status == ContextStatus::Dead as usize {
                 // dont-care, already called explicit exit()
                 0
             } else if sts_buf.status == ContextStatus::ForceKilled as usize {
                 (SIGKILL << 8) as u16
+            } else if sts_buf.status == ContextStatus::GuestExit as usize {
+                sts_buf.excp.code as u16
+            } else if sts_buf.status == ContextStatus::GuestFault as usize {
+                (native_exception_signal(sts_buf.excp) << 8) as u16
             } else if sts_buf.status == ContextStatus::UnhandledExcp as usize {
                 // Preserve the fault class in the child wait status instead of
                 // reporting the invalid signal number 1.

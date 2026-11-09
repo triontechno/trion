@@ -47,3 +47,7 @@ pub const SYS_FUTEX: usize = 240;
 pub const SYS_MPROTECT: usize = 125;
 pub const SYS_NANOSLEEP: usize = 162;
 pub const SYS_YIELD: usize = 158;
+
+/// Restricted guest-only process termination. The guest supplies its 8-bit
+/// exit status in the first syscall argument; all other arguments must be zero.
+pub const SYS_GUEST_EXIT: usize = SYS_CLASS_FILE | 0xCA12;

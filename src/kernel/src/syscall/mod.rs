@@ -31,23 +31,24 @@ use crate::{
     sync::CleanLockToken,
 };
 
-fn matches_guest_exit_call(
+fn guest_syscall_allowed(
     syscall_number: usize,
-    fd: usize,
-    payload_ptr: usize,
-    payload_len: usize,
-    flags_and_metadata_words: usize,
-    metadata: [usize; 2],
-    permitted_fd: usize,
-    permitted_verb: usize,
+    first_arg: usize,
+    c: usize,
+    d: usize,
+    e: usize,
+    f: usize,
+    g: usize,
 ) -> bool {
-    syscall_number == SYS_CALL
-        && fd == permitted_fd
-        && payload_ptr == 0
-        && payload_len == 0
-        && flags_and_metadata_words == 2
-        && metadata[0] == permitted_verb
-        && metadata[1] <= u8::MAX as usize
+    match syscall_number {
+        // The extra register arguments are unspecified by the one-argument
+        // SYS_CLOSE ABI and are ignored by its dispatcher.
+        SYS_CLOSE => true,
+        SYS_GUEST_EXIT => {
+            first_arg <= u8::MAX as usize && c == 0 && d == 0 && e == 0 && f == 0 && g == 0
+        }
+        _ => false,
+    }
 }
 
 /// Debug
@@ -92,44 +93,27 @@ pub fn syscall(
         g: usize,
         token: &mut CleanLockToken,
     ) -> Result<usize> {
-        // Native guests may close inherited descriptors and make one narrowly
-        // scoped process-exit call. Enforce this before any scheme dispatch.
-        let guest_exit = {
+        // Native guests can close inherited descriptors or exit with a bounded
+        // status. Enforce this before any syscall-specific or scheme dispatch.
+        let guest_restricted = {
             let context = context::current().read(token.token());
-            if context.guest_syscalls_denied {
-                Some((
-                    context.guest_exit_fd.ok_or(Error::new(EPERM))?,
-                    context.guest_exit_verb.ok_or(Error::new(EPERM))?,
-                ))
-            } else {
-                None
-            }
+            context.guest_syscalls_denied
         };
-        if let Some((permitted_fd, permitted_verb)) = guest_exit {
-            if a != SYS_CLOSE {
-                if a != SYS_CALL || b != permitted_fd || c != 0 || d != 0 || e != 2 {
-                    return Err(Error::new(EPERM));
-                }
-                let metadata = unsafe {
-                    UserSlice::ro(f, 2 * size_of::<usize>())?.read_exact::<[usize; 2]>()?
-                };
-                if !matches_guest_exit_call(
-                    a,
-                    b,
-                    c,
-                    d,
-                    e,
-                    metadata,
-                    permitted_fd,
-                    permitted_verb,
-                ) {
-                    return Err(Error::new(EPERM));
-                }
-            }
+        if guest_restricted && !guest_syscall_allowed(a, b, c, d, e, f, g) {
+            return Err(Error::new(EPERM));
         }
         let fd = FileHandle::from(b);
         //SYS_* is declared in kernel/syscall/src/number.rs
         match a {
+            SYS_GUEST_EXIT => {
+                let mut context = context::current().write(token.token());
+                if !context.guest_syscalls_denied || b > u8::MAX as usize {
+                    return Err(Error::new(EPERM));
+                }
+                context.guest_exit_status = Some(b as u8);
+                drop(context);
+                exit_this_context(None, token);
+            }
             SYS_WRITE2 => file_op_generic_ext(fd, token, |scheme, _, desc, token| {
                 let flags = if f == usize::MAX {
                     None
@@ -353,45 +337,12 @@ mod guest_policy_tests {
     use super::*;
 
     #[test]
-    fn guest_exit_allows_only_the_designated_exit_call() {
-        let valid = [17, 0];
-        assert!(matches_guest_exit_call(
-            SYS_CALL, 17, 0, 0, 2, valid, 17, 0
-        ));
-        assert!(!matches_guest_exit_call(
-            SYS_CALL, 18, 0, 0, 2, valid, 17, 0
-        ));
-        assert!(!matches_guest_exit_call(
-            SYS_CALL, 17, 1, 0, 2, valid, 17, 0
-        ));
-        assert!(!matches_guest_exit_call(
-            SYS_CALL, 17, 0, 1, 2, valid, 17, 0
-        ));
-        assert!(!matches_guest_exit_call(
-            SYS_CALL, 17, 0, 0, 3, valid, 17, 0
-        ));
-        assert!(!matches_guest_exit_call(
-            SYS_CALL,
-            17,
-            0,
-            0,
-            2,
-            [1, 0],
-            17,
-            0
-        ));
-        assert!(!matches_guest_exit_call(
-            SYS_CALL,
-            17,
-            0,
-            0,
-            2,
-            [0, u8::MAX as usize + 1],
-            17,
-            0
-        ));
-        assert!(!matches_guest_exit_call(
-            SYS_CLOSE, 17, 0, 0, 2, valid, 17, 0
-        ));
+    fn guest_policy_only_allows_close_and_bounded_exit() {
+        assert!(guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 0, 0, 0));
+        assert!(guest_syscall_allowed(SYS_GUEST_EXIT, 255, 0, 0, 0, 0, 0));
+        assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 256, 0, 0, 0, 0, 0));
+        assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 0, 1, 0, 0, 0, 0));
+        assert!(!guest_syscall_allowed(SYS_CALL, 17, 0, 0, 2, 0, 0));
+        assert!(!guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 1, 0, 0));
     }
 }

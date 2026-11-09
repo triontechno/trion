@@ -83,7 +83,6 @@ pub fn rebase_pe32_plus(image:&mut InertImage, actual_base:u64)->Result<(),Error
             let old=u64le(bytes,target)?;
             let adjusted=if delta>=0 { old.checked_add(delta as u64) } else { old.checked_sub((-delta) as u64) }
                 .ok_or(Error::Overflow)?;
-            writes.try_reserve(1).map_err(|_|Error::Limit("PE relocation write set allocation"))?;
             writes.try_reserve(1).map_err(|_|Error::Limit("PE relocation write-set allocation"))?;
             writes.push((target,adjusted));
         }
@@ -163,6 +162,7 @@ pub fn resolve_pe32_plus_imports(
     const MAX_THUNKS_PER_LIBRARY: usize = 16_384;
     let mut resolved = Vec::new();
     let mut writes: Vec<(usize, u64)> = Vec::new();
+    let mut seen_iat_slots = BTreeSet::new();
     let mut descriptor_at = import_rva;
     let mut terminated = false;
     let mut descriptor_count = 0usize;
@@ -221,6 +221,15 @@ pub fn resolve_pe32_plus_imports(
             if iat_end > bytes.len() {
                 return Err(Error::Truncated("PE import address table"));
             }
+            if !seen_iat_slots.insert(iat_at) {
+                return Err(Error::Invalid("duplicate PE import address table slot"));
+            }
+            writes
+                .try_reserve(1)
+                .map_err(|_| Error::Limit("PE IAT write-set allocation"))?;
+            resolved
+                .try_reserve(1)
+                .map_err(|_| Error::Limit("PE resolved import allocation"))?;
             writes.push((iat_at, address));
             resolved.push(ResolvedImport {
                 library: library.clone(),

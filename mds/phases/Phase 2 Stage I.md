@@ -1,6 +1,10 @@
 # TRION Phase 2 — Stage I: Windows Compatibility Runtime
 
-**Status: compatibility-boundary foundation implemented; general Windows runtime services remain incomplete.** The Stage G native launcher accepts only the freestanding PE32+ profile.
+**Status: compatibility-boundary foundation implemented; the selected minimal PE32+ profile is incomplete.** This is not a general Windows runtime.
+
+## Selected compatibility boundary
+
+Target x86-64 PE32+ Windows console-subsystem images with direct entry and no arguments/environment, and no dependence on TLS, SEH/unwind metadata, a Windows CRT, GUI subsystems or undocumented NT internals. Imports are limited to `ExitProcess` from `kernel32.dll` or `kernelbase.dll`; all other imports fail closed. This deliberately small first runtime slice makes PE loading, rebasing, the Windows x64 entry stack and a kernel-enforced process exit operational without claiming Win32 application compatibility. It is an intermediate milestone, not completion of Stage I.
 
 ## Implemented source
 - Typed import symbols for names and ordinals.
@@ -8,10 +12,12 @@
 - Explicit classification of selected process, thread, virtual-memory, file, synchronization, time and console APIs.
 - Unsupported and unimplemented APIs return explicit diagnostics. No API is falsely marked operational.
 - COSMIC Files and Redox exec dispatch can launch the restricted no-import PE32+ profile through the real Redox process/address-space path.
+- The PE32+ loader validates bounded image/section layouts, maps the image with W^X protections, prefers the requested image base, and applies `IMAGE_REL_BASED_DIR64` relocations when it must use another base. Unsupported relocation types and malformed relocation blocks are rejected.
+- Bounded import descriptors for the selected profile are resolved into an executable `ExitProcess` thunk that enters the restricted guest-exit syscall. Unsupported libraries, names, ordinals and malformed tables are rejected.
 
 ## Remaining
-- Versioned DLL catalog, dependency search policy, forwarder resolution and operational platform export table. The bounded PE import-by-name/ordinal parser and IAT population primitive now exist.
-- Windows process parameters, PEB/TEB, x64 startup ABI, TLS, exception/unwind handling.
+- Versioned DLL catalog, dependency search policy, forwarder resolution and a broader operational platform export table. The bounded PE import-by-name/ordinal parser and IAT population primitive exist in the executable library but are not wired into this native loader.
+- Windows process parameters, PEB/TEB, full x64 startup ABI, TLS, exception/unwind handling.
 - Kernel-backed Win32/NT service implementations for a narrowly declared profile.
 - Filesystem, synchronization, process/thread, console and timing semantics.
 - Integration of the full Windows runtime with the isolated guest process backend.

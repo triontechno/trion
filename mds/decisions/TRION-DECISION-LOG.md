@@ -198,7 +198,7 @@ Required outcomes:
 - Audited cleanup for partial loads and process failures.
 - Isolation integrated with any broader platform runtimes added by Stages I/J.
 
-**Current known status:** native process hand-off, real Redox address spaces/user contexts, scheduler integration, exit handling, signal-handler reset, exception-to-signal mapping, and existing process teardown are present. The kernel-enforced guest syscall/capability policy and other containment items remain incomplete. Stage H must remain **N** until the security boundary is implemented. Do not run untrusted applications under the restricted native profile as though it were already a complete sandbox.
+**Current known status:** native process hand-off, real Redox address spaces/user contexts, scheduler integration, dedicated restricted guest exit, a deny-all syscall baseline, initial address-space/descriptor/CPU quotas, signal-handler reset, exception-to-signal mapping, and existing process teardown are present. Explicit filesystem/network/device/IPC capability enforcement, brokered I/O, guest-specific structured fault reports, complete descendant/thread policy, and a comprehensive cleanup audit remain incomplete. Stage H must remain **N** until the security boundary is implemented. Do not run untrusted applications under the restricted native profile as though it were already a complete sandbox.
 
 ## 11. Repository and collaboration decisions
 
@@ -230,7 +230,7 @@ This section is a point-in-time record and should be updated as code changes.
 | E | Implementation delivered | Validation deferred |
 | F | Infrastructure authored | Benchmarks/fuzz/build workflows not executed |
 | G | Implemented for restricted freestanding x86-64 profiles | No general Windows/macOS compatibility; validation deferred |
-| H | Incomplete | Kernel-enforced isolation and containment missing |
+| H | Incomplete | Base deny-all guest policy and quotas exist; capability broker and containment remain |
 | I | Incomplete | General Windows runtime services missing |
 | J | Incomplete | General macOS runtime services missing |
 

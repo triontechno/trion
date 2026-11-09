@@ -144,6 +144,7 @@ impl AddrSpaceWrapper {
 pub struct AddrSpace {
     pub table: Table,
     pub grants: UserGrants,
+    guest_memory_limit_pages: Option<usize>,
     /// Lowest offset for mmap invocations where the user has not already specified the offset
     /// (using MAP_FIXED/MAP_FIXED_NOREPLACE). Cf. Linux's `/proc/sys/vm/mmap_min_addr`, but with
     /// the exception that we have a memory safe kernel which doesn't have to protect itself
@@ -161,6 +162,7 @@ impl AddrSpaceWrapper {
 
         let new =
             Arc::get_mut(&mut new_arc).expect("expected new address space Arc not to be aliased");
+        new.guest_memory_limit_pages = guard.guest_memory_limit_pages;
 
         let _this_mapper = &mut guard.table.utable;
         let this_mapper = &mut guard.table.utable;
@@ -358,6 +360,8 @@ impl AddrSpaceWrapper {
             None => None,
         };
         let mut dst_flusher = Flusher::with_cpu_set(&dst_lock.used_by, &dst_lock.tlb_ack);
+        let replace_destination = requested_dst_base.is_some()
+            && new_flags.contains(MapFlags::MAP_FIXED);
 
         let dst_base = match requested_dst_base {
             Some(base) if new_flags.contains(MapFlags::MAP_FIXED_NOREPLACE) => {
@@ -372,21 +376,7 @@ impl AddrSpaceWrapper {
 
                 base
             }
-            Some(base) if new_flags.contains(MapFlags::MAP_FIXED) => {
-                let unpin = false;
-                let notify_files = AddrSpace::munmap_inner(
-                    &mut dst.grants,
-                    &mut dst.table.utable,
-                    &mut dst_flusher,
-                    PageSpan::new(base, new_page_count),
-                    unpin,
-                )?;
-                if let Some(notify_files_out) = notify_files_out.as_mut() {
-                    notify_files_out.extend(notify_files);
-                }
-
-                base
-            }
+            Some(base) if new_flags.contains(MapFlags::MAP_FIXED) => base,
             _ => {
                 dst.grants
                     .find_free(dst.mmap_min, cmp::max(new_page_count, src_span.count))
@@ -394,6 +384,69 @@ impl AddrSpaceWrapper {
                     .base
             }
         };
+
+        let destination_span = PageSpan::new(dst_base, new_page_count);
+        if src_opt.is_none() && destination_span.intersects(src_span) {
+            return Err(Error::new(EBUSY));
+        }
+
+        if let Some(max_pages) = dst.guest_memory_limit_pages {
+            let mapped_pages = dst
+                .grants
+                .iter()
+                .try_fold(0usize, |total, (_, info)| {
+                    total.checked_add(info.page_count)
+                })
+                .ok_or(Error::new(ENOMEM))?;
+            let replaced_pages = if replace_destination {
+                let destination = PageSpan::new(dst_base, new_page_count);
+                dst.grants
+                    .conflicts(destination)
+                    .try_fold(0usize, |total, (base, info)| {
+                        let grant = PageSpan::new(base, info.page_count);
+                        total.checked_add(grant.intersection(destination).count)
+                    })
+                    .ok_or(Error::new(ENOMEM))?
+            } else {
+                0
+            };
+            let source_pages = if src_opt.is_none() {
+                dst.grants
+                    .conflicts(src_span)
+                    .try_fold(0usize, |total, (base, info)| {
+                        total.checked_add(
+                            PageSpan::new(base, info.page_count)
+                                .intersection(src_span)
+                                .count,
+                        )
+                    })
+                    .ok_or(Error::new(ENOMEM))?
+            } else {
+                0
+            };
+            if mapped_pages
+                .checked_sub(replaced_pages)
+                .and_then(|pages| pages.checked_sub(source_pages))
+                .and_then(|pages| pages.checked_add(new_page_count))
+                .map_or(true, |pages| pages > max_pages)
+            {
+                return Err(Error::new(ENOMEM));
+            }
+        }
+
+        if replace_destination {
+            let unpin = false;
+            let notify_files = AddrSpace::munmap_inner(
+                &mut dst.grants,
+                &mut dst.table.utable,
+                &mut dst_flusher,
+                PageSpan::new(dst_base, new_page_count),
+                unpin,
+            )?;
+            if let Some(notify_files_out) = notify_files_out.as_mut() {
+                notify_files_out.extend(notify_files);
+            }
+        }
 
         let (src_grants, src_mapper, src_flusher) = match &mut src_opt {
             Some((g, m, f)) => (&mut **g, &mut **m, &mut **f),
@@ -412,7 +465,7 @@ impl AddrSpaceWrapper {
         {
             return Err(Error::new(EPERM));
         }
-        if PageSpan::new(dst_base, new_page_count).intersects(src_span) {
+        if destination_span.intersects(src_span) {
             return Err(Error::new(EBUSY));
         }
 
@@ -593,7 +646,26 @@ impl AddrSpace {
             grants: UserGrants::new(),
             table: Table { utable },
             mmap_min: MMAP_MIN_DEFAULT,
+            guest_memory_limit_pages: None,
         })
+    }
+
+    pub fn set_guest_memory_limit_pages(&mut self, max_pages: usize) -> Result<()> {
+        self.validate_guest_memory_limit_pages(max_pages)?;
+        self.guest_memory_limit_pages = Some(max_pages);
+        Ok(())
+    }
+
+    pub fn validate_guest_memory_limit_pages(&self, max_pages: usize) -> Result<()> {
+        let mapped_pages = self
+            .grants
+            .iter()
+            .try_fold(0usize, |total, (_, info)| total.checked_add(info.page_count))
+            .ok_or(Error::new(ENOMEM))?;
+        if mapped_pages > max_pages {
+            return Err(Error::new(ENOMEM));
+        }
+        Ok(())
     }
     fn munmap_inner(
         this_grants: &mut UserGrants,
@@ -700,11 +772,12 @@ impl AddrSpace {
         requested_base_opt: Option<Page>,
         page_count: NonZeroUsize,
         flags: MapFlags,
-        notify_files_out: Option<&mut UnmapVec>,
+        mut notify_files_out: Option<&mut UnmapVec>,
         map: impl FnOnce(Page, PageFlags<RmmA>, &mut PageMapper, &mut Flusher) -> Result<Grant>,
     ) -> Result<Page> {
         assert_eq!(dst_lock.inner.as_mut_ptr(), self as *mut Self);
 
+        let replace_selected = requested_base_opt.is_some() && flags.contains(MapFlags::MAP_FIXED);
         let selected_span = match requested_base_opt {
             // TODO: Rename MAP_FIXED+MAP_FIXED_NOREPLACE to MAP_FIXED and
             // MAP_FIXED_REPLACE/MAP_REPLACE?
@@ -717,18 +790,6 @@ impl AddrSpace {
                     }
                     requested_span
                 } else if flags.contains(MapFlags::MAP_FIXED) {
-                    let unpin = false;
-                    let mut notify_files = Self::munmap_inner(
-                        &mut self.grants,
-                        &mut self.table.utable,
-                        &mut Flusher::with_cpu_set(&dst_lock.used_by, &dst_lock.tlb_ack),
-                        requested_span,
-                        unpin,
-                    )?;
-                    if let Some(notify_files_out) = notify_files_out {
-                        notify_files_out.append(&mut notify_files);
-                    }
-
                     requested_span
                 } else {
                     self.grants
@@ -741,6 +802,48 @@ impl AddrSpace {
                 .find_free(self.mmap_min, page_count.get())
                 .ok_or(Error::new(ENOMEM))?,
         };
+
+        if let Some(max_pages) = self.guest_memory_limit_pages {
+            let mapped_pages = self
+                .grants
+                .iter()
+                .try_fold(0usize, |total, (_, info)| total.checked_add(info.page_count))
+                .ok_or(Error::new(ENOMEM))?;
+            let replaced_pages = if replace_selected {
+                self.grants
+                    .conflicts(selected_span)
+                    .try_fold(0usize, |total, (base, info)| {
+                        total.checked_add(
+                            PageSpan::new(base, info.page_count)
+                                .intersection(selected_span)
+                                .count,
+                        )
+                    })
+                    .ok_or(Error::new(ENOMEM))?
+            } else {
+                0
+            };
+            if mapped_pages
+                .checked_sub(replaced_pages)
+                .and_then(|total| total.checked_add(page_count.get()))
+                .map_or(true, |total| total > max_pages)
+            {
+                return Err(Error::new(ENOMEM));
+            }
+        }
+
+        if replace_selected {
+            let mut notify_files = Self::munmap_inner(
+                &mut self.grants,
+                &mut self.table.utable,
+                &mut Flusher::with_cpu_set(&dst_lock.used_by, &dst_lock.tlb_ack),
+                selected_span,
+                false,
+            )?;
+            if let Some(notify_files_out) = notify_files_out.as_mut() {
+                notify_files_out.append(&mut notify_files);
+            }
+        }
 
         // TODO: Threads share address spaces, so not only the inactive flusher should be sending
         // out IPIs. IPIs will only be sent when downgrading mappings (i.e. when a stale TLB entry

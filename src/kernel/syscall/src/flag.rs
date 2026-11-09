@@ -220,6 +220,8 @@ pub enum ContextStatus {
     ForceKilled,
     Stopped,
     UnhandledExcp,
+    GuestExit,
+    GuestFault,
     #[default]
     Other, // reserved
 }

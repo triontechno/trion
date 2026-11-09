@@ -156,6 +156,10 @@ pub struct Context {
     /// not yet had its address space changed. Note that these are only for user mappings; kernel
     /// mappings are universal and independent on address spaces or contexts.
     pub addr_space: Option<Arc<AddrSpaceWrapper>>,
+    /// Address space bound to the irreversible guest policy.
+    pub guest_addr_space: Option<Arc<AddrSpaceWrapper>>,
+    /// Address space selected for a guest transition that has passed preflight.
+    pub guest_policy_prepared_addr_space: Option<Arc<AddrSpaceWrapper>>,
     /// The name of the context
     pub name: ArrayString<CONTEXT_NAME_CAPAC>,
     /// The open files in the scheme
@@ -188,9 +192,12 @@ pub struct Context {
     /// True for native guest contexts whose direct syscall surface is disabled by the kernel.
     /// This is monotonic: once enabled it cannot be cleared by the guest.
     pub guest_syscalls_denied: bool,
-    /// Descriptor and operation authorized for the guest's process-exit trampoline.
-    pub guest_exit_fd: Option<usize>,
-    pub guest_exit_verb: Option<usize>,
+    /// Exit status supplied by the restricted guest-exit syscall.
+    pub guest_exit_status: Option<u8>,
+    /// Maximum cumulative CPU time for a restricted guest, in nanoseconds.
+    pub guest_cpu_limit_ns: Option<u128>,
+    /// CPU time charged to the restricted guest policy, in nanoseconds.
+    pub guest_cpu_time_ns: u128,
 
     // TODO: Temporary replacement for existing kernel logic, replace with capabilities!
     pub euid: u32,
@@ -247,6 +254,8 @@ impl Context {
             kfx: AlignedBox::<[u8], { arch::KFX_ALIGN }>::try_zeroed_slice(crate::arch::kfx_size())?,
             kstack,
             addr_space: None,
+            guest_addr_space: None,
+            guest_policy_prepared_addr_space: None,
             name: ArrayString::new(),
             files: Arc::new(RwLock::new(FdTbl::new())),
             userspace: false,
@@ -260,8 +269,9 @@ impl Context {
             being_sigkilled: false,
             owner_proc_id,
             guest_syscalls_denied: false,
-            guest_exit_fd: None,
-            guest_exit_verb: None,
+            guest_exit_status: None,
+            guest_cpu_limit_ns: None,
+            guest_cpu_time_ns: 0,
 
             euid: 0,
             egid: 0,
@@ -644,14 +654,21 @@ impl core::fmt::Debug for Kstack {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FdTbl {
     pub lower_fdtbl: RadixFdTbl,
     pub upper_fdtbl: RadixFdTbl,
     active_count: usize,
+    max_files: usize,
 }
 
 pub type LockedFdTbl = RwLock<L5, FdTbl>;
+
+impl Default for FdTbl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FdTbl {
     pub fn new() -> Self {
@@ -659,6 +676,7 @@ impl FdTbl {
             lower_fdtbl: RadixFdTbl::new(),
             upper_fdtbl: RadixFdTbl::new(),
             active_count: 0,
+            max_files: super::CONTEXT_MAX_FILES,
         }
     }
 
@@ -667,16 +685,35 @@ impl FdTbl {
             lower_fdtbl: self.lower_fdtbl.try_clone()?,
             upper_fdtbl: self.upper_fdtbl.try_clone()?,
             active_count: self.active_count,
+            max_files: self.max_files,
         })
     }
 
     pub fn resize(&mut self, which: usize, size: usize) -> Result<()> {
-        let (fdtbl, _) = self.select_fdtbl_mut(which);
-        if super::CONTEXT_MAX_FILES < size {
+        if self.max_files < size {
             return Err(Error::new(EMFILE));
         }
 
+        let (fdtbl, _) = self.select_fdtbl_mut(which);
         fdtbl.resize(size)
+    }
+
+    pub fn validate_max_files(&self, max_files: usize) -> Result<()> {
+        if max_files > self.max_files
+            || self.active_count > max_files
+            || self
+                .enumerate_fds()
+                .any(|(index, _)| Self::strip_tags(index) >= max_files)
+        {
+            return Err(Error::new(EMFILE));
+        }
+        Ok(())
+    }
+
+    pub fn set_max_files(&mut self, max_files: usize) -> Result<()> {
+        self.validate_max_files(max_files)?;
+        self.max_files = max_files;
+        Ok(())
     }
 
     fn strip_tags(index: usize) -> usize {
@@ -703,7 +740,7 @@ impl FdTbl {
         let mut checked_handles = BTreeSet::new();
         for i in handles {
             let index = i.get();
-            if Self::strip_tags(index) >= super::CONTEXT_MAX_FILES {
+            if Self::strip_tags(index) >= self.max_files {
                 return Err(Error::new(EMFILE));
             }
             if !checked_handles.insert(index) {
@@ -721,7 +758,7 @@ impl FdTbl {
         let mut checked_slots = BTreeSet::new();
         for i in handles {
             let index = i.get();
-            if Self::strip_tags(index) >= super::CONTEXT_MAX_FILES {
+            if Self::strip_tags(index) >= self.max_files {
                 return Err(Error::new(EMFILE));
             }
             if !checked_slots.insert(index) {
@@ -739,7 +776,9 @@ impl FdTbl {
         let index = i.get();
         let is_occupied = self.is_occupied(index);
 
-        if !is_occupied && self.active_count >= super::CONTEXT_MAX_FILES {
+        if !is_occupied
+            && (Self::strip_tags(index) >= self.max_files || self.active_count >= self.max_files)
+        {
             return None;
         }
 
@@ -765,7 +804,11 @@ impl FdTbl {
         if count == 0 {
             return Ok(());
         }
-        if self.active_count + count > super::CONTEXT_MAX_FILES {
+        if self
+            .active_count
+            .checked_add(count)
+            .map_or(true, |count| count > self.max_files)
+        {
             return Err(Error::new(EMFILE));
         }
         self.validate_free_slots(handles)?;
