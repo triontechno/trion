@@ -2,6 +2,10 @@
 
 **Status: restricted freestanding Mach-O launch and XML bundle dispatch implemented; general macOS runtime remains incomplete.**
 
+## Selected compatibility boundary
+
+The current profile is limited to little-endian x86-64 `MH_EXECUTE` images with `LC_MAIN`, no dynamic dependencies or runtime-dependent load commands, and an empty argument/environment block. `.app` dispatch accepts bounded XML `Info.plist` metadata and launches the declared executable. This is a deliberately constrained Mach-O execution profile, not compatibility with a particular macOS release or general macOS application support.
+
 ## Implemented source
 - Broker-fed bundle-member path validation rejecting absolute paths, traversal, symlinks and special files.
 - Bounded member counts and resource sizes.
