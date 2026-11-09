@@ -101,6 +101,10 @@ pub fn syscall(
         let guest_restricted = {
             let context = context::current().read(token.token());
             context.guest_syscalls_denied
+                || context
+                    .addr_space
+                    .as_ref()
+                    .is_some_and(|addr_space| addr_space.guest_syscalls_denied())
         };
         if guest_restricted && !guest_syscall_allowed(a, b, c, d, e, f, g) {
             return Err(Error::new(EPERM));
@@ -110,7 +114,7 @@ pub fn syscall(
         match a {
             SYS_GUEST_EXIT => {
                 let mut context = context::current().write(token.token());
-                if !context.guest_syscalls_denied || b > u8::MAX as usize {
+                if !guest_restricted || b > u8::MAX as usize {
                     return Err(Error::new(EPERM));
                 }
                 context.guest_exit_status = Some(b as u8);
@@ -118,14 +122,14 @@ pub fn syscall(
                 exit_this_context(None, token);
             }
             SYS_GUEST_GETPID => {
-                if !guest_restricted || b != 0 || c != 0 || d != 0 || e != 0 || f != 0 || g != 0 {
+                if b != 0 || c != 0 || d != 0 || e != 0 || f != 0 || g != 0 {
                     return Err(Error::new(EPERM));
                 }
                 let context = context::current().read(token.token());
                 Ok(context.owner_proc_id.map_or(0, |pid| pid.get()))
             }
             SYS_GUEST_GETTID => {
-                if !guest_restricted || b != 0 || c != 0 || d != 0 || e != 0 || f != 0 || g != 0 {
+                if b != 0 || c != 0 || d != 0 || e != 0 || f != 0 || g != 0 {
                     return Err(Error::new(EPERM));
                 }
                 let context = context::current().read(token.token());
@@ -354,11 +358,15 @@ mod guest_policy_tests {
     use super::*;
 
     #[test]
-    fn guest_policy_only_allows_close_and_bounded_exit() {
+    fn guest_policy_allows_only_close_exit_and_identity_queries() {
         assert!(guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 0, 0, 0));
         assert!(guest_syscall_allowed(SYS_GUEST_EXIT, 255, 0, 0, 0, 0, 0));
         assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 256, 0, 0, 0, 0, 0));
         assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 0, 1, 0, 0, 0, 0));
+        assert!(guest_syscall_allowed(SYS_GUEST_GETPID, 0, 0, 0, 0, 0, 0));
+        assert!(guest_syscall_allowed(SYS_GUEST_GETTID, 0, 0, 0, 0, 0, 0));
+        assert!(!guest_syscall_allowed(SYS_GUEST_GETPID, 1, 0, 0, 0, 0, 0));
+        assert!(!guest_syscall_allowed(SYS_GUEST_GETTID, 0, 0, 1, 0, 0, 0));
         assert!(!guest_syscall_allowed(SYS_CALL, 17, 0, 0, 2, 0, 0));
         assert!(!guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 1, 0, 0));
     }

@@ -10,7 +10,7 @@ use core::{
     mem::ManuallyDrop,
     num::NonZeroUsize,
     ops::{Bound, Deref},
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
 };
 use rmm::{Arch as _, FrameAllocator, FrameCount, PageFlush};
 use smallvec::SmallVec;
@@ -96,6 +96,7 @@ pub struct AddrSpaceWrapper {
     pub inner: RwLock<L5, AddrSpace>,
     pub tlb_ack: AtomicU32,
     pub used_by: LogicalCpuSet,
+    guest_syscalls_denied: AtomicBool,
 }
 impl AddrSpaceWrapper {
     pub fn new() -> Result<Arc<Self>> {
@@ -103,7 +104,14 @@ impl AddrSpaceWrapper {
             inner: RwLock::new(AddrSpace::new()?),
             tlb_ack: AtomicU32::new(0),
             used_by: LogicalCpuSet::empty(),
+            guest_syscalls_denied: AtomicBool::new(false),
         }))
+    }
+    pub fn guest_syscalls_denied(&self) -> bool {
+        self.guest_syscalls_denied.load(Ordering::Acquire)
+    }
+    pub fn deny_guest_syscalls(&self) {
+        self.guest_syscalls_denied.store(true, Ordering::Release);
     }
     pub fn acquire_read<'a>(
         &'a self,
@@ -163,6 +171,9 @@ impl AddrSpaceWrapper {
         let new =
             Arc::get_mut(&mut new_arc).expect("expected new address space Arc not to be aliased");
         new.guest_memory_limit_pages = guard.guest_memory_limit_pages;
+        if self.guest_syscalls_denied() {
+            new.deny_guest_syscalls();
+        }
 
         let _this_mapper = &mut guard.table.utable;
         let this_mapper = &mut guard.table.utable;

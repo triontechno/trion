@@ -492,6 +492,7 @@ impl KernelScheme for ProcScheme {
                             .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
                         new.acquire_write(token.token())
                             .set_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
+                        new.deny_guest_syscalls();
                         context
                             .files
                             .write(token.token())
