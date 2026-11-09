@@ -2,7 +2,8 @@
 //!
 //! This loader maps a restricted freestanding PE32+ image into a fresh Redox
 //! address space. It applies DIR64 base relocations and resolves only the
-//! explicitly supported ExitProcess import; broader Windows runtime support is separate.
+//! explicitly supported ExitProcess and process/thread identity imports;
+//! broader Windows runtime support is separate.
 
 use super::*;
 use alloc::{collections::BTreeSet, vec::Vec};
@@ -19,6 +20,23 @@ struct Section {
     raw_offset: u64,
     raw_size: usize,
     protection: MapFlags,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PeImportApi {
+    ExitProcess,
+    GetCurrentProcessId,
+    GetCurrentThreadId,
+}
+
+impl PeImportApi {
+    fn thunk(self) -> Result<Vec<u8>> {
+        match self {
+            Self::ExitProcess => exit_process_thunk(),
+            Self::GetCurrentProcessId => guest_query_thunk(syscall::SYS_GUEST_GETPID),
+            Self::GetCurrentThreadId => guest_query_thunk(syscall::SYS_GUEST_GETTID),
+        }
+    }
 }
 
 fn u16_at(bytes: &[u8], offset: usize) -> Result<u16> {
@@ -271,9 +289,12 @@ fn resolve_pe_imports(
             if !rva_is_mapped(name_at, symbol_len + 3) {
                 return Err(Error::new(ENOEXEC));
             }
-            if &symbol_tail[..symbol_len] != b"ExitProcess" {
-                return Err(Error::new(ENOEXEC));
-            }
+            let api = match &symbol_tail[..symbol_len] {
+                b"ExitProcess" => PeImportApi::ExitProcess,
+                b"GetCurrentProcessId" => PeImportApi::GetCurrentProcessId,
+                b"GetCurrentThreadId" => PeImportApi::GetCurrentThreadId,
+                _ => return Err(Error::new(ENOEXEC)),
+            };
             let slot_end = iat_at.checked_add(8).ok_or(Error::new(EOVERFLOW))?;
             if slot_end > image.len()
                 || !seen_slots.insert(iat_at)
@@ -287,7 +308,7 @@ fn resolve_pe_imports(
                 return Err(Error::new(ENOEXEC));
             }
             iat_slots.try_reserve(1).map_err(|_| Error::new(ENOMEM))?;
-            iat_slots.push(iat_at);
+            iat_slots.push((iat_at, api));
             thunk_index += 1;
         }
         if !thunk_terminated {
@@ -302,7 +323,31 @@ fn resolve_pe_imports(
         return Ok(());
     }
 
-    let thunk = exit_process_thunk()?;
+    let mut api_addresses = Vec::new();
+    let mut api_thunks = Vec::new();
+    let mut thunk_offset = 0usize;
+    for api in [
+        PeImportApi::ExitProcess,
+        PeImportApi::GetCurrentProcessId,
+        PeImportApi::GetCurrentThreadId,
+    ] {
+        if !iat_slots.iter().any(|(_, imported_api)| *imported_api == api) {
+            continue;
+        }
+        let thunk = api.thunk()?;
+        let next_offset = thunk_offset
+            .checked_add(thunk.len())
+            .filter(|end| *end <= PAGE_SIZE)
+            .ok_or(Error::new(ENOEXEC))?;
+        api_addresses.try_reserve(1).map_err(|_| Error::new(ENOMEM))?;
+        api_thunks.try_reserve(1).map_err(|_| Error::new(ENOMEM))?;
+        api_addresses.push((api, thunk_offset));
+        api_thunks.push(thunk);
+        thunk_offset = next_offset
+            .checked_add(15)
+            .map(|end| end & !15)
+            .ok_or(Error::new(EOVERFLOW))?;
+    }
     let thunk_page = mmap_anon_remote(
         addrspace,
         0,
@@ -310,28 +355,42 @@ fn resolve_pe_imports(
         PAGE_SIZE,
         MapFlags::PROT_READ | MapFlags::PROT_WRITE,
     )?;
-    let thunk_end = thunk_page
-        .checked_add(PAGE_SIZE)
-        .ok_or(Error::new(EOVERFLOW))?;
-    if thunk_page < 0x1_0000 || thunk_page % PAGE_SIZE != 0 || thunk_end > stack_base {
-        let _ = munmap_remote(addrspace, thunk_page, PAGE_SIZE);
-        return Err(Error::new(ENOEXEC));
-    }
-    if let Err(error) = write_remote(addrspace, thunk_page, &thunk) {
-        let _ = munmap_remote(addrspace, thunk_page, PAGE_SIZE);
+    let result = (|| {
+        let thunk_end = thunk_page
+            .checked_add(PAGE_SIZE)
+            .ok_or(Error::new(EOVERFLOW))?;
+        if thunk_page < 0x1_0000 || thunk_page % PAGE_SIZE != 0 || thunk_end > stack_base {
+            return Err(Error::new(ENOEXEC));
+        }
+        for ((_, offset), thunk) in api_addresses.iter().zip(api_thunks.iter()) {
+            let address = thunk_page
+                .checked_add(*offset)
+                .ok_or(Error::new(EOVERFLOW))?;
+            write_remote(addrspace, address, thunk)?;
+        }
+        mprotect_remote(
+            addrspace,
+            thunk_page,
+            PAGE_SIZE,
+            MapFlags::PROT_READ | MapFlags::PROT_EXEC,
+        )?;
+        for (slot, api) in iat_slots {
+            let offset = api_addresses
+                .iter()
+                .find_map(|(candidate, offset)| (*candidate == api).then_some(*offset))
+                .ok_or(Error::new(ENOEXEC))?;
+            let address = thunk_page
+                .checked_add(offset)
+                .ok_or(Error::new(EOVERFLOW))?;
+            image[slot..slot + 8].copy_from_slice(&(address as u64).to_le_bytes());
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if let Err(cleanup_error) = munmap_remote(addrspace, thunk_page, PAGE_SIZE) {
+            return Err(cleanup_error);
+        }
         return Err(error);
-    }
-    if let Err(error) = mprotect_remote(
-        addrspace,
-        thunk_page,
-        PAGE_SIZE,
-        MapFlags::PROT_READ | MapFlags::PROT_EXEC,
-    ) {
-        let _ = munmap_remote(addrspace, thunk_page, PAGE_SIZE);
-        return Err(error);
-    }
-    for slot in iat_slots {
-        image[slot..slot + 8].copy_from_slice(&(thunk_page as u64).to_le_bytes());
     }
     Ok(())
 }
@@ -481,6 +540,25 @@ fn exit_trampoline() -> Result<Vec<u8>> {
 
 fn exit_process_thunk() -> Result<Vec<u8>> {
     guest_exit_thunk([0x89, 0xCF])
+}
+
+fn guest_query_thunk(syscall_number: usize) -> Result<Vec<u8>> {
+    let syscall_number: u32 = syscall_number
+        .try_into()
+        .map_err(|_| Error::new(ENOEXEC))?;
+    let mut code = alloc::vec![
+        0x31, 0xFF,                   // xor edi, edi
+        0x31, 0xF6,                   // xor esi, esi
+        0x31, 0xD2,                   // xor edx, edx
+        0x45, 0x31, 0xD2,             // xor r10d, r10d
+        0x45, 0x31, 0xC0,             // xor r8d, r8d
+        0x45, 0x31, 0xC9,             // xor r9d, r9d
+        0xB8, 0, 0, 0, 0,             // mov eax, guest query syscall
+        0x0F, 0x05,                   // syscall
+        0xC3,                         // ret
+    ];
+    code[16..20].copy_from_slice(&syscall_number.to_le_bytes());
+    Ok(code)
 }
 
 fn guest_exit_thunk(move_status: [u8; 2]) -> Result<Vec<u8>> {
@@ -1351,6 +1429,23 @@ mod tests {
         for thunk in [exit_trampoline().unwrap(), exit_process_thunk().unwrap()] {
             assert_eq!(u32::from_le_bytes(thunk[19..23].try_into().unwrap()), expected);
             assert_eq!(&thunk[23..], &[0x0F, 0x05, 0x0F, 0x0B]);
+        }
+    }
+
+    #[test]
+    fn guest_identity_thunks_encode_restricted_query_syscalls() {
+        for (number, thunk) in [
+            (
+                syscall::SYS_GUEST_GETPID,
+                guest_query_thunk(syscall::SYS_GUEST_GETPID).unwrap(),
+            ),
+            (
+                syscall::SYS_GUEST_GETTID,
+                guest_query_thunk(syscall::SYS_GUEST_GETTID).unwrap(),
+            ),
+        ] {
+            assert_eq!(u32::from_le_bytes(thunk[16..20].try_into().unwrap()), number as u32);
+            assert_eq!(&thunk[20..], &[0x0F, 0x05, 0xC3]);
         }
     }
 

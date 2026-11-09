@@ -4,21 +4,22 @@
 
 ## Selected compatibility boundary
 
-Target x86-64 PE32+ Windows console-subsystem images with direct entry and no arguments/environment, and no dependence on TLS, SEH/unwind metadata, a Windows CRT, GUI subsystems or undocumented NT internals. Imports are limited to `ExitProcess` from `kernel32.dll` or `kernelbase.dll`; all other imports fail closed. This deliberately small first runtime slice makes PE loading, rebasing, the Windows x64 entry stack and a kernel-enforced process exit operational without claiming Win32 application compatibility. It is an intermediate milestone, not completion of Stage I.
+Target x86-64 PE32+ Windows console-subsystem images with direct entry and no arguments/environment, and no dependence on TLS, SEH/unwind metadata, a Windows CRT, GUI subsystems or undocumented NT internals. Imports are limited to `ExitProcess`, `GetCurrentProcessId` and `GetCurrentThreadId` from `kernel32.dll` or `kernelbase.dll`; all other imports fail closed. This is a deliberately constrained console-runtime profile, not a claim of general Windows application compatibility.
 
 ## Implemented source
 - Typed import symbols for names and ordinals.
 - Bounded export table with duplicate and null-address rejection.
 - Explicit classification of selected process, thread, virtual-memory, file, synchronization, time and console APIs.
 - Unsupported and unimplemented APIs return explicit diagnostics. No API is falsely marked operational.
-- COSMIC Files and Redox exec dispatch can launch the restricted no-import PE32+ profile through the real Redox process/address-space path.
+- COSMIC Files and Redox exec dispatch launch the restricted PE32+ profile through the real Redox process/address-space path.
 - The PE32+ loader validates bounded image/section layouts, maps the image with W^X protections, prefers the requested image base, and applies `IMAGE_REL_BASED_DIR64` relocations when it must use another base. Unsupported relocation types and malformed relocation blocks are rejected.
-- Bounded import descriptors for the selected profile are resolved into an executable `ExitProcess` thunk that enters the restricted guest-exit syscall. Unsupported libraries, names, ordinals and malformed tables are rejected; when the PE declares an IAT directory, every resolved slot must be contained in it.
+- Bounded import descriptors for the selected profile are resolved into executable thunks for `ExitProcess`, `GetCurrentProcessId` and `GetCurrentThreadId`. Unsupported libraries, names, ordinals and malformed tables are rejected; when the PE declares an IAT directory, every resolved slot must be contained in it.
+- The import thunks expose the three declared process/thread lifecycle APIs: `ExitProcess` uses authenticated guest termination, and the identity queries return the kernel-owned process/thread IDs through argument-free restricted syscalls.
 - The selected direct-entry profile now initializes a minimal x64 PEB, TEB and empty process-parameters block, including the image base, stack bounds, TEB self pointer and PEB pointer in GS. This does not implement the loader module lists, heaps, TLS, argument/environment strings or other NT process services.
 
 ## Remaining
-- Versioned DLL catalog, dependency search policy, forwarder resolution and a broader operational platform export table. The bounded PE import-by-name/ordinal parser and IAT population primitive exist in the executable library but are not wired into this native loader.
-- Full Windows process parameters, PEB loader data/module lists, thread IDs and runtime services, TLS, exception/unwind handling.
+- Versioned DLL catalog, dependency search policy, forwarder resolution and a broader operational platform export table. Import resolution is wired only for the three declared APIs in the native loader.
+- Full Windows process parameters, PEB loader data/module lists, richer thread/runtime services, TLS, exception/unwind handling.
 - Kernel-backed Win32/NT service implementations for a narrowly declared profile.
 - Filesystem, synchronization, process/thread, console and timing semantics.
 - Integration of the full Windows runtime with the isolated guest process backend.

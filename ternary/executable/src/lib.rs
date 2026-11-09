@@ -275,10 +275,10 @@ pub fn assess_launch(data:&[u8])->Result<LaunchAssessment,Error>{
     match description.format {
         Format::Pe32Plus => {
             if !description.dependencies.is_empty() {
-                blockers.push("the freestanding PE profile rejects imports; the Windows DLL/API runtime is not implemented");
+                blockers.push("the freestanding PE runtime supports only kernel32/kernelbase ExitProcess and process/thread identity imports; all other imports are unsupported");
             }
-            blockers.push("the native PE profile requires preferred-base loading and rejects TLS, exception/unwind, delay-import, load-config, IAT and managed-runtime metadata");
-            blockers.push("Windows PEB/TEB, Win32/NT APIs and platform startup services are not implemented");
+            blockers.push("the native PE runtime supports DIR64 rebasing but rejects TLS, exception/unwind, delay-import, load-config/CFG and managed-runtime metadata");
+            blockers.push("only minimal PEB/TEB and empty process parameters are provided; full Windows loader, Win32/NT and platform startup services are unsupported");
         }
         Format::MachO64 => {
             if !description.dependencies.is_empty() {

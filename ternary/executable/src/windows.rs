@@ -34,7 +34,7 @@ pub enum ApiClass { Process, Thread, VirtualMemory, File, Synchronization, Time,
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApiDecision { pub name:String, pub class:ApiClass, pub implemented:bool, pub diagnostic:&'static str }
 
-/// No API is advertised as implemented until a concrete kernel-backed service exists.
+/// Only APIs wired to the restricted native guest runtime are marked implemented.
 pub fn classify_api(name:&str)->ApiDecision{
     let class=match name {
         "ExitProcess"|"GetCurrentProcessId"|"GetCurrentThreadId"=>ApiClass::Process,
@@ -46,5 +46,30 @@ pub fn classify_api(name:&str)->ApiDecision{
         "WriteConsoleW"|"GetConsoleMode"=>ApiClass::Console,
         _=>ApiClass::Unsupported,
     };
-    ApiDecision{name:name.to_owned(),class,implemented:false,diagnostic:"Windows API shim is classified but not connected to a verified kernel service"}
+    let implemented=matches!(name,"ExitProcess"|"GetCurrentProcessId"|"GetCurrentThreadId");
+    ApiDecision{
+        name:name.to_owned(),
+        class,
+        implemented,
+        diagnostic:if implemented {
+            "Implemented by the restricted PE32+ guest runtime"
+        } else {
+            "Windows API shim is classified but not connected to a verified kernel service"
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_restricted_guest_apis_are_marked_implemented() {
+        for name in ["ExitProcess", "GetCurrentProcessId", "GetCurrentThreadId"] {
+            assert!(classify_api(name).implemented, "{name}");
+        }
+        for name in ["CreateThread", "CreateFileW", "VirtualAlloc", "WriteConsoleW"] {
+            assert!(!classify_api(name).implemented, "{name}");
+        }
+    }
 }

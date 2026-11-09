@@ -47,6 +47,9 @@ fn guest_syscall_allowed(
         SYS_GUEST_EXIT => {
             first_arg <= u8::MAX as usize && c == 0 && d == 0 && e == 0 && f == 0 && g == 0
         }
+        SYS_GUEST_GETPID | SYS_GUEST_GETTID => {
+            first_arg == 0 && c == 0 && d == 0 && e == 0 && f == 0 && g == 0
+        }
         _ => false,
     }
 }
@@ -113,6 +116,20 @@ pub fn syscall(
                 context.guest_exit_status = Some(b as u8);
                 drop(context);
                 exit_this_context(None, token);
+            }
+            SYS_GUEST_GETPID => {
+                if !guest_restricted || b != 0 || c != 0 || d != 0 || e != 0 || f != 0 || g != 0 {
+                    return Err(Error::new(EPERM));
+                }
+                let context = context::current().read(token.token());
+                Ok(context.owner_proc_id.map_or(0, |pid| pid.get()))
+            }
+            SYS_GUEST_GETTID => {
+                if !guest_restricted || b != 0 || c != 0 || d != 0 || e != 0 || f != 0 || g != 0 {
+                    return Err(Error::new(EPERM));
+                }
+                let context = context::current().read(token.token());
+                Ok(context.debug_id as usize)
             }
             SYS_WRITE2 => file_op_generic_ext(fd, token, |scheme, _, desc, token| {
                 let flags = if f == usize::MAX {
