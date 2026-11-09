@@ -6,6 +6,8 @@
 
 Target x86-64 PE32+ Windows console-subsystem images with direct entry and no arguments/environment, and no dependence on TLS, SEH/unwind metadata, a Windows CRT, GUI subsystems or undocumented NT internals. Imports are limited to `ExitProcess`, `GetCurrentProcessId` and `GetCurrentThreadId` from `kernel32.dll` or `kernelbase.dll`; all other imports fail closed. This is a deliberately constrained console-runtime profile, not a claim of general Windows application compatibility.
 
+Entry setup follows the Microsoft x64 register calling convention, supplies the 32-byte home area and expected entry stack alignment, and sets x86-64 `GS` to the guest TEB. `ExitProcess` and the identity imports are narrow runtime services, not evidence that the broader Win32/NT ABI is available.
+
 ## Implemented source
 - Typed import symbols for names and ordinals.
 - Bounded export table with duplicate and null-address rejection.
