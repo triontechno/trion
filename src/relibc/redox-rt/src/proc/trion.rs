@@ -161,6 +161,8 @@ fn resolve_pe_imports(
     headers_size: usize,
     import_rva: usize,
     import_size: usize,
+    iat_rva: usize,
+    iat_size: usize,
     addrspace: &FdGuardUpper,
     stack_base: usize,
 ) -> Result<()> {
@@ -183,6 +185,16 @@ fn resolve_pe_imports(
         .checked_add(import_size)
         .filter(|end| *end <= image.len() && rva_is_mapped(import_rva, import_size))
         .ok_or(Error::new(ENOEXEC))?;
+    let iat_directory_end = if iat_rva == 0 {
+        None
+    } else {
+        Some(
+            iat_rva
+                .checked_add(iat_size)
+                .filter(|end| *end <= image.len() && rva_is_mapped(iat_rva, iat_size))
+                .ok_or(Error::new(ENOEXEC))?,
+        )
+    };
     let mut iat_slots = Vec::new();
     let mut seen_slots = BTreeSet::new();
     let mut descriptor_at = import_rva;
@@ -262,8 +274,13 @@ fn resolve_pe_imports(
             if &symbol_tail[..symbol_len] != b"ExitProcess" {
                 return Err(Error::new(ENOEXEC));
             }
-            let iat_end = iat_at.checked_add(8).ok_or(Error::new(EOVERFLOW))?;
-            if iat_end > image.len() || !seen_slots.insert(iat_at) {
+            let slot_end = iat_at.checked_add(8).ok_or(Error::new(EOVERFLOW))?;
+            if slot_end > image.len()
+                || !seen_slots.insert(iat_at)
+                || iat_directory_end.is_some_and(|directory_end| {
+                    iat_at < iat_rva || slot_end > directory_end
+                })
+            {
                 return Err(Error::new(ENOEXEC));
             }
             if iat_slots.len() >= 16_384 {
@@ -912,6 +929,8 @@ fn launch_pe(
         headers_size,
         import_rva,
         import_size,
+        iat_rva,
+        iat_size,
         &grants_fd,
         stack_base,
     ) {
