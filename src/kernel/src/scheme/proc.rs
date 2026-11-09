@@ -44,7 +44,7 @@ use syscall::{data::GlobalSchemes, CpuSet, Error, NumaMemoryPolicy};
 
 const GUEST_MEMORY_LIMIT_PAGES: usize = (512 * 1024 * 1024) / PAGE_SIZE;
 const GUEST_DESCRIPTOR_LIMIT: usize = 256;
-const GUEST_CPU_LIMIT_NS: u128 = 60_000_000_000;
+const GUEST_CPU_LIMIT_NS: u64 = 60_000_000_000;
 
 fn read_from(dst: UserSliceWo, src: &[u8], offset: u64) -> Result<usize> {
     let avail_src = usize::try_from(offset)
@@ -500,8 +500,7 @@ impl KernelScheme for ProcScheme {
                         context.guest_addr_space = Some(Arc::clone(&new));
                         context.guest_policy_prepared_addr_space = None;
                         context.guest_exit_status = None;
-                        context.guest_cpu_limit_ns = Some(GUEST_CPU_LIMIT_NS);
-                        context.guest_cpu_time_ns = 0;
+                        new.set_guest_cpu_limit_ns(GUEST_CPU_LIMIT_NS);
                         context.guest_syscalls_denied = true;
                     }
                     let regs = context.regs_mut().ok_or(Error::new(EBADFD))?;

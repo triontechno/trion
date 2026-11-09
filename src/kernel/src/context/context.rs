@@ -194,11 +194,6 @@ pub struct Context {
     pub guest_syscalls_denied: bool,
     /// Exit status supplied by the restricted guest-exit syscall.
     pub guest_exit_status: Option<u8>,
-    /// Maximum cumulative CPU time for a restricted guest, in nanoseconds.
-    pub guest_cpu_limit_ns: Option<u128>,
-    /// CPU time charged to the restricted guest policy, in nanoseconds.
-    pub guest_cpu_time_ns: u128,
-
     // TODO: Temporary replacement for existing kernel logic, replace with capabilities!
     pub euid: u32,
     pub egid: u32,
@@ -270,9 +265,6 @@ impl Context {
             owner_proc_id,
             guest_syscalls_denied: false,
             guest_exit_status: None,
-            guest_cpu_limit_ns: None,
-            guest_cpu_time_ns: 0,
-
             euid: 0,
             egid: 0,
             pid: 0,

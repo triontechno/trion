@@ -10,7 +10,7 @@ use core::{
     mem::ManuallyDrop,
     num::NonZeroUsize,
     ops::{Bound, Deref},
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 };
 use rmm::{Arch as _, FrameAllocator, FrameCount, PageFlush};
 use smallvec::SmallVec;
@@ -97,6 +97,8 @@ pub struct AddrSpaceWrapper {
     pub tlb_ack: AtomicU32,
     pub used_by: LogicalCpuSet,
     guest_syscalls_denied: AtomicBool,
+    guest_cpu_limit_ns: AtomicU64,
+    guest_cpu_time_ns: AtomicU64,
 }
 impl AddrSpaceWrapper {
     pub fn new() -> Result<Arc<Self>> {
@@ -105,6 +107,8 @@ impl AddrSpaceWrapper {
             tlb_ack: AtomicU32::new(0),
             used_by: LogicalCpuSet::empty(),
             guest_syscalls_denied: AtomicBool::new(false),
+            guest_cpu_limit_ns: AtomicU64::new(0),
+            guest_cpu_time_ns: AtomicU64::new(0),
         }))
     }
     pub fn guest_syscalls_denied(&self) -> bool {
@@ -112,6 +116,29 @@ impl AddrSpaceWrapper {
     }
     pub fn deny_guest_syscalls(&self) {
         self.guest_syscalls_denied.store(true, Ordering::Release);
+    }
+    pub fn set_guest_cpu_limit_ns(&self, limit: u64) {
+        self.guest_cpu_limit_ns.store(limit, Ordering::Release);
+    }
+    pub fn charge_guest_cpu_time_ns(&self, elapsed: u128) -> bool {
+        let limit = self.guest_cpu_limit_ns.load(Ordering::Acquire);
+        if limit == 0 {
+            return false;
+        }
+        let elapsed = elapsed.min(u128::from(u64::MAX)) as u64;
+        let mut current = self.guest_cpu_time_ns.load(Ordering::Acquire);
+        loop {
+            let next = current.saturating_add(elapsed);
+            match self.guest_cpu_time_ns.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return next >= limit,
+                Err(observed) => current = observed,
+            }
+        }
     }
     pub fn acquire_read<'a>(
         &'a self,
@@ -173,6 +200,7 @@ impl AddrSpaceWrapper {
         new.guest_memory_limit_pages = guard.guest_memory_limit_pages;
         if self.guest_syscalls_denied() {
             new.deny_guest_syscalls();
+            new.set_guest_cpu_limit_ns(self.guest_cpu_limit_ns.load(Ordering::Acquire));
         }
 
         let _this_mapper = &mut guard.table.utable;
