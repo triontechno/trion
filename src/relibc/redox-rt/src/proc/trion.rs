@@ -578,6 +578,22 @@ fn exit_process_thunk() -> Result<Vec<u8>> {
     guest_exit_thunk([0x89, 0xCF])
 }
 
+fn macho_main_thunk(entry: usize) -> Result<Vec<u8>> {
+    let entry = u64::try_from(entry).map_err(|_| Error::new(EOVERFLOW))?;
+    let mut code = alloc::vec![
+        0x48, 0x8B, 0x3C, 0x24,       // mov rdi, [rsp] (argc)
+        0x48, 0x8D, 0x74, 0x24, 0x08, // lea rsi, [rsp + 8] (argv)
+        0x48, 0x8D, 0x54, 0x24, 0x18, // lea rdx, [rsp + 24] (envp)
+        0x48, 0x8D, 0x4C, 0x24, 0x20, // lea rcx, [rsp + 32] (Apple vector)
+        0x48, 0xB8,                   // movabs rax, LC_MAIN
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0xFF, 0xD0,                   // call rax
+    ];
+    code[21..29].copy_from_slice(&entry.to_le_bytes());
+    code.extend_from_slice(&exit_trampoline()?);
+    Ok(code)
+}
+
 fn guest_query_thunk(syscall_number: usize) -> Result<Vec<u8>> {
     let syscall_number: u32 = syscall_number
         .try_into()
@@ -1443,6 +1459,31 @@ fn launch_macho64(
 
     let argv0 = args.first().copied().unwrap_or(path);
     let initial_stack = macho_initial_stack(super::STACK_TOP, argv0)?;
+    let main_thunk = macho_main_thunk(entry)?;
+    let main_thunk_size = page_align(main_thunk.len())?;
+    let main_thunk_address = mmap_anon_remote(
+        &grants_fd,
+        0,
+        0,
+        main_thunk_size,
+        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+    )?;
+    if main_thunk_address == 0 || main_thunk_address % PAGE_SIZE != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    if let Err(error) = write_remote(&grants_fd, main_thunk_address, &main_thunk) {
+        let _ = munmap_remote(&grants_fd, main_thunk_address, main_thunk_size);
+        return Err(error);
+    }
+    if let Err(error) = mprotect_remote(
+        &grants_fd,
+        main_thunk_address,
+        main_thunk_size,
+        MapFlags::PROT_READ | MapFlags::PROT_EXEC,
+    ) {
+        let _ = munmap_remote(&grants_fd, main_thunk_address, main_thunk_size);
+        return Err(error);
+    }
     finish_native_exec(
         image_file,
         thread_fd,
@@ -1450,7 +1491,7 @@ fn launch_macho64(
         path,
         extrainfo,
         grants_fd,
-        entry,
+        main_thunk_address,
         0,
         Some(initial_stack),
         None,
@@ -1510,6 +1551,22 @@ mod tests {
         assert!(macho_initial_stack(0x8000_0008, b"/sample").is_err());
         assert!(macho_initial_stack(0x8000_0000, b"/bad\0path").is_err());
         assert!(macho_initial_stack(0x8000_0000, &[b'x'; 4097]).is_err());
+    }
+
+    #[test]
+    fn macho_main_thunk_passes_startup_vectors_and_exits_with_main_status() {
+        let entry = 0x1234_5678_9ABC_DEF0usize;
+        let thunk = macho_main_thunk(entry).unwrap();
+        assert_eq!(&thunk[..4], &[0x48, 0x8B, 0x3C, 0x24]);
+        assert_eq!(&thunk[4..9], &[0x48, 0x8D, 0x74, 0x24, 0x08]);
+        assert_eq!(&thunk[9..14], &[0x48, 0x8D, 0x54, 0x24, 0x18]);
+        assert_eq!(&thunk[14..19], &[0x48, 0x8D, 0x4C, 0x24, 0x20]);
+        assert_eq!(
+            u64::from_le_bytes(thunk[21..29].try_into().unwrap()),
+            entry as u64
+        );
+        assert_eq!(&thunk[29..31], &[0xFF, 0xD0]);
+        assert_eq!(&thunk[31..33], &[0x89, 0xC7]);
     }
 
     #[test]

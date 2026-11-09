@@ -492,7 +492,7 @@ impl KernelScheme for ProcScheme {
                             .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
                         new.acquire_write(token.token())
                             .set_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
-                        new.deny_guest_syscalls();
+                        new.activate_guest_policy(GUEST_CPU_LIMIT_NS);
                         context
                             .files
                             .write(token.token())
@@ -500,7 +500,6 @@ impl KernelScheme for ProcScheme {
                         context.guest_addr_space = Some(Arc::clone(&new));
                         context.guest_policy_prepared_addr_space = None;
                         context.guest_exit_status = None;
-                        new.set_guest_cpu_limit_ns(GUEST_CPU_LIMIT_NS);
                         context.guest_syscalls_denied = true;
                     }
                     let regs = context.regs_mut().ok_or(Error::new(EBADFD))?;
