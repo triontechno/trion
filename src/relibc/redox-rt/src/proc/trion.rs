@@ -451,8 +451,8 @@ fn initialize_windows_environment(
         .try_reserve_exact(PAGE_SIZE)
         .map_err(|_| Error::new(ENOMEM))?;
     parameters.resize(PAGE_SIZE, 0);
-    parameters[0..4].copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
-    parameters[4..8].copy_from_slice(&0x100u32.to_le_bytes());
+    parameters[0..4].copy_from_slice(&0x100u32.to_le_bytes());
+    parameters[4..8].copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
 
     let mut peb = Vec::new();
     peb.try_reserve_exact(PAGE_SIZE)
