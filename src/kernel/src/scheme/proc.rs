@@ -459,6 +459,26 @@ impl KernelScheme for ProcScheme {
                         activate_guest_policy,
                     },
             } => {
+                let guest_siblings = if activate_guest_policy {
+                    let mut contexts = context::contexts(token.downgrade());
+                    let (contexts, mut lock_token) = contexts.token_split();
+                    let owner_proc_id = context.read(lock_token.token()).owner_proc_id;
+                    owner_proc_id
+                        .map(|owner_proc_id| {
+                            contexts
+                                .iter()
+                                .filter(|candidate| !Arc::ptr_eq(&candidate.0, &context))
+                                .filter_map(|candidate| {
+                                    let candidate_context = candidate.read(lock_token.token());
+                                    (candidate_context.owner_proc_id == Some(owner_proc_id))
+                                        .then(|| Arc::clone(&candidate.0))
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
                 let old_ctx = try_stop_context(context, token, |context, mut token| {
                     let guest_policy_prepared = context
                         .guest_policy_prepared_addr_space
@@ -512,7 +532,21 @@ impl KernelScheme for ProcScheme {
                     ))]
                     regs.set_arg1(arg1);
 
-                    Ok(context.set_addr_space(Some(new), token))
+                    let old_addr_space = context.set_addr_space(Some(new), token);
+                    for sibling in &guest_siblings {
+                        let cpu_id = {
+                            let mut sibling_context = sibling.write(token.token());
+                            if sibling_context.status.is_dead() {
+                                continue;
+                            }
+                            sibling_context.status = Status::Runnable;
+                            sibling_context.being_sigkilled = true;
+                            sibling_context.cpu_id
+                        };
+                        wakeup_context(sibling, cpu_id, &mut token.downgrade());
+                    }
+
+                    Ok(old_addr_space)
                 })?;
                 if let Some(old_ctx) = old_ctx
                     && let Some(addrspace) = Arc::into_inner(old_ctx)
