@@ -633,16 +633,31 @@ fn guest_exit_thunk(move_status: [u8; 2]) -> Result<Vec<u8>> {
     Ok(code)
 }
 
-fn write_guest_policy(guest_policy_fd: &FdGuardUpper, grants_fd: &FdGuardUpper) -> Result<()> {
-    // guest-policy ABI: enable=0, target address-space fd, capability count,
-    // followed by exactly that many descriptor handles. Native launch starts
-    // with an empty allowlist; callers may explicitly delegate handles through
-    // the same kernel-validated control interface in a later launch profile.
-    let policy = [0, grants_fd.as_raw_fd() as usize, 0];
+fn write_guest_policy(
+    guest_policy_fd: &FdGuardUpper,
+    grants_fd: &FdGuardUpper,
+    capability_fds: &[usize],
+) -> Result<()> {
+    // guest-policy ABI: enable=0, address-space fd, capability count, then
+    // exactly that many descriptor handles. The kernel validates every handle
+    // and derives the allowed read/write operations from its open mode.
+    if capability_fds.len() > 256 {
+        return Err(Error::new(E2BIG));
+    }
+    let mut seen = BTreeSet::new();
+    if capability_fds.iter().any(|fd| !seen.insert(*fd)) {
+        return Err(Error::new(EINVAL));
+    }
+    let mut policy = Vec::new();
+    policy
+        .try_reserve_exact(3 + capability_fds.len())
+        .map_err(|_| Error::new(ENOMEM))?;
+    policy.extend_from_slice(&[0, grants_fd.as_raw_fd() as usize, capability_fds.len()]);
+    policy.extend_from_slice(capability_fds);
     let policy = unsafe {
         core::slice::from_raw_parts(
             policy.as_ptr().cast::<u8>(),
-            core::mem::size_of_val(&policy),
+            policy.len() * size_of::<usize>(),
         )
     };
     guest_policy_fd.write(policy)?;
@@ -652,14 +667,19 @@ fn write_guest_policy(guest_policy_fd: &FdGuardUpper, grants_fd: &FdGuardUpper) 
 fn preflight_guest_policy(
     thread_fd: &FdGuardUpper,
     grants_fd: &FdGuardUpper,
+    capability_fds: &[usize],
 ) -> Result<FdGuardUpper> {
     let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
     guest_policy_fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
-    write_guest_policy(&guest_policy_fd, grants_fd)?;
+    write_guest_policy(&guest_policy_fd, grants_fd, capability_fds)?;
     Ok(guest_policy_fd)
 }
 
-fn clear_guest_filetable(thread_fd: &FdGuardUpper) -> Result<()> {
+fn clear_guest_filetable(
+    thread_fd: &FdGuardUpper,
+    capability_fds: &[usize],
+) -> Result<()> {
+    let keep = capability_fds.iter().copied().collect::<BTreeSet<_>>();
     let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
     filetable_fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
     filetable_fd.call_wo(
@@ -685,11 +705,30 @@ fn clear_guest_filetable(thread_fd: &FdGuardUpper) -> Result<()> {
             }
             read += count;
         }
-        filetable_fd.call_wo(
-            &buffer[..chunk_size],
-            CallFlags::empty(),
-            &[syscall::FileTableVerb::Close as u64],
-        )?;
+        let mut close_fds = Vec::new();
+        close_fds
+            .try_reserve_exact(chunk_size / size_of::<u64>())
+            .map_err(|_| Error::new(ENOMEM))?;
+        for entry in buffer[..chunk_size].chunks_exact(size_of::<u64>()) {
+            let fd = u64::from_ne_bytes(entry.try_into().map_err(|_| Error::new(ENOEXEC))?);
+            let fd = usize::try_from(fd).map_err(|_| Error::new(EINVAL))?;
+            if !keep.contains(&fd) {
+                close_fds.push(fd);
+            }
+        }
+        if !close_fds.is_empty() {
+            let bytes = unsafe {
+                core::slice::from_raw_parts(
+                    close_fds.as_ptr().cast::<u8>(),
+                    close_fds.len() * size_of::<usize>(),
+                )
+            };
+            filetable_fd.call_wo(
+                bytes,
+                CallFlags::empty(),
+                &[syscall::FileTableVerb::Close as u64],
+            )?;
+        }
         remaining -= chunk_size;
     }
     Ok(())
@@ -706,6 +745,7 @@ fn finish_native_exec(
     stack_return_offset: usize,
     initial_stack: Option<Vec<u8>>,
     windows_gsbase: Option<usize>,
+    guest_capability_fds: &[usize],
 ) -> Result<Option<FexecResult>> {
     let stack_base = super::STACK_TOP
         .checked_sub(super::STACK_SIZE)
@@ -804,7 +844,8 @@ fn finish_native_exec(
     let guest_environment = prepare_guest_environment(thread_fd, windows_gsbase)?;
 
     if extrainfo.same_process {
-        let guest_policy_fd = preflight_guest_policy(thread_fd, &grants_fd)?;
+        let guest_policy_fd =
+            preflight_guest_policy(thread_fd, &grants_fd, guest_capability_fds)?;
         let _siglock = crate::signal::tmp_disable_signals();
         let fds_to_close = {
             let guard = crate::current_filetable();
@@ -812,6 +853,7 @@ fn finish_native_exec(
                 .iter()
                 .filter_map(|(fd, flags)| {
                     if fd == addrspace_selection_fd.as_raw_fd()
+                        || guest_capability_fds.contains(&fd)
                         || fd == guest_policy_fd.as_raw_fd()
                         || fd == grants_fd.as_raw_fd()
                         || guest_environment
@@ -868,8 +910,9 @@ fn finish_native_exec(
 
     // The kernel activates the policy atomically with the selected address
     // space, before the pending switch can be committed.
-    clear_guest_filetable(thread_fd)?;
-    let guest_policy_fd = preflight_guest_policy(thread_fd, &grants_fd)?;
+    clear_guest_filetable(thread_fd, guest_capability_fds)?;
+    let guest_policy_fd =
+        preflight_guest_policy(thread_fd, &grants_fd, guest_capability_fds)?;
     select_addrspace_with_environment(
         &addrspace_selection_fd,
         &create_set_addr_space_buf(grants_fd.as_raw_fd(), entry, stack_pointer),
@@ -1262,6 +1305,7 @@ fn launch_pe(
         40,
         None,
         Some(teb_address),
+        extrainfo.guest_capability_fds.unwrap_or(&[]),
     )
 }
 
@@ -1499,6 +1543,7 @@ fn launch_macho64(
         0,
         Some(initial_stack),
         None,
+        extrainfo.guest_capability_fds.unwrap_or(&[]),
     )
 }
 
