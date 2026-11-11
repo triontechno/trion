@@ -675,64 +675,6 @@ fn preflight_guest_policy(
     Ok(guest_policy_fd)
 }
 
-fn clear_guest_filetable(
-    thread_fd: &FdGuardUpper,
-    capability_fds: &[usize],
-) -> Result<()> {
-    let keep = capability_fds.iter().copied().collect::<BTreeSet<_>>();
-    let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
-    filetable_fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
-    filetable_fd.call_wo(
-        &[],
-        CallFlags::empty(),
-        &[syscall::FileTableVerb::Refresh as u64],
-    )?;
-    let bytes_len = filetable_fd.lseek(0, syscall::flag::SEEK_END)?;
-    if bytes_len % size_of::<u64>() != 0 {
-        return Err(Error::new(ENOEXEC));
-    }
-    filetable_fd.lseek(0, SEEK_SET)?;
-
-    let mut buffer = [0u8; 256 * size_of::<u64>()];
-    let mut remaining = bytes_len;
-    while remaining > 0 {
-        let chunk_size = remaining.min(buffer.len());
-        let mut read = 0;
-        while read < chunk_size {
-            let count = filetable_fd.read(&mut buffer[read..chunk_size])?;
-            if count == 0 {
-                return Err(Error::new(ENOEXEC));
-            }
-            read += count;
-        }
-        let mut close_fds = Vec::new();
-        close_fds
-            .try_reserve_exact(chunk_size / size_of::<u64>())
-            .map_err(|_| Error::new(ENOMEM))?;
-        for entry in buffer[..chunk_size].chunks_exact(size_of::<u64>()) {
-            let fd = u64::from_ne_bytes(entry.try_into().map_err(|_| Error::new(ENOEXEC))?);
-            let fd = usize::try_from(fd).map_err(|_| Error::new(EINVAL))?;
-            if !keep.contains(&fd) {
-                close_fds.push(fd);
-            }
-        }
-        if !close_fds.is_empty() {
-            let bytes = unsafe {
-                core::slice::from_raw_parts(
-                    close_fds.as_ptr().cast::<u8>(),
-                    close_fds.len() * size_of::<usize>(),
-                )
-            };
-            filetable_fd.call_wo(
-                bytes,
-                CallFlags::empty(),
-                &[syscall::FileTableVerb::Close as u64],
-            )?;
-        }
-        remaining -= chunk_size;
-    }
-    Ok(())
-}
 
 fn finish_native_exec(
     image_file: FdGuardUpper,
@@ -847,47 +789,6 @@ fn finish_native_exec(
         let guest_policy_fd =
             preflight_guest_policy(thread_fd, &grants_fd, guest_capability_fds)?;
         let _siglock = crate::signal::tmp_disable_signals();
-        let fds_to_close = {
-            let guard = crate::current_filetable();
-            guard
-                .iter()
-                .filter_map(|(fd, flags)| {
-                    if fd == addrspace_selection_fd.as_raw_fd()
-                        || guest_capability_fds.contains(&fd)
-                        || fd == guest_policy_fd.as_raw_fd()
-                        || fd == grants_fd.as_raw_fd()
-                        || guest_environment
-                            .as_ref()
-                            .is_some_and(|environment| fd == environment.fd.as_raw_fd())
-                    {
-                        None
-                    } else if flags & O_CLOEXEC == O_CLOEXEC || fd == image_file.as_raw_fd() {
-                        Some(fd)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-        };
-        let fds_bytes: &[u8] = unsafe {
-            core::slice::from_raw_parts(
-                fds_to_close.as_ptr().cast::<u8>(),
-                fds_to_close.len() * core::mem::size_of::<usize>(),
-            )
-        };
-        let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
-        filetable_fd.call_wo(
-            fds_bytes,
-            CallFlags::empty(),
-            &[syscall::FileTableVerb::Close as u64],
-        )?;
-        {
-            let mut guard = crate::current_filetable();
-            for fd in fds_to_close {
-                let _ = guard.remove(fd);
-            }
-        }
-        drop(filetable_fd);
         unsafe { super::deactivate_tcb(thread_fd)?; }
         select_addrspace_with_environment(
             &addrspace_selection_fd,
@@ -910,7 +811,8 @@ fn finish_native_exec(
 
     // The kernel activates the policy atomically with the selected address
     // space, before the pending switch can be committed.
-    clear_guest_filetable(thread_fd, guest_capability_fds)?;
+    // The kernel atomically retains the delegated descriptors and drains every
+    // other descriptor when the prepared address-space switch is committed.
     let guest_policy_fd =
         preflight_guest_policy(thread_fd, &grants_fd, guest_capability_fds)?;
     select_addrspace_with_environment(
