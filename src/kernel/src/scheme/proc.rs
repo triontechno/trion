@@ -1415,7 +1415,9 @@ impl ContextHandle {
                     if !matches!(
                         scheme,
                         KernelSchemes::User(_)
-                            | KernelSchemes::Global(GlobalSchemes::Pipe)
+                            | KernelSchemes::Global(
+                                GlobalSchemes::Pipe | GlobalSchemes::Serio | GlobalSchemes::Irq
+                            )
                     ) {
                         return Err(Error::new(EPERM));
                     }
