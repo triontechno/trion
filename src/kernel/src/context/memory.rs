@@ -10,7 +10,7 @@ use core::{
     mem::ManuallyDrop,
     num::NonZeroUsize,
     ops::{Bound, Deref},
-    sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering},
 };
 use rmm::{Arch as _, FrameAllocator, FrameCount, PageFlush};
 use smallvec::SmallVec;
@@ -35,6 +35,10 @@ use crate::{
 use super::context::HardBlockedReason;
 
 pub const MMAP_MIN_DEFAULT: usize = PAGE_SIZE;
+pub const GUEST_FD_CAP_READ: u8 = 1;
+pub const GUEST_FD_CAP_WRITE: u8 = 2;
+const GUEST_FD_INDEX_LIMIT: usize = 256;
+const GUEST_FD_CAPABILITY_SLOTS: usize = GUEST_FD_INDEX_LIMIT * 2;
 
 pub fn page_flags(flags: MapFlags) -> PageFlags<RmmA> {
     PageFlags::new()
@@ -96,6 +100,14 @@ struct GuestPolicyState {
     syscalls_denied: AtomicBool,
     cpu_limit_ns: AtomicU64,
     cpu_time_ns: AtomicU64,
+    fd_capabilities: [AtomicU8; GUEST_FD_CAPABILITY_SLOTS],
+}
+
+fn guest_fd_capability_slot(fd: usize) -> Option<usize> {
+    let is_upper = fd & syscall::UPPER_FDTBL_TAG != 0;
+    let index = fd & !syscall::UPPER_FDTBL_TAG;
+    (index < GUEST_FD_INDEX_LIMIT)
+        .then_some(index + if is_upper { GUEST_FD_INDEX_LIMIT } else { 0 })
 }
 
 #[derive(Debug)]
@@ -115,6 +127,7 @@ impl AddrSpaceWrapper {
                 syscalls_denied: AtomicBool::new(false),
                 cpu_limit_ns: AtomicU64::new(0),
                 cpu_time_ns: AtomicU64::new(0),
+                fd_capabilities: core::array::from_fn(|_| AtomicU8::new(0)),
             }),
         }))
     }
@@ -130,6 +143,44 @@ impl AddrSpaceWrapper {
         self.guest_policy
             .syscalls_denied
             .store(true, Ordering::Release);
+    }
+    pub fn prepare_guest_capabilities(&self, capabilities: &[(usize, u8)]) -> Result<()> {
+        if self.guest_syscalls_denied() {
+            return Err(Error::new(EPERM));
+        }
+        let mut slots = BTreeSet::new();
+        for &(fd, rights) in capabilities {
+            let slot = guest_fd_capability_slot(fd).ok_or(Error::new(EINVAL))?;
+            if rights == 0
+                || rights & !(GUEST_FD_CAP_READ | GUEST_FD_CAP_WRITE) != 0
+                || !slots.insert(slot)
+            {
+                return Err(Error::new(EINVAL));
+            }
+        }
+        for &(fd, rights) in capabilities {
+            let slot = guest_fd_capability_slot(fd).ok_or(Error::new(EINVAL))?;
+            self.guest_policy.fd_capabilities[slot].store(rights, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+    pub fn guest_capability_rights(&self, fd: usize) -> u8 {
+        guest_fd_capability_slot(fd).map_or(0, |slot| {
+            self.guest_policy.fd_capabilities[slot].load(Ordering::Acquire)
+        })
+    }
+    pub fn guest_io_allowed(&self, syscall_number: usize, fd: usize) -> bool {
+        let rights = self.guest_capability_rights(fd);
+        match syscall_number {
+            syscall::SYS_READ | syscall::SYS_READ2 => rights & GUEST_FD_CAP_READ != 0,
+            syscall::SYS_WRITE | syscall::SYS_WRITE2 => rights & GUEST_FD_CAP_WRITE != 0,
+            _ => false,
+        }
+    }
+    pub fn revoke_guest_capability(&self, fd: usize) {
+        if let Some(slot) = guest_fd_capability_slot(fd) {
+            self.guest_policy.fd_capabilities[slot].store(0, Ordering::Release);
+        }
     }
     pub fn charge_guest_cpu_time_ns(&self, elapsed: u128) -> bool {
         let limit = self.guest_policy.cpu_limit_ns.load(Ordering::Acquire);
