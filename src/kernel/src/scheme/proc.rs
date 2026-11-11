@@ -1495,7 +1495,7 @@ impl ContextHandle {
                     .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
                 addrspace.prepare_guest_capabilities(&capabilities)?;
                 context.guest_policy_prepared_addr_space = Some(Arc::clone(&addrspace));
-                Ok(2 * size_of::<usize>())
+                Ok(buf.len())
             }
             Self::SchedAffinity => {
                 let cpuset = unsafe { buf.read_exact::<CpuSet>()? };
