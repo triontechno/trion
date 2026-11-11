@@ -166,6 +166,7 @@ enum ContextHandle {
     OpenViaDup,
     SchedAffinity,
     GuestPolicy,
+    GuestCrash,
 
     MmapMinAddr(Arc<AddrSpaceWrapper>),
 }
@@ -272,6 +273,8 @@ impl ProcScheme {
             "sched-affinity" => (ContextHandle::SchedAffinity, true),
             // The process manager/loader may only tighten a context's policy.
             "guest-policy" => (ContextHandle::GuestPolicy, false),
+            // Versioned guest fault/exit report; readable by the supervising process.
+            "guest-crash" => (ContextHandle::GuestCrash, false),
             "status" => (ContextHandle::Status { privileged: false }, false),
             _ if path.starts_with("auth-") => {
                 let nonprefix = &path["auth-".len()..];
@@ -1756,6 +1759,38 @@ impl ContextHandle {
                 buf.copy_exactly(mask.as_bytes())?;
                 Ok(size_of_val(&mask))
             } // TODO: Replace write() with SYS_SENDFD?
+            ContextHandle::GuestCrash => {
+                let report = {
+                    let guest = context.read(token.token());
+                    if !guest.guest_syscalls_denied {
+                        return Err(Error::new(EPERM));
+                    }
+                    match guest.status {
+                        Status::Dead { excp: Some(exception) } => {
+                            let mut report = syscall::CtxtStsBuf::default();
+                            report.status = ContextStatus::GuestFault as usize;
+                            report.excp = exception;
+                            report
+                        }
+                        Status::Dead { excp: None } if guest.guest_exit_status.is_some() => {
+                            let mut report = syscall::CtxtStsBuf::default();
+                            report.status = ContextStatus::GuestExit as usize;
+                            report.excp = syscall::Exception::unpack(
+                                guest.guest_exit_status.unwrap() as usize,
+                                0,
+                            );
+                            report
+                        }
+                        Status::Dead { excp: None } if guest.being_sigkilled => {
+                            let mut report = syscall::CtxtStsBuf::default();
+                            report.status = ContextStatus::ForceKilled as usize;
+                            report
+                        }
+                        _ => return Err(Error::new(EAGAIN)),
+                    }
+                };
+                buf.copy_common_bytes_from_slice(&report)
+            }
             ContextHandle::Status { .. } => {
                 let status = {
                     let context = context.read(token.token());
