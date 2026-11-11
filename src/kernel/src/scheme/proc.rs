@@ -167,6 +167,7 @@ enum ContextHandle {
     SchedAffinity,
     GuestPolicy,
     GuestCrash,
+    GuestCancel,
 
     MmapMinAddr(Arc<AddrSpaceWrapper>),
 }
@@ -275,6 +276,7 @@ impl ProcScheme {
             "guest-policy" => (ContextHandle::GuestPolicy, false),
             // Versioned guest fault/exit report; readable by the supervising process.
             "guest-crash" => (ContextHandle::GuestCrash, false),
+            "guest-cancel" => (ContextHandle::GuestCancel, false),
             "status" => (ContextHandle::Status { privileged: false }, false),
             _ if path.starts_with("auth-") => {
                 let nonprefix = &path["auth-".len()..];
@@ -1366,6 +1368,30 @@ impl ContextHandle {
                 }
                 let mut lock_token = token.token();
                 addrspace.acquire_write(lock_token.downgrade()).mmap_min = val;
+                Ok(size_of::<usize>())
+            }
+            Self::GuestCancel => {
+                if buf.len() != size_of::<usize>() || buf.read_usize()? != 1 {
+                    return Err(Error::new(EINVAL));
+                }
+                if !context.read(token.token()).guest_syscalls_denied {
+                    return Err(Error::new(EPERM));
+                }
+                if context::is_current(&context) {
+                    drop(context.read(token.token()));
+                    crate::syscall::exit_this_context(None, token);
+                } else {
+                    let cpu_id = {
+                        let mut guest = context.write(token.token());
+                        if guest.status.is_dead() {
+                            return Ok(size_of::<usize>());
+                        }
+                        guest.status = Status::Runnable;
+                        guest.being_sigkilled = true;
+                        guest.cpu_id
+                    };
+                    wakeup_context(&context, cpu_id, &mut token.downgrade());
+                }
                 Ok(size_of::<usize>())
             }
             Self::GuestPolicy => {
