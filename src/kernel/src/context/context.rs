@@ -916,12 +916,18 @@ impl FdTbl {
         self.active_count = 0;
     }
 
-    pub fn take_all(&mut self) -> Result<Vec<(usize, FileDescriptor)>> {
+    pub fn take_except(
+        &mut self,
+        mut keep: impl FnMut(usize) -> bool,
+    ) -> Result<Vec<(usize, FileDescriptor)>> {
         let mut handles = Vec::new();
         handles
             .try_reserve_exact(self.active_count)
             .map_err(|_| Error::new(ENOMEM))?;
-        handles.extend(self.enumerate_fds().map(|(index, _)| index));
+        handles.extend(
+            self.enumerate_fds()
+                .filter_map(|(index, _)| (!keep(index)).then_some(index)),
+        );
 
         let mut files = Vec::new();
         files
