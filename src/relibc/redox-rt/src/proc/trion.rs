@@ -634,7 +634,11 @@ fn guest_exit_thunk(move_status: [u8; 2]) -> Result<Vec<u8>> {
 }
 
 fn write_guest_policy(guest_policy_fd: &FdGuardUpper, grants_fd: &FdGuardUpper) -> Result<()> {
-    let policy = [0, grants_fd.as_raw_fd() as usize];
+    // guest-policy ABI: enable=0, target address-space fd, capability count,
+    // followed by exactly that many descriptor handles. Native launch starts
+    // with an empty allowlist; callers may explicitly delegate handles through
+    // the same kernel-validated control interface in a later launch profile.
+    let policy = [0, grants_fd.as_raw_fd() as usize, 0];
     let policy = unsafe {
         core::slice::from_raw_parts(
             policy.as_ptr().cast::<u8>(),
