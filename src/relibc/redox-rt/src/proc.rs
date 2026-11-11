@@ -68,6 +68,9 @@ pub struct ExtraInfo<'a> {
     pub cwd_fd: Option<usize>,
     /// Filetable handle
     pub filetable_fd: Option<usize>,
+    /// Explicit descriptors the supervisor permits a restricted native guest to use.
+    /// Only pre-opened descriptors are delegated; the kernel validates each one.
+    pub guest_capability_fds: Option<&'a [usize]>,
     /// If the process for which the image is to be loaded the same as the currently running process
     pub same_process: bool,
 }
