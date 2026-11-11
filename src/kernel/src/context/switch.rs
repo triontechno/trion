@@ -1200,7 +1200,16 @@ unsafe fn switch_to(
 
     // Update times
     if !was_idle {
-        prev_context.active_cpu_time += switch_time.saturating_sub(prev_context.switch_time);
+        let elapsed = switch_time.saturating_sub(prev_context.switch_time);
+        prev_context.active_cpu_time += elapsed;
+        let guest_cpu_limit_exceeded = prev_context
+            .addr_space
+            .as_ref()
+            .filter(|addr_space| addr_space.guest_syscalls_denied())
+            .is_some_and(|addr_space| addr_space.charge_guest_cpu_time_ns(elapsed));
+        if guest_cpu_limit_exceeded {
+            prev_context.being_sigkilled = true;
+        }
     }
     next_context.switch_time = switch_time;
     if next_context.userspace {

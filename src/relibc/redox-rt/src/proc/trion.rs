@@ -1,11 +1,12 @@
 //! Restricted native PE32+ entry path for the Redox process model.
 //!
-//! This loader maps the original image into a fresh Redox address space. It
-//! deliberately rejects imports, TLS, delay imports and non-x86-64 images;
-//! Windows API/PEB/TEB compatibility belongs to the later Windows runtime.
+//! This loader maps a restricted freestanding PE32+ image into a fresh Redox
+//! address space. It applies DIR64 base relocations and resolves only the
+//! explicitly supported ExitProcess and process/thread identity imports;
+//! broader Windows runtime support is separate.
 
 use super::*;
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 
 const MAX_PE_IMAGE: usize = 256 * 1024 * 1024;
 const MAX_PE_HEADERS: usize = 16 * 1024 * 1024;
@@ -14,10 +15,28 @@ const MAX_PE_SECTIONS: usize = 96;
 #[derive(Clone, Copy)]
 struct Section {
     virtual_address: usize,
+    image_size: usize,
     memory_size: usize,
     raw_offset: u64,
     raw_size: usize,
     protection: MapFlags,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PeImportApi {
+    ExitProcess,
+    GetCurrentProcessId,
+    GetCurrentThreadId,
+}
+
+impl PeImportApi {
+    fn thunk(self) -> Result<Vec<u8>> {
+        match self {
+            Self::ExitProcess => exit_process_thunk(),
+            Self::GetCurrentProcessId => guest_query_thunk(syscall::SYS_GUEST_GETPID),
+            Self::GetCurrentThreadId => guest_query_thunk(syscall::SYS_GUEST_GETTID),
+        }
+    }
 }
 
 fn u16_at(bytes: &[u8], offset: usize) -> Result<u16> {
@@ -65,6 +84,317 @@ fn map_writable(addrspace: &FdGuardUpper, address: usize, size: usize) -> Result
     Ok(())
 }
 
+fn map_writable_fixed(addrspace: &FdGuardUpper, address: usize, size: usize) -> Result<()> {
+    if address % PAGE_SIZE != 0 || size == 0 || size % PAGE_SIZE != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    let flags = MapFlags::PROT_READ | MapFlags::PROT_WRITE | MapFlags::MAP_FIXED;
+    let mapped = mmap_anon_remote(addrspace, 0, address, size, flags)?;
+    if mapped != address {
+        return Err(Error::new(ENOEXEC));
+    }
+    Ok(())
+}
+
+fn apply_pe_relocations(
+    image: &mut [u8],
+    sections: &[Section],
+    reloc_rva: usize,
+    reloc_size: usize,
+    preferred_base: usize,
+    actual_base: usize,
+) -> Result<()> {
+    if actual_base == preferred_base {
+        return Ok(());
+    }
+    if reloc_rva == 0 || reloc_size == 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    let reloc_end = reloc_rva
+        .checked_add(reloc_size)
+        .filter(|end| *end <= image.len())
+        .ok_or(Error::new(ENOEXEC))?;
+    let delta = actual_base as i128 - preferred_base as i128;
+    let mut at = reloc_rva;
+    let mut relocation_count = 0usize;
+    let mut seen_targets = BTreeSet::new();
+    while at < reloc_end {
+        if reloc_end - at < 8 {
+            return Err(Error::new(ENOEXEC));
+        }
+        let page_rva = u32_at(image, at)? as usize;
+        let block_size = u32_at(image, at + 4)? as usize;
+        let block_end = at
+            .checked_add(block_size)
+            .filter(|end| block_size >= 8 && block_size % 2 == 0 && *end <= reloc_end)
+            .ok_or(Error::new(ENOEXEC))?;
+        if page_rva % PAGE_SIZE != 0 || page_rva >= image.len() {
+            return Err(Error::new(ENOEXEC));
+        }
+        let entries = (block_size - 8) / 2;
+        for index in 0..entries {
+            relocation_count = relocation_count
+                .checked_add(1)
+                .filter(|count| *count <= 1_000_000)
+                .ok_or(Error::new(ENOEXEC))?;
+            let entry = u16_at(image, at + 8 + index * 2)?;
+            match entry >> 12 {
+                0 => {}
+                10 => {
+                    let target = page_rva
+                        .checked_add(usize::from(entry & 0x0fff))
+                        .ok_or(Error::new(EOVERFLOW))?;
+                    let target_end = target.checked_add(8).ok_or(Error::new(EOVERFLOW))?;
+                    let in_section = sections.iter().any(|section| {
+                        target >= section.virtual_address
+                            && target_end
+                                <= section.virtual_address.saturating_add(section.image_size)
+                    });
+                    if !in_section {
+                        return Err(Error::new(ENOEXEC));
+                    }
+                    if !seen_targets.insert(target) {
+                        return Err(Error::new(ENOEXEC));
+                    }
+                    let value = (u64_at(image, target)? as i128)
+                        .checked_add(delta)
+                        .filter(|value| (0..=u64::MAX as i128).contains(value))
+                        .ok_or(Error::new(ENOEXEC))? as u64;
+                    image[target..target_end].copy_from_slice(&value.to_le_bytes());
+                }
+                _ => return Err(Error::new(ENOEXEC)),
+            }
+        }
+        at = block_end;
+    }
+    if at != reloc_end {
+        return Err(Error::new(ENOEXEC));
+    }
+    Ok(())
+}
+
+fn resolve_pe_imports(
+    image: &mut [u8],
+    sections: &[Section],
+    headers_size: usize,
+    import_rva: usize,
+    import_size: usize,
+    iat_rva: usize,
+    iat_size: usize,
+    addrspace: &FdGuardUpper,
+    stack_base: usize,
+) -> Result<()> {
+    if import_rva == 0 && import_size == 0 {
+        return Ok(());
+    }
+    if import_rva == 0 || import_size < 20 {
+        return Err(Error::new(ENOEXEC));
+    }
+    let rva_is_mapped = |rva: usize, size: usize| {
+        rva.checked_add(size).is_some_and(|end| {
+            end <= headers_size
+                || sections.iter().any(|section| {
+                    rva >= section.virtual_address
+                        && end <= section.virtual_address.saturating_add(section.image_size)
+                })
+        })
+    };
+    let import_end = import_rva
+        .checked_add(import_size)
+        .filter(|end| *end <= image.len() && rva_is_mapped(import_rva, import_size))
+        .ok_or(Error::new(ENOEXEC))?;
+    let iat_directory_end = if iat_rva == 0 {
+        None
+    } else {
+        Some(
+            iat_rva
+                .checked_add(iat_size)
+                .filter(|end| *end <= image.len() && rva_is_mapped(iat_rva, iat_size))
+                .ok_or(Error::new(ENOEXEC))?,
+        )
+    };
+    let mut iat_slots = Vec::new();
+    let mut seen_slots = BTreeSet::new();
+    let mut descriptor_at = import_rva;
+    let mut descriptor_count = 0usize;
+    let mut terminated = false;
+    while descriptor_at.checked_add(20).is_some_and(|end| end <= import_end) {
+        descriptor_count += 1;
+        if descriptor_count > 4096 {
+            return Err(Error::new(ENOEXEC));
+        }
+        let original_thunk = u32_at(image, descriptor_at)? as usize;
+        let name_rva = u32_at(image, descriptor_at + 12)? as usize;
+        let first_thunk = u32_at(image, descriptor_at + 16)? as usize;
+        if original_thunk == 0 && name_rva == 0 && first_thunk == 0 {
+            if image[descriptor_at..import_end].iter().any(|byte| *byte != 0) {
+                return Err(Error::new(ENOEXEC));
+            }
+            terminated = true;
+            break;
+        }
+        if name_rva == 0 || first_thunk == 0 {
+            return Err(Error::new(ENOEXEC));
+        }
+
+        let library_tail = image.get(name_rva..).ok_or(Error::new(ENOEXEC))?;
+        let library_len = library_tail
+            .iter()
+            .take(4096)
+            .position(|byte| *byte == 0)
+            .ok_or(Error::new(ENOEXEC))?;
+        let library = &library_tail[..library_len];
+        if !rva_is_mapped(name_rva, library_len + 1) {
+            return Err(Error::new(ENOEXEC));
+        }
+        if !library.eq_ignore_ascii_case(b"kernel32.dll")
+            && !library.eq_ignore_ascii_case(b"kernelbase.dll")
+        {
+            return Err(Error::new(ENOEXEC));
+        }
+
+        let lookup = if original_thunk == 0 {
+            first_thunk
+        } else {
+            original_thunk
+        };
+        let mut thunk_index = 0usize;
+        let mut thunk_terminated = false;
+        loop {
+            if thunk_index >= 16_384 {
+                return Err(Error::new(ENOEXEC));
+            }
+            let offset = thunk_index.checked_mul(8).ok_or(Error::new(EOVERFLOW))?;
+            let lookup_at = lookup.checked_add(offset).ok_or(Error::new(EOVERFLOW))?;
+            let iat_at = first_thunk.checked_add(offset).ok_or(Error::new(EOVERFLOW))?;
+            if !rva_is_mapped(lookup_at, 8) || !rva_is_mapped(iat_at, 8) {
+                return Err(Error::new(ENOEXEC));
+            }
+            let value = u64_at(image, lookup_at)?;
+            if value == 0 {
+                thunk_terminated = true;
+                break;
+            }
+            if value & (1u64 << 63) != 0 {
+                return Err(Error::new(ENOEXEC));
+            }
+            let name_at = usize::try_from(value).map_err(|_| Error::new(EOVERFLOW))?;
+            let symbol_at = name_at.checked_add(2).ok_or(Error::new(EOVERFLOW))?;
+            let symbol_tail = image.get(symbol_at..).ok_or(Error::new(ENOEXEC))?;
+            let symbol_len = symbol_tail
+                .iter()
+                .take(4096)
+                .position(|byte| *byte == 0)
+                .ok_or(Error::new(ENOEXEC))?;
+            if !rva_is_mapped(name_at, symbol_len + 3) {
+                return Err(Error::new(ENOEXEC));
+            }
+            let api = match &symbol_tail[..symbol_len] {
+                b"ExitProcess" => PeImportApi::ExitProcess,
+                b"GetCurrentProcessId" => PeImportApi::GetCurrentProcessId,
+                b"GetCurrentThreadId" => PeImportApi::GetCurrentThreadId,
+                _ => return Err(Error::new(ENOEXEC)),
+            };
+            let slot_end = iat_at.checked_add(8).ok_or(Error::new(EOVERFLOW))?;
+            if slot_end > image.len()
+                || !seen_slots.insert(iat_at)
+                || iat_directory_end.is_some_and(|directory_end| {
+                    iat_at < iat_rva || slot_end > directory_end
+                })
+            {
+                return Err(Error::new(ENOEXEC));
+            }
+            if iat_slots.len() >= 16_384 {
+                return Err(Error::new(ENOEXEC));
+            }
+            iat_slots.try_reserve(1).map_err(|_| Error::new(ENOMEM))?;
+            iat_slots.push((iat_at, api));
+            thunk_index += 1;
+        }
+        if !thunk_terminated {
+            return Err(Error::new(ENOEXEC));
+        }
+        descriptor_at = descriptor_at.checked_add(20).ok_or(Error::new(EOVERFLOW))?;
+    }
+    if !terminated {
+        return Err(Error::new(ENOEXEC));
+    }
+    if iat_slots.is_empty() {
+        return Ok(());
+    }
+
+    let mut api_addresses = Vec::new();
+    let mut api_thunks = Vec::new();
+    let mut thunk_offset = 0usize;
+    for api in [
+        PeImportApi::ExitProcess,
+        PeImportApi::GetCurrentProcessId,
+        PeImportApi::GetCurrentThreadId,
+    ] {
+        if !iat_slots.iter().any(|(_, imported_api)| *imported_api == api) {
+            continue;
+        }
+        let thunk = api.thunk()?;
+        let next_offset = thunk_offset
+            .checked_add(thunk.len())
+            .filter(|end| *end <= PAGE_SIZE)
+            .ok_or(Error::new(ENOEXEC))?;
+        api_addresses.try_reserve(1).map_err(|_| Error::new(ENOMEM))?;
+        api_thunks.try_reserve(1).map_err(|_| Error::new(ENOMEM))?;
+        api_addresses.push((api, thunk_offset));
+        api_thunks.push(thunk);
+        thunk_offset = next_offset
+            .checked_add(15)
+            .map(|end| end & !15)
+            .ok_or(Error::new(EOVERFLOW))?;
+    }
+    let thunk_page = mmap_anon_remote(
+        addrspace,
+        0,
+        0,
+        PAGE_SIZE,
+        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+    )?;
+    let result = (|| {
+        let thunk_end = thunk_page
+            .checked_add(PAGE_SIZE)
+            .ok_or(Error::new(EOVERFLOW))?;
+        if thunk_page < 0x1_0000 || thunk_page % PAGE_SIZE != 0 || thunk_end > stack_base {
+            return Err(Error::new(ENOEXEC));
+        }
+        for ((_, offset), thunk) in api_addresses.iter().zip(api_thunks.iter()) {
+            let address = thunk_page
+                .checked_add(*offset)
+                .ok_or(Error::new(EOVERFLOW))?;
+            write_remote(addrspace, address, thunk)?;
+        }
+        mprotect_remote(
+            addrspace,
+            thunk_page,
+            PAGE_SIZE,
+            MapFlags::PROT_READ | MapFlags::PROT_EXEC,
+        )?;
+        for (slot, api) in iat_slots {
+            let offset = api_addresses
+                .iter()
+                .find_map(|(candidate, offset)| (*candidate == api).then_some(*offset))
+                .ok_or(Error::new(ENOEXEC))?;
+            let address = thunk_page
+                .checked_add(offset)
+                .ok_or(Error::new(EOVERFLOW))?;
+            image[slot..slot + 8].copy_from_slice(&(address as u64).to_le_bytes());
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if let Err(cleanup_error) = munmap_remote(addrspace, thunk_page, PAGE_SIZE) {
+            return Err(cleanup_error);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn write_remote(addrspace: &FdGuardUpper, address: usize, bytes: &[u8]) -> Result<()> {
     if bytes.is_empty() {
         return Ok(());
@@ -82,40 +412,283 @@ fn write_remote(addrspace: &FdGuardUpper, address: usize, bytes: &[u8]) -> Resul
     Ok(())
 }
 
-fn exit_trampoline(proc_fd: usize) -> Result<Vec<u8>> {
-    let syscall_number: u32 = syscall::SYS_CALL
-        .try_into()
-        .map_err(|_| Error::new(ENOEXEC))?;
-    let proc_fd: u32 = proc_fd.try_into().map_err(|_| Error::new(EBADF))?;
-    let exit_verb: u32 = (ProcCall::Exit as u64)
+fn map_windows_runtime_page(addrspace: &FdGuardUpper, stack_base: usize) -> Result<usize> {
+    let address = mmap_anon_remote(
+        addrspace,
+        0,
+        0,
+        PAGE_SIZE,
+        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+    )?;
+    let end = address.checked_add(PAGE_SIZE).ok_or(Error::new(EOVERFLOW))?;
+    if address < 0x1_0000 || address % PAGE_SIZE != 0 || end > stack_base {
+        let _ = munmap_remote(addrspace, address, PAGE_SIZE);
+        return Err(Error::new(ENOEXEC));
+    }
+    Ok(address)
+}
+
+fn write_u64_at(bytes: &mut [u8], offset: usize, value: u64) -> Result<()> {
+    let end = offset.checked_add(size_of::<u64>()).ok_or(Error::new(EOVERFLOW))?;
+    bytes
+        .get_mut(offset..end)
+        .ok_or(Error::new(ENOEXEC))?
+        .copy_from_slice(&value.to_le_bytes());
+    Ok(())
+}
+
+fn macho_initial_stack(stack_top: usize, argv0: &[u8]) -> Result<Vec<u8>> {
+    if argv0.len() > 4096 || argv0.contains(&0) || stack_top % 16 != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    let string_offset = 5 * size_of::<u64>();
+    let unaligned_size = string_offset
+        .checked_add(argv0.len())
+        .and_then(|size| size.checked_add(1))
+        .ok_or(Error::new(EOVERFLOW))?;
+    let stack_size = unaligned_size
+        .checked_add(15)
+        .map(|size| size & !15)
+        .ok_or(Error::new(EOVERFLOW))?;
+    let stack_address = stack_top
+        .checked_sub(stack_size)
+        .ok_or(Error::new(EOVERFLOW))?;
+    let argv_address = stack_address
+        .checked_add(string_offset)
+        .ok_or(Error::new(EOVERFLOW))?;
+    let mut stack = Vec::new();
+    stack
+        .try_reserve_exact(stack_size)
+        .map_err(|_| Error::new(ENOMEM))?;
+    stack.resize(stack_size, 0);
+    write_u64_at(&mut stack, 0, 1)?;
+    write_u64_at(&mut stack, size_of::<u64>(), argv_address as u64)?;
+    let string_end = string_offset
+        .checked_add(argv0.len())
+        .ok_or(Error::new(EOVERFLOW))?;
+    stack
+        .get_mut(string_offset..string_end)
+        .ok_or(Error::new(ENOEXEC))?
+        .copy_from_slice(argv0);
+    Ok(stack)
+}
+
+#[cfg(target_arch = "x86_64")]
+fn initialize_windows_environment(
+    addrspace: &FdGuardUpper,
+    image_base: usize,
+    stack_base: usize,
+) -> Result<usize> {
+    let parameters_address = map_windows_runtime_page(addrspace, stack_base)?;
+    let peb_address = map_windows_runtime_page(addrspace, stack_base)?;
+    let teb_address = map_windows_runtime_page(addrspace, stack_base)?;
+    let mut parameters = Vec::new();
+    parameters
+        .try_reserve_exact(PAGE_SIZE)
+        .map_err(|_| Error::new(ENOMEM))?;
+    parameters.resize(PAGE_SIZE, 0);
+    parameters[0..4].copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
+    parameters[4..8].copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
+
+    let mut peb = Vec::new();
+    peb.try_reserve_exact(PAGE_SIZE)
+        .map_err(|_| Error::new(ENOMEM))?;
+    peb.resize(PAGE_SIZE, 0);
+    write_u64_at(&mut peb, 0x10, image_base as u64)?;
+    write_u64_at(&mut peb, 0x20, parameters_address as u64)?;
+
+    let mut teb = Vec::new();
+    teb.try_reserve_exact(PAGE_SIZE)
+        .map_err(|_| Error::new(ENOMEM))?;
+    teb.resize(PAGE_SIZE, 0);
+    write_u64_at(&mut teb, 0x08, super::STACK_TOP as u64)?;
+    write_u64_at(&mut teb, 0x10, stack_base as u64)?;
+    write_u64_at(&mut teb, 0x30, teb_address as u64)?;
+    write_u64_at(&mut teb, 0x60, peb_address as u64)?;
+
+    write_remote(addrspace, parameters_address, &parameters)?;
+    write_remote(addrspace, peb_address, &peb)?;
+    write_remote(addrspace, teb_address, &teb)?;
+    Ok(teb_address)
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn initialize_windows_environment(
+    _addrspace: &FdGuardUpper,
+    _image_base: usize,
+    _stack_base: usize,
+) -> Result<usize> {
+    Err(Error::new(ENOEXEC))
+}
+
+struct GuestEnvironment {
+    fd: FdGuardUpper,
+    previous: syscall::EnvRegisters,
+    next: syscall::EnvRegisters,
+}
+
+fn prepare_guest_environment(
+    thread_fd: &FdGuardUpper,
+    gsbase: Option<usize>,
+) -> Result<Option<GuestEnvironment>> {
+    let Some(gsbase) = gsbase else {
+        return Ok(None);
+    };
+    #[cfg(target_arch = "x86_64")]
+    {
+        let fd = thread_fd.dup_into_upper(b"regs/env")?;
+        fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
+        let mut previous = syscall::EnvRegisters::default();
+        fd.read(&mut previous)?;
+        let next = syscall::EnvRegisters {
+            fsbase: previous.fsbase,
+            gsbase: gsbase.try_into().map_err(|_| Error::new(EOVERFLOW))?,
+        };
+        Ok(Some(GuestEnvironment { fd, previous, next }))
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (thread_fd, gsbase);
+        Err(Error::new(ENOEXEC))
+    }
+}
+
+fn select_addrspace_with_environment(
+    addrspace_selection_fd: &FdGuardUpper,
+    selection: &[u8],
+    guest_environment: Option<&GuestEnvironment>,
+) -> Result<()> {
+    if let Some(environment) = guest_environment {
+        environment.fd.write(&environment.next)?;
+    }
+    if let Err(error) = addrspace_selection_fd.write(selection) {
+        if let Some(environment) = guest_environment {
+            environment.fd.write(&environment.previous)?;
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn exit_trampoline() -> Result<Vec<u8>> {
+    guest_exit_thunk([0x89, 0xC7])
+}
+
+fn exit_process_thunk() -> Result<Vec<u8>> {
+    guest_exit_thunk([0x89, 0xCF])
+}
+
+fn macho_main_thunk(entry: usize) -> Result<Vec<u8>> {
+    let entry = u64::try_from(entry).map_err(|_| Error::new(EOVERFLOW))?;
+    let mut code = alloc::vec![
+        0x48, 0x8B, 0x3C, 0x24,       // mov rdi, [rsp] (argc)
+        0x48, 0x8D, 0x74, 0x24, 0x08, // lea rsi, [rsp + 8] (argv)
+        0x48, 0x8D, 0x54, 0x24, 0x18, // lea rdx, [rsp + 24] (envp)
+        0x48, 0x8D, 0x4C, 0x24, 0x20, // lea rcx, [rsp + 32] (Apple vector)
+        0x48, 0xB8,                   // movabs rax, LC_MAIN
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0xFF, 0xD0,                   // call rax
+    ];
+    code[21..29].copy_from_slice(&entry.to_le_bytes());
+    code.extend_from_slice(&exit_trampoline()?);
+    Ok(code)
+}
+
+fn guest_query_thunk(syscall_number: usize) -> Result<Vec<u8>> {
+    let syscall_number: u32 = syscall_number
         .try_into()
         .map_err(|_| Error::new(ENOEXEC))?;
     let mut code = alloc::vec![
-        0x89, 0xC1,                         // mov ecx, eax (preserve entry return code)
-        0x81, 0xE1, 0xFF, 0, 0, 0,         // and ecx, 0xff (Redox process exit status)
-        0xB8, 0, 0, 0, 0,                   // mov eax, SYS_CALL
-        0xBF, 0, 0, 0, 0,                   // mov edi, proc fd
-        0x48, 0x8D, 0x74, 0x24, 0xF0,       // lea rsi, [rsp - 16] (metadata buffer)
-        0x48, 0x31, 0xC0,                   // xor rax, rax
-        0x48, 0x89, 0x06,                   // mov [rsi], rax
-        0x48, 0x89, 0x46, 0x08,             // mov [rsi + 8], rax
-        0xC7, 0x06, 0, 0, 0, 0,             // mov dword [rsi], ProcCall::Exit
-        0x89, 0x4E, 0x08,                   // mov [rsi + 8], ecx (exit status)
-        0x49, 0x89, 0xF0,                   // mov r8, rsi (SYS_CALL metadata pointer)
-        0x31, 0xF6,                         // xor esi, esi (no payload)
-        0x31, 0xD2,                         // xor edx, edx (no payload)
-        0x41, 0xBA, 2, 0, 0, 0,             // mov r10d, 2 (two metadata words, no flags)
-        0x0F, 0x05,                         // syscall
-        0x48, 0x83, 0xF8, 0xFC,             // cmp rax, -EINTR
-        0x74, 0xC9,                         // je retry syscall
-        0x48, 0x83, 0xF8, 0xF5,             // cmp rax, -EAGAIN
-        0x74, 0xC3,                         // je retry syscall
-        0x0F, 0x0B,                         // ud2 if process-manager exit unexpectedly returns
+        0x31, 0xFF,                   // xor edi, edi
+        0x31, 0xF6,                   // xor esi, esi
+        0x31, 0xD2,                   // xor edx, edx
+        0x45, 0x31, 0xD2,             // xor r10d, r10d
+        0x45, 0x31, 0xC0,             // xor r8d, r8d
+        0x45, 0x31, 0xC9,             // xor r9d, r9d
+        0xB8, 0, 0, 0, 0,             // mov eax, guest query syscall
+        0x0F, 0x05,                   // syscall
+        0xC3,                         // ret
     ];
-    code[9..13].copy_from_slice(&syscall_number.to_le_bytes());
-    code[14..18].copy_from_slice(&proc_fd.to_le_bytes());
-    code[35..39].copy_from_slice(&exit_verb.to_le_bytes());
+    code[16..20].copy_from_slice(&syscall_number.to_le_bytes());
     Ok(code)
+}
+
+fn guest_exit_thunk(move_status: [u8; 2]) -> Result<Vec<u8>> {
+    let syscall_number: u32 = syscall::SYS_GUEST_EXIT
+        .try_into()
+        .map_err(|_| Error::new(ENOEXEC))?;
+    let mut code = alloc::vec![
+        move_status[0], move_status[1],
+        0x83, 0xE7, 0xFF,             // and edi, 0xff (Redox process exit status)
+        0x31, 0xF6,                   // xor esi, esi
+        0x31, 0xD2,                   // xor edx, edx
+        0x45, 0x31, 0xD2,             // xor r10d, r10d
+        0x45, 0x31, 0xC0,             // xor r8d, r8d
+        0x45, 0x31, 0xC9,             // xor r9d, r9d
+        0xB8, 0, 0, 0, 0,             // mov eax, SYS_GUEST_EXIT
+        0x0F, 0x05,                   // syscall
+        0x0F, 0x0B,                   // ud2 if the non-returning syscall unexpectedly returns
+    ];
+    code[19..23].copy_from_slice(&syscall_number.to_le_bytes());
+    Ok(code)
+}
+
+fn write_guest_policy(guest_policy_fd: &FdGuardUpper, grants_fd: &FdGuardUpper) -> Result<()> {
+    let policy = [0, grants_fd.as_raw_fd() as usize];
+    let policy = unsafe {
+        core::slice::from_raw_parts(
+            policy.as_ptr().cast::<u8>(),
+            core::mem::size_of_val(&policy),
+        )
+    };
+    guest_policy_fd.write(policy)?;
+    Ok(())
+}
+
+fn preflight_guest_policy(
+    thread_fd: &FdGuardUpper,
+    grants_fd: &FdGuardUpper,
+) -> Result<FdGuardUpper> {
+    let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
+    guest_policy_fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
+    write_guest_policy(&guest_policy_fd, grants_fd)?;
+    Ok(guest_policy_fd)
+}
+
+fn clear_guest_filetable(thread_fd: &FdGuardUpper) -> Result<()> {
+    let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
+    filetable_fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
+    filetable_fd.call_wo(
+        &[],
+        CallFlags::empty(),
+        &[syscall::FileTableVerb::Refresh as u64],
+    )?;
+    let bytes_len = filetable_fd.lseek(0, syscall::flag::SEEK_END)?;
+    if bytes_len % size_of::<u64>() != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    filetable_fd.lseek(0, SEEK_SET)?;
+
+    let mut buffer = [0u8; 256 * size_of::<u64>()];
+    let mut remaining = bytes_len;
+    while remaining > 0 {
+        let chunk_size = remaining.min(buffer.len());
+        let mut read = 0;
+        while read < chunk_size {
+            let count = filetable_fd.read(&mut buffer[read..chunk_size])?;
+            if count == 0 {
+                return Err(Error::new(ENOEXEC));
+            }
+            read += count;
+        }
+        filetable_fd.call_wo(
+            &buffer[..chunk_size],
+            CallFlags::empty(),
+            &[syscall::FileTableVerb::Close as u64],
+        )?;
+        remaining -= chunk_size;
+    }
+    Ok(())
 }
 
 fn finish_native_exec(
@@ -127,67 +700,93 @@ fn finish_native_exec(
     grants_fd: FdGuardUpper,
     entry: usize,
     stack_return_offset: usize,
+    initial_stack: Option<Vec<u8>>,
+    windows_gsbase: Option<usize>,
 ) -> Result<Option<FexecResult>> {
     let stack_base = super::STACK_TOP
         .checked_sub(super::STACK_SIZE)
         .ok_or(Error::new(EOVERFLOW))?;
     map_writable(&grants_fd, stack_base, super::STACK_SIZE)?;
 
-    let trampoline = exit_trampoline(proc_fd.as_raw_fd())?;
-    let trampoline_size = page_align(trampoline.len())?;
-    let trampoline_address = mmap_anon_remote(
-        &grants_fd,
-        0,
-        0,
-        trampoline_size,
-        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
-    )?;
-    if trampoline_address == 0 || trampoline_address % PAGE_SIZE != 0 {
-        return Err(Error::new(ENOEXEC));
-    }
-    write_remote(&grants_fd, trampoline_address, &trampoline)?;
-    mprotect_remote(
-        &grants_fd,
-        trampoline_address,
-        trampoline_size,
-        MapFlags::PROT_READ | MapFlags::PROT_EXEC,
-    )?;
+    let trampoline_address = if initial_stack.is_none() {
+        let trampoline = exit_trampoline()?;
+        let trampoline_size = page_align(trampoline.len())?;
+        let address = mmap_anon_remote(
+            &grants_fd,
+            0,
+            0,
+            trampoline_size,
+            MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+        )?;
+        if address == 0 || address % PAGE_SIZE != 0 {
+            return Err(Error::new(ENOEXEC));
+        }
+        if let Err(error) = write_remote(&grants_fd, address, &trampoline) {
+            let _ = munmap_remote(&grants_fd, address, trampoline_size);
+            return Err(error);
+        }
+        if let Err(error) = mprotect_remote(
+            &grants_fd,
+            address,
+            trampoline_size,
+            MapFlags::PROT_READ | MapFlags::PROT_EXEC,
+        ) {
+            let _ = munmap_remote(&grants_fd, address, trampoline_size);
+            return Err(error);
+        }
+        Some(address)
+    } else {
+        None
+    };
 
-    // Both supported raw entry ABIs enter with RSP == 8 (mod 16). PE reserves
-    // the Windows 32-byte home area; the freestanding Mach-O profile does not.
-    let stack_pointer = super::STACK_TOP
-        .checked_sub(stack_return_offset)
-        .ok_or(Error::new(EOVERFLOW))?;
-    if stack_pointer % 16 != 8 {
-        return Err(Error::new(ENOEXEC));
-    }
-    write_remote(
-        &grants_fd,
-        stack_pointer,
-        &trampoline_address.to_ne_bytes(),
-    )?;
+    let stack_pointer = if let Some(initial_stack) = initial_stack {
+        if initial_stack.is_empty()
+            || initial_stack.len() > super::STACK_SIZE
+            || initial_stack.len() % 16 != 0
+        {
+            return Err(Error::new(ENOEXEC));
+        }
+        let stack_pointer = super::STACK_TOP
+            .checked_sub(initial_stack.len())
+            .filter(|pointer| pointer % 16 == 0)
+            .ok_or(Error::new(EOVERFLOW))?;
+        write_remote(&grants_fd, stack_pointer, &initial_stack)?;
+        stack_pointer
+    } else {
+        // PE entry follows the Microsoft x64 function-entry stack contract:
+        // RSP is 8 mod 16 and the 32-byte home area follows the return slot.
+        let stack_pointer = super::STACK_TOP
+            .checked_sub(stack_return_offset)
+            .ok_or(Error::new(EOVERFLOW))?;
+        if stack_pointer % 16 != 8 {
+            return Err(Error::new(ENOEXEC));
+        }
+        write_remote(
+            &grants_fd,
+            stack_pointer,
+            &trampoline_address
+                .ok_or(Error::new(ENOEXEC))?
+                .to_ne_bytes(),
+        )?;
+        stack_pointer
+    };
 
     let addrspace_selection_fd = thread_fd.dup_into_upper(b"current-addrspace")?;
-    addrspace_selection_fd.write(&create_set_addr_space_buf(
-        grants_fd.as_raw_fd(),
-        entry,
-        stack_pointer,
-    ))?;
 
     let mut name = [0u8; 32];
     let name_len = path.len().min(name.len());
     name[..name_len].copy_from_slice(&path[..name_len]);
-    let _ = sys_call_wo(
+    sys_call_wo(
         proc_fd.as_raw_fd(),
         &name,
         CallFlags::empty(),
         &[ProcCall::Rename as u64],
-    );
-    let _ = sys_call(
+    )?;
+    sys_call(
         proc_fd.as_raw_fd(),
         CallFlags::empty(),
         &[ProcCall::DisableSetpgid as u64],
-    );
+    )?;
     // Native images have no registered Redox signal runtime. Clear inherited
     // user/exception handlers before entering untrusted guest code so faults
     // follow the kernel's ordinary process signal/termination path.
@@ -198,15 +797,23 @@ fn finish_native_exec(
         thread_control_addr: 0,
         proc_control_addr: 0,
     })?;
+    let guest_environment = prepare_guest_environment(thread_fd, windows_gsbase)?;
 
     if extrainfo.same_process {
+        let guest_policy_fd = preflight_guest_policy(thread_fd, &grants_fd)?;
         let _siglock = crate::signal::tmp_disable_signals();
         let fds_to_close = {
             let guard = crate::current_filetable();
             guard
                 .iter()
                 .filter_map(|(fd, flags)| {
-                    if fd == addrspace_selection_fd.as_raw_fd() {
+                    if fd == addrspace_selection_fd.as_raw_fd()
+                        || fd == guest_policy_fd.as_raw_fd()
+                        || fd == grants_fd.as_raw_fd()
+                        || guest_environment
+                            .as_ref()
+                            .is_some_and(|environment| fd == environment.fd.as_raw_fd())
+                    {
                         None
                     } else if flags & O_CLOEXEC == O_CLOEXEC || fd == image_file.as_raw_fd() {
                         Some(fd)
@@ -223,44 +830,53 @@ fn finish_native_exec(
             )
         };
         let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
-        let _ = filetable_fd.call_wo(
+        filetable_fd.call_wo(
             fds_bytes,
             CallFlags::empty(),
             &[syscall::FileTableVerb::Close as u64],
-        );
+        )?;
         {
             let mut guard = crate::current_filetable();
             for fd in fds_to_close {
                 let _ = guard.remove(fd);
             }
         }
+        drop(filetable_fd);
         unsafe { super::deactivate_tcb(thread_fd)?; }
-        // Set the irreversible kernel policy after all loader syscalls, but
-        // before the close that commits the address-space switch. The kernel
-        // policy explicitly permits SYS_CLOSE so this transition can complete.
-        let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
-        guest_policy_fd.write(&1usize.to_ne_bytes())?;
-        // Do not leave the process-manager policy capability in the guest's
-        // inherited descriptor table. SYS_CLOSE remains permitted after the
-        // policy is enabled, so close it before the address-space handoff.
+        select_addrspace_with_environment(
+            &addrspace_selection_fd,
+            &create_set_addr_space_buf(grants_fd.as_raw_fd(), entry, stack_pointer),
+            guest_environment.as_ref(),
+        )?;
+        if let Some(environment) = guest_environment {
+            drop(environment.fd);
+        }
         drop(guest_policy_fd);
+        drop(grants_fd);
         let old_filetable_fd = {
             let mut guard = crate::current_filetable();
             guard.take()
         };
         drop(old_filetable_fd);
-        drop(addrspace_selection_fd);
+        crate::sys::close(addrspace_selection_fd.take())?;
         unreachable!("closing current-addrspace switches into the native image");
     }
 
-    // The child loader has completed setup; deny syscalls before returning the
-    // context to the process manager for guest entry.
-    let guest_policy_fd = thread_fd.dup_into_upper(b"guest-policy")?;
-    guest_policy_fd.write(&1usize.to_ne_bytes())?;
-    // The irreversible policy is now kernel-owned; the guest must not inherit
-    // the loader's policy-control descriptor.
+    // The kernel activates the policy atomically with the selected address
+    // space, before the pending switch can be committed.
+    clear_guest_filetable(thread_fd)?;
+    let guest_policy_fd = preflight_guest_policy(thread_fd, &grants_fd)?;
+    select_addrspace_with_environment(
+        &addrspace_selection_fd,
+        &create_set_addr_space_buf(grants_fd.as_raw_fd(), entry, stack_pointer),
+        guest_environment.as_ref(),
+    )?;
+    crate::sys::close(addrspace_selection_fd.take())?;
+    if let Some(environment) = guest_environment {
+        drop(environment.fd);
+    }
+    // The guest must not inherit the loader's policy-control descriptor.
     drop(guest_policy_fd);
-    drop(addrspace_selection_fd);
     Ok(None)
 }
 
@@ -273,9 +889,9 @@ fn launch_pe(
     envs: &[&[u8]],
     extrainfo: &ExtraInfo,
 ) -> Result<Option<FexecResult>> {
-    // This first native profile is intentionally freestanding: argv/env, imports,
-    // TLS and Windows runtime structures are not silently fabricated.
-    if args.len() > 1 || !envs.is_empty() {
+    // This first Windows profile omits process parameters, TLS, exceptions and
+    // general Win32 services; only explicit, supported imports are resolved.
+    if !args.is_empty() || !envs.is_empty() {
         return Err(Error::new(ENOEXEC));
     }
 
@@ -314,6 +930,7 @@ fn launch_pe(
         .map_err(|_| Error::new(EOVERFLOW))?;
     let section_alignment = usize::try_from(u32_at(&optional, 32)?)
         .map_err(|_| Error::new(EOVERFLOW))?;
+    let subsystem = u16_at(&optional, 68)?;
     let file_alignment = usize::try_from(u32_at(&optional, 36)?)
         .map_err(|_| Error::new(EOVERFLOW))?;
     let image_size = usize::try_from(u32_at(&optional, 56)?)
@@ -326,6 +943,16 @@ fn launch_pe(
     if directory_count > 16 || optional_size < 112usize.checked_add(directory_bytes).ok_or(Error::new(EOVERFLOW))? {
         return Err(Error::new(ENOEXEC));
     }
+    let (reloc_rva, reloc_size) = if directory_count > 5 {
+        (
+            usize::try_from(u32_at(&optional, 112 + 5 * 8)?)
+                .map_err(|_| Error::new(EOVERFLOW))?,
+            usize::try_from(u32_at(&optional, 112 + 5 * 8 + 4)?)
+                .map_err(|_| Error::new(EOVERFLOW))?,
+        )
+    } else {
+        (0, 0)
+    };
 
     if image_base < 0x1_0000
         || image_base % 0x1_0000 != 0
@@ -345,6 +972,7 @@ fn launch_pe(
         || headers_size % file_alignment != 0
         || entry_rva == 0
         || entry_rva >= image_size
+        || subsystem != 3
     {
         return Err(Error::new(ENOEXEC));
     }
@@ -356,14 +984,32 @@ fn launch_pe(
         return Err(Error::new(ENOEXEC));
     }
 
-    // Imports, TLS callbacks and delay imports require the Windows runtime.
-    if directory_count > 1 {
+    let (import_rva, import_size) = if directory_count > 1 {
         if optional_size < 128 {
             return Err(Error::new(ENOEXEC));
         }
-        if u32_at(&optional, 120)? != 0 || u32_at(&optional, 124)? != 0 {
-            return Err(Error::new(ENOEXEC));
-        }
+        (
+            usize::try_from(u32_at(&optional, 120)?).map_err(|_| Error::new(EOVERFLOW))?,
+            usize::try_from(u32_at(&optional, 124)?).map_err(|_| Error::new(EOVERFLOW))?,
+        )
+    } else {
+        (0, 0)
+    };
+    if (import_rva == 0) != (import_size == 0) {
+        return Err(Error::new(ENOEXEC));
+    }
+    let (iat_rva, iat_size) = if directory_count > 12 {
+        (
+            usize::try_from(u32_at(&optional, 112 + 12 * 8)?)
+                .map_err(|_| Error::new(EOVERFLOW))?,
+            usize::try_from(u32_at(&optional, 112 + 12 * 8 + 4)?)
+                .map_err(|_| Error::new(EOVERFLOW))?,
+        )
+    } else {
+        (0, 0)
+    };
+    if (iat_rva == 0) != (iat_size == 0) || (import_rva == 0 && iat_rva != 0) {
+        return Err(Error::new(ENOEXEC));
     }
     if directory_count > 3
         && (u32_at(&optional, 136)? != 0 || u32_at(&optional, 140)? != 0)
@@ -389,7 +1035,7 @@ fn launch_pe(
 
     // Reject loader metadata that would require CFG, bound imports, an IAT,
     // or a managed (.NET) runtime even if the ordinary import directory is empty.
-    for index in [10usize, 11, 12, 14] {
+    for index in [10usize, 11, 14] {
         if directory_count > index {
             let offset = 112usize
                 .checked_add(index.checked_mul(8).ok_or(Error::new(EOVERFLOW))?)
@@ -444,12 +1090,12 @@ fn launch_pe(
         {
             return Err(Error::new(ENOEXEC));
         }
-        let virtual_end = virtual_address.checked_add(memory_size).ok_or(Error::new(EOVERFLOW))?;
-        if virtual_end > image_size {
-            return Err(Error::new(ENOEXEC));
-        }
-        raw_offset.checked_add(raw_size as u64).ok_or(Error::new(EOVERFLOW))?;
         let mapped_size = page_align(memory_size)?;
+        virtual_address
+            .checked_add(mapped_size)
+            .filter(|end| *end <= image_size)
+            .ok_or(Error::new(ENOEXEC))?;
+        raw_offset.checked_add(raw_size as u64).ok_or(Error::new(EOVERFLOW))?;
         let absolute_start = image_base.checked_add(virtual_address).ok_or(Error::new(EOVERFLOW))?;
         let absolute_end = absolute_start.checked_add(mapped_size).ok_or(Error::new(EOVERFLOW))?;
         for (old_start, old_end) in &ranges {
@@ -465,7 +1111,10 @@ fn launch_pe(
         if writable && executable || executable && !readable {
             return Err(Error::new(ENOEXEC));
         }
-        if executable && entry_rva >= virtual_address && entry_rva < virtual_end {
+        if executable
+            && entry_rva >= virtual_address
+            && entry_rva < virtual_address.saturating_add(memory_size)
+        {
             entry_is_executable = true;
         }
         let mut protection = MapFlags::empty();
@@ -474,6 +1123,7 @@ fn launch_pe(
         if executable { protection |= MapFlags::PROT_EXEC; }
         sections.push(Section {
             virtual_address,
+            image_size: memory_size,
             memory_size: mapped_size,
             raw_offset,
             raw_size,
@@ -483,6 +1133,38 @@ fn launch_pe(
     if !entry_is_executable {
         return Err(Error::new(ENOEXEC));
     }
+    if iat_rva != 0
+        && !sections.iter().any(|section| {
+            iat_rva >= section.virtual_address
+                && iat_rva
+                    .checked_add(iat_size)
+                    .is_some_and(|end| {
+                        end <= section.virtual_address.saturating_add(section.image_size)
+                    })
+        })
+    {
+        return Err(Error::new(ENOEXEC));
+    }
+
+    let mut image_bytes = Vec::new();
+    image_bytes
+        .try_reserve_exact(image_size)
+        .map_err(|_| Error::new(ENOMEM))?;
+    image_bytes.resize(image_size, 0);
+    let header_bytes = read_vec(&image_file, 0, headers_size)?;
+    image_bytes[..headers_size].copy_from_slice(&header_bytes);
+    for section in &sections {
+        if section.raw_size == 0 {
+            continue;
+        }
+        let raw = read_vec(&image_file, section.raw_offset, section.raw_size)?;
+        let end = section
+            .virtual_address
+            .checked_add(section.raw_size)
+            .filter(|end| *end <= image_bytes.len())
+            .ok_or(Error::new(ENOEXEC))?;
+        image_bytes[section.virtual_address..end].copy_from_slice(&raw);
+    }
 
     let grants_fd = {
         let current_addrspace_fd = thread_fd.dup_into_upper(b"addrspace")?;
@@ -490,26 +1172,81 @@ fn launch_pe(
     };
     grants_fd.fcntl(syscall::F_SETFD, O_CLOEXEC)?;
 
-    // Map everything writable but non-executable, populate it, then apply final
-    // protections. The original PE file is never modified.
-    map_writable(&grants_fd, image_base, header_map_size)?;
-    let header_bytes = read_vec(&image_file, 0, headers_size)?;
-    write_remote(&grants_fd, image_base, &header_bytes)?;
-    mprotect_remote(&grants_fd, image_base, header_map_size, MapFlags::PROT_READ)?;
+    let actual_base = match mmap_anon_remote(
+        &grants_fd,
+        0,
+        image_base,
+        image_size,
+        MapFlags::PROT_NONE | MapFlags::MAP_FIXED_NOREPLACE,
+    ) {
+        Ok(mapped) if mapped == image_base => image_base,
+        Ok(mapped) => {
+            let _ = munmap_remote(&grants_fd, mapped, image_size);
+            return Err(Error::new(ENOEXEC));
+        }
+        Err(_) => mmap_anon_remote(
+            &grants_fd,
+            0,
+            0,
+            image_size,
+            MapFlags::PROT_NONE,
+        )?,
+    };
+    let actual_end = actual_base
+        .checked_add(image_size)
+        .ok_or(Error::new(EOVERFLOW))?;
+    if actual_base < 0x1_0000 || actual_end > stack_base {
+        let _ = munmap_remote(&grants_fd, actual_base, image_size);
+        return Err(Error::new(ENOEXEC));
+    }
+    if let Err(error) = apply_pe_relocations(
+        &mut image_bytes,
+        &sections,
+        reloc_rva,
+        reloc_size,
+        image_base,
+        actual_base,
+    ) {
+        let _ = munmap_remote(&grants_fd, actual_base, image_size);
+        return Err(error);
+    }
+    if let Err(error) = resolve_pe_imports(
+        &mut image_bytes,
+        &sections,
+        headers_size,
+        import_rva,
+        import_size,
+        iat_rva,
+        iat_size,
+        &grants_fd,
+        stack_base,
+    ) {
+        let _ = munmap_remote(&grants_fd, actual_base, image_size);
+        return Err(error);
+    }
+
+    // Reserve the complete image span before replacing individual regions;
+    // relocations are applied to a private mapped-image buffer before entry.
+    map_writable_fixed(&grants_fd, actual_base, header_map_size)?;
+    write_remote(&grants_fd, actual_base, &image_bytes[..headers_size])?;
+    mprotect_remote(&grants_fd, actual_base, header_map_size, MapFlags::PROT_READ)?;
 
     for section in &sections {
-        let address = image_base
+        let address = actual_base
             .checked_add(section.virtual_address)
             .ok_or(Error::new(EOVERFLOW))?;
-        map_writable(&grants_fd, address, section.memory_size)?;
-        if section.raw_size > 0 {
-            let raw = read_vec(&image_file, section.raw_offset, section.raw_size)?;
-            write_remote(&grants_fd, address, &raw)?;
-        }
+        map_writable_fixed(&grants_fd, address, section.memory_size)?;
+        write_remote(
+            &grants_fd,
+            address,
+            &image_bytes[section.virtual_address
+                ..section.virtual_address + section.memory_size],
+        )?;
         mprotect_remote(&grants_fd, address, section.memory_size, section.protection)?;
     }
 
-    let entry = image_base.checked_add(entry_rva).ok_or(Error::new(EOVERFLOW))?;
+    let entry = actual_base.checked_add(entry_rva).ok_or(Error::new(EOVERFLOW))?;
+    let teb_address = initialize_windows_environment(&grants_fd, actual_base, stack_base)?;
     finish_native_exec(
         image_file,
         thread_fd,
@@ -519,6 +1256,8 @@ fn launch_pe(
         grants_fd,
         entry,
         40,
+        None,
+        Some(teb_address),
     )
 }
 
@@ -532,7 +1271,8 @@ fn launch_macho64(
     extrainfo: &ExtraInfo,
 ) -> Result<Option<FexecResult>> {
     // The Stage G Mach-O profile is freestanding: no dyld, dylibs, relocations,
-    // code-signature enforcement, TLS, argv/env block or macOS framework services.
+    // code-signature enforcement, TLS, arguments beyond argv[0], environment
+    // variables or macOS framework services.
     if args.len() > 1 || !envs.is_empty() {
         return Err(Error::new(ENOEXEC));
     }
@@ -632,6 +1372,7 @@ fn launch_macho64(
                     if initial_protection & 4 != 0 { protection |= MapFlags::PROT_EXEC; }
                     segments.push(Section {
                         virtual_address: vm_address,
+                        image_size: vm_size,
                         memory_size: mapped_size,
                         raw_offset: file_offset,
                         raw_size: file_size,
@@ -716,6 +1457,33 @@ fn launch_macho64(
         )?;
     }
 
+    let argv0 = args.first().copied().unwrap_or(path);
+    let initial_stack = macho_initial_stack(super::STACK_TOP, argv0)?;
+    let main_thunk = macho_main_thunk(entry)?;
+    let main_thunk_size = page_align(main_thunk.len())?;
+    let main_thunk_address = mmap_anon_remote(
+        &grants_fd,
+        0,
+        0,
+        main_thunk_size,
+        MapFlags::PROT_READ | MapFlags::PROT_WRITE,
+    )?;
+    if main_thunk_address == 0 || main_thunk_address % PAGE_SIZE != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+    if let Err(error) = write_remote(&grants_fd, main_thunk_address, &main_thunk) {
+        let _ = munmap_remote(&grants_fd, main_thunk_address, main_thunk_size);
+        return Err(error);
+    }
+    if let Err(error) = mprotect_remote(
+        &grants_fd,
+        main_thunk_address,
+        main_thunk_size,
+        MapFlags::PROT_READ | MapFlags::PROT_EXEC,
+    ) {
+        let _ = munmap_remote(&grants_fd, main_thunk_address, main_thunk_size);
+        return Err(error);
+    }
     finish_native_exec(
         image_file,
         thread_fd,
@@ -723,8 +1491,10 @@ fn launch_macho64(
         path,
         extrainfo,
         grants_fd,
-        entry,
-        8,
+        main_thunk_address,
+        0,
+        Some(initial_stack),
+        None,
     )
 }
 
@@ -753,4 +1523,104 @@ pub(super) fn fexec_pe32_plus(
     extrainfo: &ExtraInfo,
 ) -> Result<Option<FexecResult>> {
     launch_pe(image_file, thread_fd, proc_fd, path, args, envs, extrainfo)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macho_initial_stack_contains_bounded_empty_vectors_and_argv0() {
+        let stack_top = 0x8000_0000usize;
+        let argv0 = b"/Applications/Sample";
+        let stack = macho_initial_stack(stack_top, argv0).unwrap();
+        assert_eq!(stack.len() % 16, 0);
+        assert_eq!(u64::from_le_bytes(stack[0..8].try_into().unwrap()), 1);
+        let stack_address = stack_top - stack.len();
+        assert_eq!(
+            u64::from_le_bytes(stack[8..16].try_into().unwrap()) as usize,
+            stack_address + 40
+        );
+        assert_eq!(&stack[16..40], &[0; 24]);
+        assert_eq!(&stack[40..40 + argv0.len()], argv0);
+        assert_eq!(stack[40 + argv0.len()], 0);
+    }
+
+    #[test]
+    fn macho_initial_stack_rejects_unbounded_or_unaligned_input() {
+        assert!(macho_initial_stack(0x8000_0008, b"/sample").is_err());
+        assert!(macho_initial_stack(0x8000_0000, b"/bad\0path").is_err());
+        assert!(macho_initial_stack(0x8000_0000, &[b'x'; 4097]).is_err());
+    }
+
+    #[test]
+    fn macho_main_thunk_passes_startup_vectors_and_exits_with_main_status() {
+        let entry = 0x1234_5678_9ABC_DEF0usize;
+        let thunk = macho_main_thunk(entry).unwrap();
+        assert_eq!(&thunk[..4], &[0x48, 0x8B, 0x3C, 0x24]);
+        assert_eq!(&thunk[4..9], &[0x48, 0x8D, 0x74, 0x24, 0x08]);
+        assert_eq!(&thunk[9..14], &[0x48, 0x8D, 0x54, 0x24, 0x18]);
+        assert_eq!(&thunk[14..19], &[0x48, 0x8D, 0x4C, 0x24, 0x20]);
+        assert_eq!(
+            u64::from_le_bytes(thunk[21..29].try_into().unwrap()),
+            entry as u64
+        );
+        assert_eq!(&thunk[29..31], &[0xFF, 0xD0]);
+        assert_eq!(&thunk[31..33], &[0x89, 0xC7]);
+    }
+
+    #[test]
+    fn guest_exit_thunks_encode_the_syscall_immediate_at_the_correct_offset() {
+        let expected = syscall::SYS_GUEST_EXIT as u32;
+        for thunk in [exit_trampoline().unwrap(), exit_process_thunk().unwrap()] {
+            assert_eq!(u32::from_le_bytes(thunk[19..23].try_into().unwrap()), expected);
+            assert_eq!(&thunk[23..], &[0x0F, 0x05, 0x0F, 0x0B]);
+        }
+    }
+
+    #[test]
+    fn guest_identity_thunks_encode_restricted_query_syscalls() {
+        for (number, thunk) in [
+            (
+                syscall::SYS_GUEST_GETPID,
+                guest_query_thunk(syscall::SYS_GUEST_GETPID).unwrap(),
+            ),
+            (
+                syscall::SYS_GUEST_GETTID,
+                guest_query_thunk(syscall::SYS_GUEST_GETTID).unwrap(),
+            ),
+        ] {
+            assert_eq!(u32::from_le_bytes(thunk[16..20].try_into().unwrap()), number as u32);
+            assert_eq!(&thunk[20..], &[0x0F, 0x05, 0xC3]);
+        }
+    }
+
+    #[test]
+    fn dir64_relocation_rebases_the_image_pointer() {
+        let mut image = alloc::vec![0; 0x2000];
+        image[0x100..0x104].copy_from_slice(&0x200u32.to_le_bytes());
+        image[0x104..0x108].copy_from_slice(&10u32.to_le_bytes());
+        image[0x108..0x10A].copy_from_slice(&0xA020u16.to_le_bytes());
+        image[0x220..0x228].copy_from_slice(&0x1400_0200u64.to_le_bytes());
+        let sections = [Section {
+            virtual_address: 0x200,
+            image_size: 0x1000,
+            memory_size: 0x1000,
+            raw_offset: 0,
+            raw_size: 0,
+            protection: MapFlags::empty(),
+        }];
+
+        apply_pe_relocations(
+            &mut image,
+            &sections,
+            0x100,
+            10,
+            0x1400_0000,
+            0x1500_0000,
+        )
+        .unwrap();
+
+        assert_eq!(u64_at(&image, 0x220).unwrap(), 0x1500_0200);
+    }
 }

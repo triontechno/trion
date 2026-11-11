@@ -999,7 +999,7 @@ impl App {
             {
                 // Redox routes PE32+ files through relibc's native TRION loader.
                 // The initial freestanding profile requires an empty environment;
-                // Windows process parameters and API services are provided later.
+                // only minimal Windows process structures and selected APIs exist.
                 for path in paths {
                     #[cfg(target_os = "redox")]
                     let is_pe = path.extension()
