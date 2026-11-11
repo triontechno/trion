@@ -3,7 +3,10 @@ use crate::{
         self,
         context::{HardBlockedReason, LockedFdTbl, SignalState},
         file::InternalFlags,
-        memory::{handle_notify_files, AddrSpace, AddrSpaceWrapper, Grant, PageSpan, UnmapVec},
+        memory::{
+            handle_notify_files, AddrSpace, AddrSpaceWrapper, Grant, PageSpan, UnmapVec,
+            GUEST_FD_CAP_READ, GUEST_FD_CAP_WRITE,
+        },
         unblock_context, wakeup_context, Context, ContextLock, Status,
     },
     memory::{Page, VirtualAddress, PAGE_SIZE},
@@ -26,6 +29,7 @@ use super::{CallerCtx, KernelSchemes, OpenResult};
 use ::syscall::{ProcSchemeAttrs, SigProcControl, Sigcontrol};
 use alloc::{
     boxed::Box,
+    collections::BTreeSet,
     string::String,
     sync::{Arc, Weak},
     vec::Vec,
@@ -516,7 +520,9 @@ impl KernelScheme for ProcScheme {
                     let guest_files = if activate_guest_policy {
                         let mut files = context.files.write(token.token());
                         files.validate_max_files(GUEST_DESCRIPTOR_LIMIT)?;
-                        let guest_files = files.take_all()?;
+                        let guest_files = files.take_except(|fd| {
+                            new.guest_capability_rights(fd) != 0
+                        })?;
                         files.set_max_files(GUEST_DESCRIPTOR_LIMIT)?;
                         guest_files
                     } else {
@@ -1360,7 +1366,9 @@ impl ContextHandle {
                 Ok(size_of::<usize>())
             }
             Self::GuestPolicy => {
-                if buf.len() != 2 * size_of::<usize>() {
+                if buf.len() < 3 * size_of::<usize>()
+                    || !buf.len().is_multiple_of(size_of::<usize>())
+                {
                     return Err(Error::new(EINVAL));
                 }
                 let mut values = buf.usizes();
@@ -1369,12 +1377,59 @@ impl ContextHandle {
                     return Err(Error::new(EINVAL));
                 }
                 let addrspace_fd = values.next().ok_or(Error::new(EINVAL))??;
-                if values.next().is_some() {
+                let capability_count = values.next().ok_or(Error::new(EINVAL))??;
+                if capability_count > GUEST_DESCRIPTOR_LIMIT
+                    || 3usize
+                        .checked_add(capability_count)
+                        .and_then(|words| words.checked_mul(size_of::<usize>()))
+                        != Some(buf.len())
+                {
                     return Err(Error::new(EINVAL));
                 }
 
                 let (scheme, number) = extract_scheme_number(addrspace_fd, token)?;
                 verify_scheme(scheme)?;
+                let mut capabilities = Vec::new();
+                capabilities
+                    .try_reserve_exact(capability_count)
+                    .map_err(|_| Error::new(ENOMEM))?;
+                let mut seen_capabilities = BTreeSet::new();
+                for _ in 0..capability_count {
+                    let fd = values.next().ok_or(Error::new(EINVAL))??;
+                    let index = fd & !syscall::UPPER_FDTBL_TAG;
+                    if index >= GUEST_DESCRIPTOR_LIMIT || !seen_capabilities.insert(fd) {
+                        return Err(Error::new(EINVAL));
+                    }
+                    let file = context
+                        .read(token.token())
+                        .files
+                        .read(token.token())
+                        .get_file(FileHandle::from(fd))
+                        .cloned()
+                        .ok_or(Error::new(EBADF))?;
+                    let (scheme_ref, flags) = {
+                        let description = file.description.read(token.token());
+                        (description.scheme_ref.clone(), description.flags)
+                    };
+                    let scheme = scheme_ref.upgrade()?;
+                    if !matches!(
+                        scheme,
+                        KernelSchemes::User(_)
+                            | KernelSchemes::Global(GlobalSchemes::Pipe)
+                    ) {
+                        return Err(Error::new(EPERM));
+                    }
+                    let rights = match flags as usize & ::syscall::O_ACCMODE {
+                        ::syscall::O_RDONLY => GUEST_FD_CAP_READ,
+                        ::syscall::O_WRONLY => GUEST_FD_CAP_WRITE,
+                        ::syscall::O_RDWR => GUEST_FD_CAP_READ | GUEST_FD_CAP_WRITE,
+                        _ => return Err(Error::new(EPERM)),
+                    };
+                    capabilities.push((fd, rights));
+                }
+                if values.next().is_some() {
+                    return Err(Error::new(EINVAL));
+                }
                 let addrspace = {
                     let handles = HANDLES.read(token.token());
                     if handles.values().any(|candidate| {
@@ -1407,6 +1462,7 @@ impl ContextHandle {
                 addrspace
                     .acquire_read(lock_token.token())
                     .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
+                addrspace.prepare_guest_capabilities(&capabilities)?;
                 context.guest_policy_prepared_addr_space = Some(Arc::clone(&addrspace));
                 Ok(2 * size_of::<usize>())
             }
