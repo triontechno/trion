@@ -1437,6 +1437,7 @@ impl Pal for Sys {
             ns_fd: redox_rt::current_namespace_fd().ok(),
             cwd_fd: Some(cwd_fd.as_raw_fd()),
             filetable_fd: Some(new_file_table.as_raw_fd()),
+            guest_capability_fds: None,
             same_process: false,
         };
 
