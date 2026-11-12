@@ -30,19 +30,20 @@ Develop an adaptive binary/ternary architecture that preserves conventional hard
 **Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, manual validation workflow, and manual release/build/QEMU workflow. No measurements or validation have been run.
 
 ### Stage G — Executable format and loader completion
-**Status: implementation complete for the declared freestanding x86-64 profile; validation deferred.** Includes direct native PE32+ and Mach-O64 loading into real Redox process address spaces, W^X segment mapping, initial user context setup through the process scheme, process-manager exit trampoline, complete semantics for the declared bounded interpreter subset, and COSMIC Files .exe/.app dispatch. Unsupported imports, dyld, platform APIs, environment/argument blocks and other runtime features fail closed. General Windows and macOS application compatibility remains in Stages I and J. See [Stage G](Phase%202%20Stage%20G.md).
+**Status: implementation complete for the declared freestanding x86-64 execution profiles; validation deferred.** Includes direct PE32+ and Mach-O64 freestanding image loading into Redox process address spaces, W^X segment mapping, initial user context setup, process-manager exit handling, and bounded COSMIC Files dispatch. These narrow entry profiles are not Windows or macOS application compatibility and do not imply general platform API support. See [Stage G](Phase%202%20Stage%20G.md).
 
+### Stage I — Native application runtime
+**Status: implementation in progress; validation deferred.** Completes the TRION/Redox native ELF process and runtime contract, including safe image loading, interpreter handoff, startup state, transactional exec, native thread/TLS/signal initialization, and integration with existing kernel and service interfaces. The native ELF ABI is not Linux compatibility. See [Stage I](Phase%202%20Stage%20I.md).
+
+### Stage J — Native system integration and completion
+**Status: not yet implemented; validation deferred.** Integrates native executable dispatch, initfs and boot services, service dependency ordering, kernel/runtime ABI, device boundaries, security policy, and resource lifecycle into a coherent Version 1 system. See [Stage J](Phase%202%20Stage%20J.md).
+
+### Version 2 compatibility (deferred)
+Windows, macOS and Linux application compatibility are explicitly outside Version 1 and outside Phase 2 Stages I/J. They require a separately scoped Version 2 workstream. The repository's native ELF/Redox process path is not Linux ABI compatibility.
 ### Stage H — Isolated guest process and execution backend
 **Status: implementation complete for the restricted guest profile; validation deferred.** Includes kernel-enforced per-address-space syscall isolation, authenticated exit, memory/descriptor/CPU quotas, supervisor-selected pre-opened filesystem/network/device/IPC stream capabilities with read/write enforcement, descriptor revocation, guest cancellation, structured guest crash reports, sibling termination and atomic descriptor cleanup during address-space activation. Arbitrary scheme calls, path creation, descriptor duplication and guest-created processes/threads remain denied. This is not general-purpose Windows/macOS application compatibility. See [Stage H](Phase%202%20Stage%20H.md).
 
-### Stage I — Windows compatibility runtime
-**Status: restricted freestanding PE32+ launch, DIR64 rebasing, minimal PEB/TEB and `ExitProcess`/process-identity imports exist; the selected profile remains incomplete.** Broader import/export resolution and API classification exist; full process parameters, loader module lists, TLS, unwind handling and kernel-backed Win32/NT services remain. See [Stage I](Phase%202%20Stage%20I.md).
-
-### Stage J — macOS compatibility runtime and unified dispatch
-**Status: restricted freestanding Mach-O launch and XML .app routing implemented; general macOS runtime incomplete.** Broker-fed member validation, XML bundle planning, native segment mapping, minimal `argc`/`argv[0]` startup and an `LC_MAIN` return adapter exist. Binary plist, dyld linking, full Darwin startup, frameworks, code-signature policy and macOS services remain. See [Stage J](Phase%202%20Stage%20J.md).
-
-### Linux compatibility — not currently specified or implemented
-The Phase 2 plan defines PE32+ Windows and Mach-O macOS profiles, but no Linux compatibility profile, Linux distribution/version target, or Linux syscall ABI layer. The repository's native ELF/Redox process path is not Linux ABI compatibility. Linux compatibility is therefore outside the current Phase 2 stages and must not be attributed to Stages G, I, or J. Any future Linux support requires a separately scoped stage/workstream defining its ELF and architecture profile, Linux process ABI, syscall/service surface, runtime/dependency policy, and compatibility matrix before implementation.
+undefined
 
 ## 3. Global engineering gates
 
