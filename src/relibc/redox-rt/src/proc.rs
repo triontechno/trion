@@ -131,8 +131,27 @@ pub fn fexec_impl(
     pread_all(&image_file, 0, &mut header_bytes)?;
     let header = Header::from_bytes(&header_bytes);
 
-    if header.e_ident[..4] != [0x7F, 0x45, 0x4C, 0x46] {
-        // Not an ELF, according to posix_spawn() just throw error here
+    let expected_class = if cfg!(target_pointer_width = "64") { 2 } else { 1 };
+    let machine_matches = if cfg!(target_arch = "x86_64") {
+        header.e_machine == 62
+    } else if cfg!(target_arch = "aarch64") {
+        header.e_machine == 183
+    } else if cfg!(target_arch = "riscv64") {
+        header.e_machine == 243
+    } else if cfg!(target_arch = "x86") {
+        header.e_machine == 3
+    } else {
+        false
+    };
+    if header.e_ident[..4] != [0x7F, 0x45, 0x4C, 0x46]
+        || header.e_ident[4] != expected_class
+        || header.e_ident[5] != 1
+        || header.e_ident[6] != 1
+        || !machine_matches
+        || !matches!(header.e_type, 2 | ET_DYN)
+        || header.e_version != 1
+        || usize::from(header.e_ehsize) != size_of::<Header>()
+    {
         return Err(Error::new(ENOEXEC));
     }
 
@@ -179,6 +198,7 @@ pub fn fexec_impl(
     pread_all(&image_file, header_e_phoff, phs).map_err(|_| Error::new(EIO))?;
 
     let mut span: Option<Range<usize>> = None;
+    let mut load_ranges = Vec::<Range<usize>>::new();
     for ph_idx in 0..phnum {
         let ph_start = ph_idx.checked_mul(phentsize).ok_or(Error::new(EOVERFLOW))?;
         let ph_end = ph_start.checked_add(phentsize).ok_or(Error::new(EOVERFLOW))?;
@@ -215,6 +235,14 @@ pub fn fexec_impl(
         )?;
         let map_end = map_start.checked_add(map_size).ok_or(Error::new(EOVERFLOW))?;
         let range = map_start..map_end;
+        if load_ranges.iter().any(|existing| {
+            range.start < existing.end && existing.start < range.end
+        }) {
+            // Segment page overlap is not yet supported by the mapper. Reject it
+            // rather than allowing a later MAP_FIXED to replace earlier contents.
+            return Err(Error::new(ENOEXEC));
+        }
+        load_ranges.push(range.clone());
 
         span = Some(if let Some(existing) = span {
             existing.start.min(range.start)..existing.end.max(range.end)
