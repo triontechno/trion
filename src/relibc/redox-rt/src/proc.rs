@@ -444,7 +444,30 @@ pub fn fexec_impl(
         MapFlags::PROT_READ | MapFlags::PROT_WRITE | MapFlags::MAP_FIXED_NOREPLACE,
     )?;
 
-    let mut sp = STACK_TOP;
+    let startup_aux_words = (if interp_override.is_some() { 6usize } else { 4usize })
+        .checked_add(4) // AT_PHNUM and AT_PHENT
+        .and_then(|words| words.checked_add(if extrainfo.cwd.is_some() { 4 } else { 0 }))
+        .and_then(|words| words.checked_add(if cfg!(target_pointer_width = "32") { 4 } else { 2 }))
+        .and_then(|words| words.checked_add(12)) // umask and five inherited descriptors
+        .ok_or(Error::new(EOVERFLOW))?;
+    let startup_words = 2usize // AT_NULL pair
+        .checked_add(startup_aux_words)
+        .and_then(|words| words.checked_add(1)) // envp terminator
+        .and_then(|words| words.checked_add(envs.len()))
+        .and_then(|words| words.checked_add(1)) // argv terminator
+        .and_then(|words| words.checked_add(args.len()))
+        .and_then(|words| words.checked_add(1)) // argc
+        .ok_or(Error::new(EOVERFLOW))?;
+    let startup_bytes = startup_words
+        .checked_mul(size_of::<usize>())
+        .ok_or(Error::new(EOVERFLOW))?;
+    let final_stack_without_padding = STACK_TOP
+        .checked_sub(startup_bytes)
+        .ok_or(Error::new(E2BIG))?;
+    let stack_padding = final_stack_without_padding % 16;
+    let mut sp = STACK_TOP
+        .checked_sub(stack_padding)
+        .ok_or(Error::new(E2BIG))?;
     let mut stack_page = Option::<MmapGuard>::None;
 
     let mut push = |word: usize| -> Result<()> {
