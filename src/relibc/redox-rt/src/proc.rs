@@ -277,6 +277,7 @@ pub fn fexec_impl(
 
     let mut phdrs_vaddr = 0;
     let mut interpreter = None;
+    let mut load_segment_seen = false;
 
     for ph_idx in 0..phnum {
         let ph_bytes = &phs[ph_idx * phentsize..(ph_idx + 1) * phentsize];
@@ -296,18 +297,36 @@ pub fn fexec_impl(
         }
 
         match segment.p_type {
-            // PT_INTERP must come before any PT_LOAD, so we don't have to iterate twice.
             PT_INTERP => {
-                let mut interp = vec![0_u8; segment.p_filesz as usize];
-                #[cfg(target_pointer_width = "64")]
-                let segment_p_offset = segment.p_offset;
-                #[cfg(target_pointer_width = "32")]
-                let segment_p_offset = u64::from(segment.p_offset);
-                pread_all(&image_file, segment_p_offset, &mut interp)?;
-
+                if load_segment_seen || interpreter.is_some() {
+                    return Err(Error::new(ENOEXEC));
+                }
+                let interpreter_size = usize::try_from(segment.p_filesz)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let interpreter_mem_size = usize::try_from(segment.p_memsz)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let interpreter_offset = u64::try_from(segment.p_offset)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                if !(2..=4096).contains(&interpreter_size)
+                    || interpreter_size != interpreter_mem_size
+                {
+                    return Err(Error::new(ENOEXEC));
+                }
+                interpreter_offset
+                    .checked_add(interpreter_size as u64)
+                    .ok_or(Error::new(EOVERFLOW))?;
+                let mut interp = vec![0_u8; interpreter_size];
+                pread_all(&image_file, interpreter_offset, &mut interp)?;
+                if interp.first() != Some(&b'/')
+                    || interp.last() != Some(&0)
+                    || interp[..interp.len() - 1].contains(&0)
+                {
+                    return Err(Error::new(ENOEXEC));
+                }
                 interpreter = Some(interp.into_boxed_slice());
             }
             PT_LOAD => {
+                load_segment_seen = true;
                 let virtual_address = usize::try_from(segment.p_vaddr)
                     .map_err(|_| Error::new(EOVERFLOW))?;
                 let memory_size = usize::try_from(segment.p_memsz)
@@ -381,10 +400,16 @@ pub fn fexec_impl(
     }
 
     if let Some(interpreter_path) = interpreter {
+        if phdrs_vaddr == 0 {
+            return Err(Error::new(ENOEXEC));
+        }
+        let main_entry = base_addr
+            .checked_add(usize::try_from(header.e_entry).map_err(|_| Error::new(EOVERFLOW))?)
+            .ok_or(Error::new(EOVERFLOW))?;
         return Ok(Some(FexecResult::Interp {
             path: interpreter_path,
             interp_override: InterpOverride {
-                at_entry: base_addr + header.e_entry as usize,
+                at_entry: main_entry,
                 at_phnum: phnum,
                 at_phent: phentsize,
                 phdrs_vaddr,
@@ -457,7 +482,10 @@ pub fn fexec_impl(
         push(r#override.phdrs_vaddr)?;
         push(AT_PHDR)?;
     } else {
-        push(base_addr + header.e_entry as usize)?;
+        let entry = base_addr
+            .checked_add(usize::try_from(header.e_entry).map_err(|_| Error::new(EOVERFLOW))?)
+            .ok_or(Error::new(EOVERFLOW))?;
+        push(entry)?;
         push(AT_ENTRY)?;
         push(phdrs_vaddr)?;
         push(AT_PHDR)?;
