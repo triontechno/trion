@@ -149,6 +149,7 @@ pub fn fexec_impl(
         || header.e_ident[6] != 1
         || !machine_matches
         || !matches!(header.e_type, 2 | ET_DYN)
+        || interp_override.is_some() && header.e_type != ET_DYN
         || header.e_version != 1
         || usize::from(header.e_ehsize) != size_of::<Header>()
     {
