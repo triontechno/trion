@@ -1,30 +1,45 @@
-# TRION Phase 2 — Stage I: Windows Compatibility Runtime
+# TRION Phase 2 — Stage I: Native Application Runtime
 
-**Status: compatibility-boundary foundation implemented; the selected minimal PE32+ profile is incomplete.** This is not a general Windows runtime.
+**Status: implementation in progress; validation deferred.** Stage I builds the native TRION/Redox application runtime. It does not implement Windows, macOS, or Linux application compatibility.
 
-## Selected compatibility boundary
+## Scope
 
-Target x86-64 PE32+ Windows console-subsystem images with direct entry and no arguments/environment, and no dependence on TLS, SEH/unwind metadata, a Windows CRT, GUI subsystems or undocumented NT internals. Imports are limited to `ExitProcess`, `GetCurrentProcessId` and `GetCurrentThreadId` from `kernel32.dll` or `kernelbase.dll`; all other imports fail closed. This is a deliberately constrained console-runtime profile, not a claim of general Windows application compatibility.
+Stage I completes the native ELF process-execution contract used by Version 1 applications and the runtime services required by native applications. ELF here means the TRION/Redox native ABI; it does not imply Linux ABI compatibility.
 
-Entry setup follows the Microsoft x64 register calling convention, supplies the 32-byte home area and expected entry stack alignment, and sets x86-64 `GS` to the guest TEB. `ExitProcess` and the identity imports are narrow runtime services, not evidence that the broader Win32/NT ABI is available.
+## Implementation steps
 
-## Implemented source
-- Typed import symbols for names and ordinals.
-- Bounded export table with duplicate and null-address rejection.
-- Explicit classification of selected process, thread, virtual-memory, file, synchronization, time and console APIs.
-- Unsupported and unimplemented APIs return explicit diagnostics. No API is falsely marked operational.
-- COSMIC Files and Redox exec dispatch launch the restricted PE32+ profile through the real Redox process/address-space path.
-- The PE32+ loader validates bounded image/section layouts, maps the image with W^X protections, prefers the requested image base, and applies `IMAGE_REL_BASED_DIR64` relocations when it must use another base. Unsupported relocation types and malformed relocation blocks are rejected.
-- Bounded import descriptors for the selected profile are resolved into executable thunks for `ExitProcess`, `GetCurrentProcessId` and `GetCurrentThreadId`. Unsupported libraries, names, ordinals and malformed tables are rejected; when the PE declares an IAT directory, every resolved slot must be contained in it.
-- The import thunks expose the three declared process/thread lifecycle APIs: `ExitProcess` uses authenticated guest termination, and the identity queries return the kernel-owned process/thread IDs through argument-free restricted syscalls.
-- The selected direct-entry profile now initializes a minimal x64 PEB, TEB and empty process-parameters block, including the image base, stack bounds, TEB self pointer and PEB pointer in GS. This does not implement the loader module lists, heaps, TLS, argument/environment strings or other NT process services.
+1. **Harden native ELF image validation and mapping.** Validate ELF identity, class, endianness, machine, version, executable type, program-header dimensions, PT_LOAD bounds/alignment, file ranges, mapped-page overlap, and checked address arithmetic. Malformed images must fail with an error instead of panicking, wrapping, or replacing an earlier segment.
+2. **Complete interpreter handoff.** Validate PT_INTERP metadata and its relationship to the loaded image; preserve the correct program-header address, entry point, base address, and mmap floor when transferring control to the native interpreter.
+3. **Complete initial process state.** Build bounded argv, envp, cwd and auxiliary vectors; enforce stack bounds/alignment; provide deterministic startup metadata and fail cleanly on oversized inputs.
+4. **Make exec transitions transactional.** Audit every failure point before address-space activation, descriptor close-on-exec handling, process naming, signal state, and filetable changes. A failed exec must not leave the current process partially modified.
+5. **Complete native thread/runtime startup.** Define and implement the native ABI for thread entry, TLS, signal delivery/return, process exit, and runtime initialization using existing Redox interfaces.
+6. **Integrate native resource and capability policy.** Ensure native process/thread creation and runtime services respect kernel-enforced memory, descriptor, scheduling and Stage H isolation boundaries.
+7. **Close the native service contract.** Document the supported native syscall, filesystem, IPC, time, synchronization and device-facing interfaces; connect them to existing system services without introducing compatibility shims for other OS ABIs.
+8. **Document the supported native application profile.** Specify executable architecture, ABI, dynamic interpreter expectations, startup contract, resource limits and explicit unsupported features.
 
-## Remaining
-- Versioned DLL catalog, dependency search policy, forwarder resolution and a broader operational platform export table. Import resolution is wired only for the three declared APIs in the native loader.
-- Full Windows process parameters, PEB loader data/module lists, richer thread/runtime services, TLS, exception/unwind handling.
-- Kernel-backed Win32/NT service implementations for a narrowly declared profile.
-- Filesystem, synchronization, process/thread, console and timing semantics.
-- Integration of the full Windows runtime with the isolated guest process backend.
-- Compatibility matrix based on actual post-Phase-2 validation.
+## Implemented in this pass
 
-No general Windows application compatibility is claimed.
+- ELF class, byte order, version, machine and executable-type validation.
+- Exact program-header entry-size and nonzero-count validation with checked table-size arithmetic.
+- PT_LOAD memory/file-size, alignment, page-congruence and address-range validation.
+- Rejection of overlapping mapped PT_LOAD page ranges rather than allowing MAP_FIXED to overwrite a prior segment.
+- Checked page alignment, program-header slicing, mapped-address arithmetic and argument/environment allocation.
+- Bounded startup-string copying and stack growth; malformed or oversized startup state fails explicitly.
+
+## Remaining implementation
+
+- Full PT_INTERP validation and robust interpreter handoff.
+- Complete auxv/argv/envp/cwd construction and validation across all supported native launch paths.
+- Transactional exec cleanup and close-on-exec semantics.
+- Native TLS, signal, thread startup and runtime service contract audit.
+- End-to-end integration with Stage H quotas/capabilities and native service managers.
+- Final supported-profile documentation after implementation is complete.
+
+## Explicit exclusions
+
+- Windows PE application compatibility.
+- macOS Mach-O application compatibility.
+- Linux ELF/syscall ABI compatibility.
+- Wine-like API layers, platform DLL/framework catalogs, or application translation.
+
+No tests, builds, benchmarks, fuzzing, or QEMU validation are run during implementation. Those remain deferred until Stage J is implemented.
