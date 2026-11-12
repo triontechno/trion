@@ -656,11 +656,14 @@ pub fn fexec_impl(
 
     let addrspace_selection_fd = thread_fd.dup_into_upper(b"current-addrspace")?;
 
-    let _ = addrspace_selection_fd.write(&create_set_addr_space_buf(
+    let entry = base_addr
+        .checked_add(usize::try_from(header.e_entry).map_err(|_| Error::new(EOVERFLOW))?)
+        .ok_or(Error::new(EOVERFLOW))?;
+    addrspace_selection_fd.write(&create_set_addr_space_buf(
         grants_fd.as_raw_fd(),
-        base_addr + header.e_entry as usize,
+        entry,
         sp,
-    ));
+    ))?;
 
     // Close all O_CLOEXEC file descriptors. TODO: close_range?
     if extrainfo.same_process {
