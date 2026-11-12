@@ -76,6 +76,13 @@ pub struct ExtraInfo<'a> {
 }
 
 #[expect(clippy::too_many_arguments)]
+fn checked_page_align(value: usize) -> Result<usize> {
+    value
+        .checked_add(PAGE_SIZE - 1)
+        .map(|aligned| aligned / PAGE_SIZE * PAGE_SIZE)
+        .ok_or(Error::new(EOVERFLOW))
+}
+
 pub fn fexec_impl(
     image_file: FdGuardUpper,
     thread_fd: &FdGuardUpper,
@@ -139,11 +146,15 @@ pub fn fexec_impl(
 
     // Never allow more than 1 MiB of program headers.
     const MAX_PH_SIZE: usize = 1024 * 1024;
-    let phentsize = u64::from(header.e_phentsize) as usize;
-    let phnum = u64::from(header.e_phnum) as usize;
+    let phentsize = usize::from(header.e_phentsize);
+    let phnum = usize::from(header.e_phnum);
+    if phentsize != size_of::<ProgramHeader>() || phnum == 0 {
+        return Err(Error::new(ENOEXEC));
+    }
     let pheaders_size = phentsize
-        .saturating_mul(phnum)
-        .saturating_add(size_of::<Header>());
+        .checked_mul(phnum)
+        .and_then(|size| size.checked_add(size_of::<Header>()))
+        .ok_or(Error::new(EOVERFLOW))?;
 
     if pheaders_size > MAX_PH_SIZE {
         return Err(Error::new(E2BIG));
@@ -169,26 +180,53 @@ pub fn fexec_impl(
 
     let mut span: Option<Range<usize>> = None;
     for ph_idx in 0..phnum {
-        let ph_bytes = &phs[ph_idx * phentsize..(ph_idx + 1) * phentsize];
+        let ph_start = ph_idx.checked_mul(phentsize).ok_or(Error::new(EOVERFLOW))?;
+        let ph_end = ph_start.checked_add(phentsize).ok_or(Error::new(EOVERFLOW))?;
+        let ph_bytes = phs.get(ph_start..ph_end).ok_or(Error::new(ENOEXEC))?;
         let segment: &ProgramHeader =
-            plain::from_bytes(ph_bytes).map_err(|_| Error::new(EINVAL))?;
+            plain::from_bytes(ph_bytes).map_err(|_| Error::new(ENOEXEC))?;
         if segment.p_type != PT_LOAD {
             continue;
         }
 
-        let voff = segment.p_vaddr as usize % PAGE_SIZE;
-        let vaddr = segment.p_vaddr as usize - voff;
-        let vsize = (segment.p_memsz as usize + voff).next_multiple_of(segment.p_align as usize);
-        let b = vaddr..vaddr + vsize;
+        let virtual_address = usize::try_from(segment.p_vaddr)
+            .map_err(|_| Error::new(EOVERFLOW))?;
+        let memory_size = usize::try_from(segment.p_memsz)
+            .map_err(|_| Error::new(EOVERFLOW))?;
+        let file_size = usize::try_from(segment.p_filesz)
+            .map_err(|_| Error::new(EOVERFLOW))?;
+        let file_offset = usize::try_from(segment.p_offset)
+            .map_err(|_| Error::new(EOVERFLOW))?;
+        let alignment = usize::try_from(segment.p_align)
+            .map_err(|_| Error::new(EOVERFLOW))?;
+        if memory_size == 0
+            || file_size > memory_size
+            || alignment > 1 && (!alignment.is_power_of_two()
+                || virtual_address % alignment != file_offset % alignment)
+            || virtual_address % PAGE_SIZE != file_offset % PAGE_SIZE
+        {
+            return Err(Error::new(ENOEXEC));
+        }
+        file_offset.checked_add(file_size).ok_or(Error::new(EOVERFLOW))?;
+        let page_offset = virtual_address % PAGE_SIZE;
+        let map_start = virtual_address - page_offset;
+        let map_size = checked_page_align(
+            memory_size.checked_add(page_offset).ok_or(Error::new(EOVERFLOW))?
+        )?;
+        let map_end = map_start.checked_add(map_size).ok_or(Error::new(EOVERFLOW))?;
+        let range = map_start..map_end;
 
-        span = Some(if let Some(a) = span {
-            a.start.min(b.start)..a.end.max(b.end)
+        span = Some(if let Some(existing) = span {
+            existing.start.min(range.start)..existing.end.max(range.end)
         } else {
-            b
+            range
         });
     }
-    let span = span.expect("ELF executables must contain at least one `PT_LOAD` segment");
-    let span_size = (span.end - span.start).next_multiple_of(PAGE_SIZE);
+    let span = span.ok_or(Error::new(ENOEXEC))?;
+    let span_size = span.end.checked_sub(span.start).ok_or(Error::new(EOVERFLOW))?;
+    if span_size == 0 || span_size % PAGE_SIZE != 0 {
+        return Err(Error::new(ENOEXEC));
+    }
 
     let base_addr = if header.e_type == ET_DYN {
         // PIE
@@ -240,11 +278,23 @@ pub fn fexec_impl(
                 interpreter = Some(interp.into_boxed_slice());
             }
             PT_LOAD => {
-                let voff = segment.p_vaddr as usize % PAGE_SIZE;
-                let vaddr = segment.p_vaddr as usize - voff;
-                let filesz = segment.p_filesz as usize;
-
-                let total_page_count = (segment.p_memsz as usize + voff).div_ceil(PAGE_SIZE);
+                let virtual_address = usize::try_from(segment.p_vaddr)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let memory_size = usize::try_from(segment.p_memsz)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let filesz = usize::try_from(segment.p_filesz)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let file_offset = u64::try_from(segment.p_offset)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                if memory_size == 0 || filesz > memory_size {
+                    return Err(Error::new(ENOEXEC));
+                }
+                let voff = virtual_address % PAGE_SIZE;
+                let vaddr = virtual_address - voff;
+                let mapped_size = checked_page_align(
+                    memory_size.checked_add(voff).ok_or(Error::new(EOVERFLOW))?
+                )?;
+                let total_page_count = mapped_size / PAGE_SIZE;
 
                 // The case where segments overlap so that they share one page, is not handled.
                 // TODO: Should it be?
@@ -256,16 +306,22 @@ pub fn fexec_impl(
                 mmap_anon_remote(
                     &grants_fd,
                     0,
-                    base_addr + vaddr,
-                    total_page_count * PAGE_SIZE,
+                    base_addr.checked_add(vaddr).ok_or(Error::new(EOVERFLOW))?,
+                    total_page_count.checked_mul(PAGE_SIZE).ok_or(Error::new(EOVERFLOW))?,
                     flags | MapFlags::MAP_FIXED,
                 )?;
 
-                if segment.p_offset <= header.e_phoff
-                    && header.e_phoff < segment.p_offset + segment.p_filesz
-                {
-                    phdrs_vaddr =
-                        (header.e_phoff - segment.p_offset + segment.p_vaddr) as usize + base_addr;
+                let segment_file_end = segment
+                    .p_offset
+                    .checked_add(segment.p_filesz)
+                    .ok_or(Error::new(EOVERFLOW))?;
+                if segment.p_offset <= header.e_phoff && header.e_phoff < segment_file_end {
+                    let phdr_offset = usize::try_from(header.e_phoff - segment.p_offset)
+                        .map_err(|_| Error::new(EOVERFLOW))?;
+                    phdrs_vaddr = base_addr
+                        .checked_add(virtual_address)
+                        .and_then(|address| address.checked_add(phdr_offset))
+                        .ok_or(Error::new(EOVERFLOW))?;
                 }
 
                 // TODO: Attempt to mmap with MAP_PRIVATE directly from the image file instead.
@@ -274,8 +330,8 @@ pub fn fexec_impl(
                     let (_guard, dst_memory) = unsafe {
                         MmapGuard::map_mut_anywhere(
                             &grants_fd,
-                            base_addr + vaddr,                           // offset
-                            (voff + filesz).next_multiple_of(PAGE_SIZE), // size
+                            base_addr.checked_add(vaddr).ok_or(Error::new(EOVERFLOW))?, // offset
+                            checked_page_align(voff.checked_add(filesz).ok_or(Error::new(EOVERFLOW))?)?, // size
                         )?
                     };
                     #[cfg(target_pointer_width = "64")]
@@ -284,8 +340,9 @@ pub fn fexec_impl(
                     let segment_p_offset = u64::from(segment.p_offset);
                     pread_all(
                         &image_file,
-                        segment_p_offset,
-                        &mut dst_memory[voff..voff + filesz],
+                        file_offset,
+                        dst_memory.get_mut(voff..voff.checked_add(filesz).ok_or(Error::new(EOVERFLOW))?)
+                            .ok_or(Error::new(ENOEXEC))?,
                     )?;
                 }
             }
