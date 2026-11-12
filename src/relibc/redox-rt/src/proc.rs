@@ -199,6 +199,8 @@ pub fn fexec_impl(
     let header_e_phoff = u64::from(header.e_phoff);
     pread_all(&image_file, header_e_phoff, phs).map_err(|_| Error::new(EIO))?;
 
+    let entry_rva = usize::try_from(header.e_entry).map_err(|_| Error::new(EOVERFLOW))?;
+    let mut entry_is_executable = false;
     let mut span: Option<Range<usize>> = None;
     let mut load_ranges = Vec::<Range<usize>>::new();
     for ph_idx in 0..phnum {
@@ -223,11 +225,22 @@ pub fn fexec_impl(
             .map_err(|_| Error::new(EOVERFLOW))?;
         if memory_size == 0
             || file_size > memory_size
+            || segment.p_flags & !(PF_R | PF_W | PF_X) != 0
+            || segment.p_flags & PF_W != 0 && segment.p_flags & PF_X != 0
             || alignment > 1 && (!alignment.is_power_of_two()
                 || virtual_address % alignment != file_offset % alignment)
             || virtual_address % PAGE_SIZE != file_offset % PAGE_SIZE
         {
             return Err(Error::new(ENOEXEC));
+        }
+        let virtual_end = virtual_address
+            .checked_add(memory_size)
+            .ok_or(Error::new(EOVERFLOW))?;
+        if segment.p_flags & PF_X != 0
+            && entry_rva >= virtual_address
+            && entry_rva < virtual_end
+        {
+            entry_is_executable = true;
         }
         file_offset.checked_add(file_size).ok_or(Error::new(EOVERFLOW))?;
         let page_offset = virtual_address % PAGE_SIZE;
@@ -253,6 +266,9 @@ pub fn fexec_impl(
         });
     }
     let span = span.ok_or(Error::new(ENOEXEC))?;
+    if !entry_is_executable {
+        return Err(Error::new(ENOEXEC));
+    }
     let span_size = span.end.checked_sub(span.start).ok_or(Error::new(EOVERFLOW))?;
     if span_size == 0 || span_size % PAGE_SIZE != 0 {
         return Err(Error::new(ENOEXEC));
