@@ -187,8 +187,10 @@ pub fn fexec_impl(
         .as_ref()
         .map(|interp| interp.min_mmap_addr)
         .unwrap_or(PAGE_SIZE);
-    let mut update_min_mmap_addr = |addr: usize, size: usize| {
-        min_mmap_addr = cmp::max(min_mmap_addr, (addr + size).next_multiple_of(PAGE_SIZE));
+    let mut update_min_mmap_addr = |addr: usize, size: usize| -> Result<()> {
+        let end = addr.checked_add(size).ok_or(Error::new(EOVERFLOW))?;
+        min_mmap_addr = cmp::max(min_mmap_addr, checked_page_align(end)?);
+        Ok(())
     };
 
     #[cfg(target_pointer_width = "64")]
@@ -259,7 +261,7 @@ pub fn fexec_impl(
     let base_addr = if header.e_type == ET_DYN {
         // PIE
         let addr = mmap_anon_remote(&grants_fd, 0, 0, span_size, MapFlags::PROT_NONE)?;
-        update_min_mmap_addr(addr, span_size);
+        update_min_mmap_addr(addr, span_size)?;
         addr
     } else {
         mmap_anon_remote(
@@ -269,7 +271,7 @@ pub fn fexec_impl(
             span_size,
             MapFlags::MAP_FIXED_NOREPLACE,
         )?;
-        update_min_mmap_addr(span.start, span_size);
+        update_min_mmap_addr(span.start, span_size)?;
         0
     };
 
@@ -406,7 +408,10 @@ pub fn fexec_impl(
 
     let mut push = |word: usize| -> Result<()> {
         let old_page_no = sp / PAGE_SIZE;
-        sp -= size_of::<usize>();
+        sp = sp
+            .checked_sub(size_of::<usize>())
+            .filter(|next| *next >= STACK_TOP - STACK_SIZE)
+            .ok_or(Error::new(E2BIG))?;
         let new_page_no = sp / PAGE_SIZE;
         let new_page_off = sp % PAGE_SIZE;
 
@@ -470,10 +475,23 @@ pub fn fexec_impl(
     )?;
     push(AT_PHENT)?;
 
-    let total_args_envs_auxvpointee_size = args.iter().map(|arg| arg.len() + 1).sum::<usize>()
-        + envs.iter().map(|env| env.len() + 1).sum::<usize>()
-        + extrainfo.cwd.map_or(0, |s| s.len() + 1);
-    let args_envs_size_aligned = total_args_envs_auxvpointee_size.next_multiple_of(PAGE_SIZE);
+    let mut total_args_envs_auxvpointee_size = args
+        .iter()
+        .chain(envs.iter())
+        .try_fold(0usize, |total, item| {
+            total.checked_add(item.len())
+                .and_then(|size| size.checked_add(1))
+                .ok_or(Error::new(E2BIG))
+        })?;
+    if let Some(cwd) = extrainfo.cwd {
+        total_args_envs_auxvpointee_size = total_args_envs_auxvpointee_size
+            .checked_add(cwd.len())
+            .and_then(|size| size.checked_add(1))
+            .ok_or(Error::new(E2BIG))?;
+    }
+    let args_envs_size_aligned = checked_page_align(
+        total_args_envs_auxvpointee_size.max(1)
+    )?;
     let target_args_env_address = mmap_anon_remote(
         &grants_fd,
         0,
@@ -481,7 +499,7 @@ pub fn fexec_impl(
         args_envs_size_aligned,
         MapFlags::PROT_READ | MapFlags::PROT_WRITE,
     )?;
-    update_min_mmap_addr(target_args_env_address, args_envs_size_aligned);
+    update_min_mmap_addr(target_args_env_address, args_envs_size_aligned)?;
 
     let mut offset = 0;
 
@@ -489,22 +507,34 @@ pub fn fexec_impl(
 
     {
         let mut append = |source_slice: &[u8]| -> Result<usize> {
-            // TODO
-            let address = target_args_env_address + offset;
+            let address = target_args_env_address
+                .checked_add(offset)
+                .ok_or(Error::new(EOVERFLOW))?;
+            let end_offset = offset
+                .checked_add(source_slice.len())
+                .and_then(|end| end.checked_add(1))
+                .filter(|end| *end <= total_args_envs_auxvpointee_size)
+                .ok_or(Error::new(E2BIG))?;
 
             if !source_slice.is_empty() {
-                let containing_page = address.div_floor(PAGE_SIZE) * PAGE_SIZE;
+                let containing_page = address / PAGE_SIZE * PAGE_SIZE;
                 let displacement = address - containing_page;
-                let size = source_slice.len() + displacement;
-                let aligned_size = size.next_multiple_of(PAGE_SIZE);
-
+                let size = source_slice.len()
+                    .checked_add(displacement)
+                    .ok_or(Error::new(EOVERFLOW))?;
+                let aligned_size = checked_page_align(size)?;
                 let (_guard, memory) = unsafe {
                     MmapGuard::map_mut_anywhere(&grants_fd, containing_page, aligned_size)?
                 };
-                memory[displacement..][..source_slice.len()].copy_from_slice(source_slice);
+                let end = displacement
+                    .checked_add(source_slice.len())
+                    .ok_or(Error::new(EOVERFLOW))?;
+                memory.get_mut(displacement..end)
+                    .ok_or(Error::new(EFAULT))?
+                    .copy_from_slice(source_slice);
             }
 
-            offset += source_slice.len() + 1;
+            offset = end_offset;
             Ok(address)
         };
 
