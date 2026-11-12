@@ -415,10 +415,11 @@ pub fn fexec_impl(
         }
     }
 
+    if phdrs_vaddr == 0 {
+        return Err(Error::new(ENOEXEC));
+    }
+
     if let Some(interpreter_path) = interpreter {
-        if phdrs_vaddr == 0 {
-            return Err(Error::new(ENOEXEC));
-        }
         let main_entry = base_addr
             .checked_add(usize::try_from(header.e_entry).map_err(|_| Error::new(EOVERFLOW))?)
             .ok_or(Error::new(EOVERFLOW))?;
@@ -542,6 +543,11 @@ pub fn fexec_impl(
     )?;
     push(AT_PHENT)?;
 
+    if args.iter().chain(envs.iter()).any(|value| value.contains(&0))
+        || extrainfo.cwd.is_some_and(|cwd| cwd.contains(&0))
+    {
+        return Err(Error::new(EINVAL));
+    }
     let mut total_args_envs_auxvpointee_size = args
         .iter()
         .chain(envs.iter())
