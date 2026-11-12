@@ -79,7 +79,14 @@ impl Tcb {
     #[expect(unsafe_op_in_unsafe_fn)]
     pub unsafe fn new(size: usize) -> Result<&'static mut Self, DlError> {
         let page_size = Sys::getpagesize();
-        let (_abi_page, tls, tcb_page) = Self::os_new(size.next_multiple_of(page_size))?;
+        if page_size == 0 || !page_size.is_power_of_two() {
+            return Err(DlError::Malformed);
+        }
+        let tls_size = size
+            .checked_add(page_size - 1)
+            .map(|aligned| aligned / page_size * page_size)
+            .ok_or(DlError::Malformed)?;
+        let (_abi_page, tls, tcb_page) = Self::os_new(tls_size)?;
 
         let tcb_ptr = tcb_page.as_mut_ptr().cast::<Self>();
         ptr::write(
@@ -157,17 +164,20 @@ impl Tcb {
                     continue;
                 }
 
-                let master_idx = self.num_copied_masters + i;
-                let range = if cfg!(any(target_arch = "x86", target_arch = "x86_64")) {
+                let master_idx = self.num_copied_masters
+                    .checked_add(i)
+                    .ok_or(DlError::Malformed)?;
+                let start = if cfg!(any(target_arch = "x86", target_arch = "x86_64")) {
                     // x86{_64} TLS layout is backwards
-                    self.tls_len - master.offset..self.tls_len - master.offset + master.image_size
+                    self.tls_len.checked_sub(master.offset).ok_or(DlError::Malformed)?
                 } else if cfg!(target_arch = "aarch64") {
                     // AArch64 p_vaddr is ignored for first master, this is experimentally determined
-                    let start = if master_idx == 0 { 0 } else { master.offset };
-                    start..start + master.image_size
+                    if master_idx == 0 { 0 } else { master.offset }
                 } else {
-                    master.offset..master.offset + master.image_size
+                    master.offset
                 };
+                let end = start.checked_add(master.image_size).ok_or(DlError::Malformed)?;
+                let range = start..end;
                 if let Some(tls_data) = tls.get_mut(range) {
                     let data = unsafe { master.data() };
                     #[cfg(feature = "trace_tls")]
@@ -335,7 +345,11 @@ impl Tcb {
         size: usize,
     ) -> Result<(&'static mut [u8], &'static mut [u8], &'static mut [u8]), DlError> {
         let page_size = Sys::getpagesize();
-        let abi_tls_tcb = unsafe { Self::map(page_size + size + page_size)? };
+        let total_size = page_size
+            .checked_add(size)
+            .and_then(|total| total.checked_add(page_size))
+            .ok_or(DlError::Malformed)?;
+        let abi_tls_tcb = unsafe { Self::map(total_size)? };
         let (abi, tls_tcb) = abi_tls_tcb.split_at_mut(page_size);
         let (tls, tcb) = tls_tcb.split_at_mut(size);
         Ok((abi, tls, tcb))
