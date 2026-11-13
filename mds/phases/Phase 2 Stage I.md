@@ -25,6 +25,7 @@ Stage I completes the native ELF process-execution contract used by Version 1 ap
 - Rejection of overlapping mapped PT_LOAD page ranges rather than allowing MAP_FIXED to overwrite a prior segment.
 - Checked page alignment, program-header slicing, mapped-address arithmetic and argument/environment allocation.
 - Bounded startup-string copying and stack growth; malformed or oversized startup state fails explicitly.
+- Propagated failures when writing interpreter mmap-floor metadata and resetting an available signal-handler endpoint.
 
 ## Remaining implementation
 
