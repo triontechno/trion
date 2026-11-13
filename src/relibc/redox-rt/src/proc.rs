@@ -469,7 +469,9 @@ pub fn fexec_impl(
     let startup_aux_words = (if interp_override.is_some() { 6usize } else { 4usize })
         .checked_add(4) // AT_PHNUM and AT_PHENT
         .and_then(|words| words.checked_add(if extrainfo.cwd.is_some() { 4 } else { 0 }))
-        .and_then(|words| words.checked_add(if cfg!(target_pointer_width = "32") { 4 } else { 2 }))
+        // Two inherited 64-bit signal masks: one auxv pair each on
+        // 64-bit targets, two pairs each on 32-bit targets.
+        .and_then(|words| words.checked_add(if cfg!(target_pointer_width = "32") { 8 } else { 4 }))
         .and_then(|words| words.checked_add(12)) // umask and five inherited descriptors
         .ok_or(Error::new(EOVERFLOW))?;
     let startup_words = 2usize // AT_NULL pair
