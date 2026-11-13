@@ -4,6 +4,7 @@
 // dropped from src/lib.rs.
 #![warn(warnings, unused_variables)]
 
+use alloc::vec::Vec;
 use core::{mem, ptr};
 use object::{
     Endianness,
@@ -84,6 +85,7 @@ fn static_init(
     phdr.checked_add(phdr_table_size)
         .ok_or(linker::DlError::Malformed)?;
     let mut load_bias = None;
+    let mut load_segments = Vec::new();
     let mut tls_master = None;
     for i in 0..phnum {
         let ph_offset = phent.checked_mul(i).ok_or(linker::DlError::Malformed)?;
@@ -140,6 +142,19 @@ fn static_init(
             );
             continue;
         }
+        if p_type == elf::PT_LOAD {
+            if p_memsz == 0 || p_filesz > p_memsz {
+                return Err(linker::DlError::Malformed);
+            }
+            let virtual_end = p_vaddr
+                .checked_add(p_memsz)
+                .ok_or(linker::DlError::Malformed)?;
+            let file_end = p_offset
+                .checked_add(p_filesz)
+                .ok_or(linker::DlError::Malformed)?;
+            load_segments.push((p_vaddr, virtual_end, p_offset, file_end));
+            continue;
+        }
         if p_type != elf::PT_TLS {
             continue;
         }
@@ -169,10 +184,26 @@ fn static_init(
                 .map(|size| size / page_size * page_size)
                 .ok_or(linker::DlError::Malformed)?,
         );
-        tls_master = Some((p_vaddr, p_filesz, p_memsz, tls_offset, tls_size));
+        tls_master = Some((p_vaddr, p_offset, p_filesz, p_memsz, tls_offset, tls_size));
     }
 
-    if let Some((p_vaddr, p_filesz, p_memsz, tls_offset, tls_size)) = tls_master {
+    if let Some((p_vaddr, p_offset, p_filesz, p_memsz, tls_offset, tls_size)) = tls_master {
+        let tls_virtual_end = p_vaddr
+            .checked_add(p_memsz)
+            .ok_or(linker::DlError::Malformed)?;
+        let tls_file_end = p_offset
+            .checked_add(p_filesz)
+            .ok_or(linker::DlError::Malformed)?;
+        if !load_segments.iter().any(
+            |(load_vstart, load_vend, load_fstart, load_fend)| {
+                p_vaddr >= *load_vstart
+                    && tls_virtual_end <= *load_vend
+                    && p_offset >= *load_fstart
+                    && tls_file_end <= *load_fend
+            },
+        ) {
+            return Err(linker::DlError::Malformed);
+        }
         // AT_PHDR is the runtime address of the program-header table. PT_PHDR
         // supplies its link-time virtual address, allowing the load bias to be
         // applied to PT_TLS even when the main executable is PIE.
