@@ -127,6 +127,11 @@ pub fn fexec_impl(
     // We load the executable into memory (albeit at different offsets in this executable), fix
     // some misalignments, and then switch address space.
 
+    // Establish the backing file's size before trusting any ELF-provided offset.
+    let mut image_stat = syscall::Stat::default();
+    image_file.fstat(&mut image_stat)?;
+    let image_size = image_stat.st_size;
+
     let mut header_bytes = [0_u8; size_of::<Header>()];
     pread_all(&image_file, 0, &mut header_bytes)?;
     let header = Header::from_bytes(&header_bytes);
@@ -175,6 +180,13 @@ pub fn fexec_impl(
         .checked_mul(phnum)
         .and_then(|size| size.checked_add(size_of::<Header>()))
         .ok_or(Error::new(EOVERFLOW))?;
+    let phoff = u64::try_from(header.e_phoff).map_err(|_| Error::new(EOVERFLOW))?;
+    let phend = phoff
+        .checked_add(u64::try_from(pheaders_size).map_err(|_| Error::new(EOVERFLOW))?)
+        .ok_or(Error::new(EOVERFLOW))?;
+    if phend > image_size {
+        return Err(Error::new(ENOEXEC));
+    }
 
     if pheaders_size > MAX_PH_SIZE {
         return Err(Error::new(E2BIG));
@@ -243,7 +255,12 @@ pub fn fexec_impl(
         {
             entry_is_executable = true;
         }
-        file_offset.checked_add(file_size).ok_or(Error::new(EOVERFLOW))?;
+        let file_end = file_offset
+            .checked_add(file_size)
+            .ok_or(Error::new(EOVERFLOW))?;
+        if u64::try_from(file_end).map_err(|_| Error::new(EOVERFLOW))? > image_size {
+            return Err(Error::new(ENOEXEC));
+        }
         let page_offset = virtual_address % PAGE_SIZE;
         let map_start = virtual_address - page_offset;
         let map_size = checked_page_align(
@@ -329,9 +346,12 @@ pub fn fexec_impl(
                 {
                     return Err(Error::new(ENOEXEC));
                 }
-                interpreter_offset
+                let interpreter_end = interpreter_offset
                     .checked_add(interpreter_size as u64)
                     .ok_or(Error::new(EOVERFLOW))?;
+                if interpreter_end > image_size {
+                    return Err(Error::new(ENOEXEC));
+                }
                 let mut interp = vec![0_u8; interpreter_size];
                 pread_all(&image_file, interpreter_offset, &mut interp)?;
                 if interp.first() != Some(&b'/')
@@ -549,18 +569,28 @@ pub fn fexec_impl(
     {
         return Err(Error::new(EINVAL));
     }
+    // Bound the aggregate startup payload independently of the address-space
+    // allocation limit. This prevents an untrusted launcher from forcing huge
+    // temporary vectors and mappings before the new image is entered.
+    const MAX_STARTUP_STRINGS: usize = 65_536;
+    const MAX_STARTUP_BYTES: usize = 2 * 1024 * 1024;
+    if args.len().checked_add(envs.len()).ok_or(Error::new(E2BIG))? > MAX_STARTUP_STRINGS {
+        return Err(Error::new(E2BIG));
+    }
     let mut total_args_envs_auxvpointee_size = args
         .iter()
         .chain(envs.iter())
         .try_fold(0usize, |total, item| {
             total.checked_add(item.len())
                 .and_then(|size| size.checked_add(1))
+                .filter(|size| *size <= MAX_STARTUP_BYTES)
                 .ok_or(Error::new(E2BIG))
         })?;
     if let Some(cwd) = extrainfo.cwd {
         total_args_envs_auxvpointee_size = total_args_envs_auxvpointee_size
             .checked_add(cwd.len())
             .and_then(|size| size.checked_add(1))
+            .filter(|size| *size <= MAX_STARTUP_BYTES)
             .ok_or(Error::new(E2BIG))?;
     }
     let args_envs_size_aligned = checked_page_align(
@@ -674,27 +704,6 @@ pub fn fexec_impl(
         // TODO: sync with procmgr
     }
 
-    // TODO: Restore old name if exec failed?
-    {
-        let mut buf = [0; 32];
-        let new_name = interp_override.as_ref().map_or(path, |o| &o.name);
-        let len = new_name.len().min(32);
-        buf[..len].copy_from_slice(&new_name[..len]);
-        let _ = sys_call_wo(
-            proc_fd.as_raw_fd(),
-            &buf,
-            CallFlags::empty(),
-            &[ProcCall::Rename as u64],
-        );
-    }
-
-    // TODO: Error handling
-    let _ = sys_call(
-        proc_fd.as_raw_fd(),
-        CallFlags::empty(),
-        &[ProcCall::DisableSetpgid as u64],
-    );
-
     if interp_override.is_some() {
         let mmap_min_fd = grants_fd.dup_into_upper(b"mmap-min-addr")?;
         mmap_min_fd.write(&usize::to_ne_bytes(min_mmap_addr))?;
@@ -741,6 +750,12 @@ pub fn fexec_impl(
             )
         };
 
+        // Deactivate TLS before changing the active descriptor table. If this
+        // operation fails, the current process still has its original filetable.
+        unsafe {
+            deactivate_tcb(thread_fd)?;
+        }
+
         {
             let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
             let _ = filetable_fd.call_wo(
@@ -756,15 +771,31 @@ pub fn fexec_impl(
             }
         }
 
-        unsafe {
-            deactivate_tcb(thread_fd)?;
-        }
-
         let old_filetable_fd = {
             let mut guard = crate::current_filetable();
             guard.take()
         };
         drop(old_filetable_fd);
+
+        // These process metadata changes are deliberately delayed until all
+        // fallible image construction and TLS deactivation steps have succeeded.
+        {
+            let mut buf = [0; 32];
+            let new_name = interp_override.as_ref().map_or(path, |o| &o.name);
+            let len = new_name.len().min(32);
+            buf[..len].copy_from_slice(&new_name[..len]);
+            let _ = sys_call_wo(
+                proc_fd.as_raw_fd(),
+                &buf,
+                CallFlags::empty(),
+                &[ProcCall::Rename as u64],
+            );
+        }
+        let _ = sys_call(
+            proc_fd.as_raw_fd(),
+            CallFlags::empty(),
+            &[ProcCall::DisableSetpgid as u64],
+        );
 
         // Dropping this FD will cause the address space switch.
         drop(addrspace_selection_fd);
@@ -890,7 +921,8 @@ pub fn munmap_transfer(
     Ok(())
 }
 fn pread_all(fd: &FdGuardUpper, offset: u64, buf: &mut [u8]) -> Result<()> {
-    fd.lseek(offset as isize, SEEK_SET)?;
+    let offset = isize::try_from(offset).map_err(|_| Error::new(EOVERFLOW))?;
+    fd.lseek(offset, SEEK_SET)?;
 
     let mut total_bytes_read = 0;
 
