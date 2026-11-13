@@ -397,12 +397,15 @@ pub fn fexec_impl(
                     flags | MapFlags::MAP_FIXED,
                 )?;
 
-                let segment_file_end = segment
-                    .p_offset
-                    .checked_add(segment.p_filesz)
+                let segment_file_start = u64::try_from(segment.p_offset)
+                    .map_err(|_| Error::new(EOVERFLOW))?;
+                let segment_file_end = segment_file_start
+                    .checked_add(u64::try_from(segment.p_filesz).map_err(|_| Error::new(EOVERFLOW))?)
                     .ok_or(Error::new(EOVERFLOW))?;
-                if segment.p_offset <= header.e_phoff && header.e_phoff < segment_file_end {
-                    let phdr_offset = usize::try_from(header.e_phoff - segment.p_offset)
+                // AT_PHDR is only valid if the entire table is present in the
+                // mapped PT_LOAD segment, not merely its first byte.
+                if segment_file_start <= phoff && phend <= segment_file_end {
+                    let phdr_offset = usize::try_from(phoff - segment_file_start)
                         .map_err(|_| Error::new(EOVERFLOW))?;
                     phdrs_vaddr = base_addr
                         .checked_add(virtual_address)
