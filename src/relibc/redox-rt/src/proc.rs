@@ -332,7 +332,7 @@ pub fn fexec_impl(
 
         match segment.p_type {
             PT_INTERP => {
-                if load_segment_seen || interpreter.is_some() {
+                if load_segment_seen || interpreter.is_some() || interp_override.is_some() {
                     return Err(Error::new(ENOEXEC));
                 }
                 let interpreter_size = usize::try_from(segment.p_filesz)
