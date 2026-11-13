@@ -50,7 +50,7 @@ The argument and environment byte strings must not contain embedded NUL bytes. O
 
 ## Process, thread and signal runtime
 
-Process creation and image replacement use the native Redox process/thread descriptors and address-space interfaces. A successful in-place exec stages the new image and startup state before switching address spaces. Close-on-exec handling and TLS deactivation are performed on the final transition path; process naming and process-group restrictions are applied only after image construction succeeds.
+Process creation and image replacement use the native Redox process/thread descriptors and address-space interfaces. A successful in-place exec stages the new image and startup state before switching address spaces. The close-on-exec batch is validated by the kernel; if it fails after TLS deactivation, the saved TCB state is restored before returning the error. Process naming and process-group restrictions are applied only after image construction and close-on-exec handling succeed.
 
 Native thread creation uses the relibc pthread layer and redox-rt clone/thread descriptors. Each thread receives a TCB, architecture-specific TLS activation, copied static TLS masters, and signal-control state. Thread exit is routed through the native thread status interface. Signal entry, architecture register save/restore, signal masks and return are implemented by redox-rt's architecture-specific signal runtime.
 
