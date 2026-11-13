@@ -176,13 +176,15 @@ pub fn fexec_impl(
     if phentsize != size_of::<ProgramHeader>() || phnum == 0 {
         return Err(Error::new(ENOEXEC));
     }
-    let pheaders_size = phentsize
+    let phdr_table_size = phentsize
         .checked_mul(phnum)
-        .and_then(|size| size.checked_add(size_of::<Header>()))
+        .ok_or(Error::new(EOVERFLOW))?;
+    let pheaders_size = phdr_table_size
+        .checked_add(size_of::<Header>())
         .ok_or(Error::new(EOVERFLOW))?;
     let phoff = u64::try_from(header.e_phoff).map_err(|_| Error::new(EOVERFLOW))?;
     let phend = phoff
-        .checked_add(u64::try_from(pheaders_size).map_err(|_| Error::new(EOVERFLOW))?)
+        .checked_add(u64::try_from(phdr_table_size).map_err(|_| Error::new(EOVERFLOW))?)
         .ok_or(Error::new(EOVERFLOW))?;
     if phend > image_size {
         return Err(Error::new(ENOEXEC));
