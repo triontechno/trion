@@ -466,6 +466,28 @@ pub fn fexec_impl(
         MapFlags::PROT_READ | MapFlags::PROT_WRITE | MapFlags::MAP_FIXED_NOREPLACE,
     )?;
 
+    // AT_RANDOM is optional if the entropy scheme is not available yet during
+    // early boot. When present, it contains 16 bytes from the system RNG.
+    let mut random_bytes = [0u8; 16];
+    let mut random_available = false;
+    if let Ok(random_fd) = FdGuard::open("/scheme/rand", syscall::O_RDONLY | O_CLOEXEC) {
+        let mut filled = 0;
+        while filled < random_bytes.len() {
+            match random_fd.read(&mut random_bytes[filled..]) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => filled += count,
+            }
+        }
+        random_available = filled == random_bytes.len();
+    }
+
+    let execfn = interp_override.as_ref().map_or(path, |o| &o.name);
+    if execfn.contains(&0) {
+        return Err(Error::new(EINVAL));
+    }
+    let resugid = crate::sys::posix_getresugid();
+    let secure_exec = usize::from(resugid.ruid != resugid.euid || resugid.rgid != resugid.egid);
+
     let startup_aux_words = (if interp_override.is_some() { 6usize } else { 4usize })
         .checked_add(4) // AT_PHNUM and AT_PHENT
         .and_then(|words| words.checked_add(if extrainfo.cwd.is_some() { 4 } else { 0 }))
@@ -473,6 +495,8 @@ pub fn fexec_impl(
         // 64-bit targets, two pairs each on 32-bit targets.
         .and_then(|words| words.checked_add(if cfg!(target_pointer_width = "32") { 8 } else { 4 }))
         .and_then(|words| words.checked_add(12)) // umask and five inherited descriptors
+        .and_then(|words| words.checked_add(14)) // AT_PAGESZ, IDs, AT_SECURE, AT_EXECFN
+        .and_then(|words| words.checked_add(if random_available { 2 } else { 0 }))
         .ok_or(Error::new(EOVERFLOW))?;
     let startup_words = 2usize // AT_NULL pair
         .checked_add(startup_aux_words)
@@ -595,6 +619,12 @@ pub fn fexec_impl(
             .filter(|size| *size <= MAX_STARTUP_BYTES)
             .ok_or(Error::new(E2BIG))?;
     }
+    total_args_envs_auxvpointee_size = total_args_envs_auxvpointee_size
+        .checked_add(execfn.len())
+        .and_then(|size| size.checked_add(1))
+        .and_then(|size| size.checked_add(if random_available { random_bytes.len() + 1 } else { 0 }))
+        .filter(|size| *size <= MAX_STARTUP_BYTES)
+        .ok_or(Error::new(E2BIG))?;
     let args_envs_size_aligned = checked_page_align(
         total_args_envs_auxvpointee_size.max(1)
     )?;
@@ -679,6 +709,25 @@ pub fn fexec_impl(
         push(AT_REDOX_CWD_FD)?;
         push(extrainfo.filetable_fd.unwrap_or(usize::MAX))?;
         push(AT_REDOX_FILETABLE_FD)?;
+
+        push(PAGE_SIZE)?;
+        push(AT_PAGESZ)?;
+        push(resugid.ruid as usize)?;
+        push(AT_UID)?;
+        push(resugid.euid as usize)?;
+        push(AT_EUID)?;
+        push(resugid.rgid as usize)?;
+        push(AT_GID)?;
+        push(resugid.egid as usize)?;
+        push(AT_EGID)?;
+        push(secure_exec)?;
+        push(AT_SECURE)?;
+        push(append(execfn)?)?;
+        push(AT_EXECFN)?;
+        if random_available {
+            push(append(&random_bytes)?)?;
+            push(AT_RANDOM)?;
+        }
 
         push(0)?;
 
