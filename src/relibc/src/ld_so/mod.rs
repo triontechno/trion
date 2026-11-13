@@ -81,12 +81,14 @@ fn static_init(
     let phdr_table_size = phent
         .checked_mul(phnum)
         .ok_or(linker::DlError::Malformed)?;
+    phdr.checked_add(phdr_table_size)
+        .ok_or(linker::DlError::Malformed)?;
     let mut load_bias = None;
     let mut tls_master = None;
     for i in 0..phnum {
         let ph_offset = phent.checked_mul(i).ok_or(linker::DlError::Malformed)?;
         let ph_addr = phdr.checked_add(ph_offset).ok_or(linker::DlError::Malformed)?;
-        let (p_align, p_filesz, p_memsz, p_type, p_vaddr) = match phent {
+        let (p_align, p_filesz, p_memsz, p_type, p_vaddr, p_offset) = match phent {
             SIZEOF_PHDR64 => {
                 if ph_addr % mem::align_of::<ProgramHeader64<Endianness>>() != 0 {
                     return Err(linker::DlError::Malformed);
@@ -101,6 +103,8 @@ fn static_init(
                         .map_err(|_| linker::DlError::Malformed)?,
                     ph.p_type(Endianness::default()),
                     usize::try_from(ph.p_vaddr(Endianness::default()))
+                        .map_err(|_| linker::DlError::Malformed)?,
+                    usize::try_from(ph.p_offset(Endianness::default()))
                         .map_err(|_| linker::DlError::Malformed)?,
                 )
             }
@@ -118,6 +122,8 @@ fn static_init(
                         .map_err(|_| linker::DlError::Malformed)?,
                     ph.p_type(Endianness::default()),
                     usize::try_from(ph.p_vaddr(Endianness::default()))
+                        .map_err(|_| linker::DlError::Malformed)?,
+                    usize::try_from(ph.p_offset(Endianness::default()))
                         .map_err(|_| linker::DlError::Malformed)?,
                 )
             }
@@ -140,7 +146,8 @@ fn static_init(
         if tls_master.is_some()
             || p_memsz == 0
             || p_filesz > p_memsz
-            || p_align > 1 && (!p_align.is_power_of_two() || p_vaddr % p_align != 0)
+            || p_align > 1
+                && (!p_align.is_power_of_two() || p_vaddr % p_align != p_offset % p_align)
         {
             return Err(linker::DlError::Malformed);
         }
