@@ -87,6 +87,9 @@ impl Tcb {
             .map(|aligned| aligned / page_size * page_size)
             .ok_or(DlError::Malformed)?;
         let (_abi_page, tls, tcb_page) = Self::os_new(tls_size)?;
+        if tcb_page.len() < mem::size_of::<Self>() {
+            return Err(DlError::Malformed);
+        }
 
         let tcb_ptr = tcb_page.as_mut_ptr().cast::<Self>();
         ptr::write(
@@ -141,7 +144,10 @@ impl Tcb {
 
     /// The initial images for TLS
     pub fn masters(&self) -> Option<&'static mut [Master]> {
-        if self.masters_ptr.is_null() || self.masters_len == 0 {
+        if self.masters_ptr.is_null()
+            || self.masters_len == 0
+            || self.masters_len % mem::size_of::<Master>() != 0
+        {
             None
         } else {
             Some(unsafe {
@@ -155,46 +161,55 @@ impl Tcb {
 
     /// Copy data from masters
     pub unsafe fn copy_masters(&mut self) -> Result<(), DlError> {
-        //TODO: Complain if masters or tls exist without the other
-        if let Some(tls) = unsafe { self.tls() }
-            && let Some(masters) = self.masters()
+        if self.masters_len % mem::size_of::<Master>() != 0
+            || (self.masters_ptr.is_null() != (self.masters_len == 0))
         {
-            for (i, master) in masters.iter().skip(self.num_copied_masters).enumerate() {
-                if master.image_size == 0 {
-                    continue;
-                }
-
-                let master_idx = self.num_copied_masters
-                    .checked_add(i)
-                    .ok_or(DlError::Malformed)?;
-                let start = if cfg!(any(target_arch = "x86", target_arch = "x86_64")) {
-                    // x86{_64} TLS layout is backwards
-                    self.tls_len.checked_sub(master.offset).ok_or(DlError::Malformed)?
-                } else if cfg!(target_arch = "aarch64") {
-                    // AArch64 p_vaddr is ignored for first master, this is experimentally determined
-                    if master_idx == 0 { 0 } else { master.offset }
-                } else {
-                    master.offset
-                };
-                let end = start.checked_add(master.image_size).ok_or(DlError::Malformed)?;
-                let range = start..end;
-                if let Some(tls_data) = tls.get_mut(range) {
-                    let data = unsafe { master.data() };
-                    #[cfg(feature = "trace_tls")]
-                    log::trace!(
-                        "tls master: {:p}, {:#x}: {:p}, {:#x}",
-                        data.as_ptr(),
-                        data.len(),
-                        tls_data.as_mut_ptr(),
-                        tls_data.len()
-                    );
-                    tls_data.copy_from_slice(data);
-                } else {
-                    return Err(DlError::Malformed);
-                }
-            }
-            self.num_copied_masters = masters.len();
+            return Err(DlError::Malformed);
         }
+        let master_count = self.masters_len / mem::size_of::<Master>();
+        if self.num_copied_masters > master_count {
+            return Err(DlError::Malformed);
+        }
+        if master_count == 0 {
+            return Ok(());
+        }
+        let tls = unsafe { self.tls() }.ok_or(DlError::Malformed)?;
+        let masters = self.masters().ok_or(DlError::Malformed)?;
+
+        for (i, master) in masters.iter().skip(self.num_copied_masters).enumerate() {
+            if master.image_size == 0 {
+                continue;
+            }
+            if master.ptr.is_null() || master.image_size > master.segment_size {
+                return Err(DlError::Malformed);
+            }
+
+            let master_idx = self.num_copied_masters
+                .checked_add(i)
+                .ok_or(DlError::Malformed)?;
+            let start = if cfg!(any(target_arch = "x86", target_arch = "x86_64")) {
+                // x86{_64} TLS layout is backwards
+                self.tls_len.checked_sub(master.offset).ok_or(DlError::Malformed)?
+            } else if cfg!(target_arch = "aarch64") {
+                // AArch64 p_vaddr is ignored for first master
+                if master_idx == 0 { 0 } else { master.offset }
+            } else {
+                master.offset
+            };
+            let end = start.checked_add(master.image_size).ok_or(DlError::Malformed)?;
+            let tls_data = tls.get_mut(start..end).ok_or(DlError::Malformed)?;
+            let data = unsafe { master.data() };
+            #[cfg(feature = "trace_tls")]
+            log::trace!(
+                "tls master: {:p}, {:#x}: {:p}, {:#x}",
+                data.as_ptr(),
+                data.len(),
+                tls_data.as_mut_ptr(),
+                tls_data.len()
+            );
+            tls_data.copy_from_slice(data);
+        }
+        self.num_copied_masters = master_count;
 
         Ok(())
     }
