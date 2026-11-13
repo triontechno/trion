@@ -77,5 +77,6 @@ Applications must use the native runtime and services shipped in the TRION syste
 - ELF load layouts that require overlapping PT_LOAD page mappings.
 - Arbitrary foreign ABI interpreters, foreign shared-library formats, or platform API translation.
 - Scheduler policy interfaces not implemented by the current native runtime.
+- AArch64 SIMD and RISC-V vector register state is not yet preserved by the signal context implementation; applications that require those register sets to survive signal delivery are outside the supported runtime profile.
 
 These exclusions are deliberate Version 1 boundaries, not claims that the corresponding compatibility layers exist.
