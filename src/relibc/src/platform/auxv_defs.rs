@@ -21,6 +21,7 @@ pub const AT_DCACHEBSIZE: usize = 19; /* Data cache block size.  */
 pub const AT_ICACHEBSIZE: usize = 20; /* Instruction cache block size.  */
 pub const AT_UCACHEBSIZE: usize = 21; /* Unified cache block size.  */
 pub const AT_IGNOREPPC: usize = 22; /* Entry should be ignored.  */
+pub const AT_SECURE: usize = 23; /* Secure execution mode. */
 pub const AT_BASE_PLATFORM: usize = 24; /* String identifying real platforms.*/
 pub const AT_RANDOM: usize = 25; /* Address of 16 random bytes.  */
 pub const AT_HWCAP2: usize = 26; /* More machine-dependent hints about*/
