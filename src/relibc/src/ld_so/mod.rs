@@ -78,6 +78,10 @@ fn static_init(
         return Err(linker::DlError::Malformed);
     }
 
+    let phdr_table_size = phent
+        .checked_mul(phnum)
+        .ok_or(linker::DlError::Malformed)?;
+    let mut load_bias = None;
     let mut tls_master = None;
     for i in 0..phnum {
         let ph_offset = phent.checked_mul(i).ok_or(linker::DlError::Malformed)?;
@@ -120,13 +124,23 @@ fn static_init(
             _ => return Err(linker::DlError::Malformed),
         };
 
+        if p_type == elf::PT_PHDR {
+            if load_bias.is_some() || p_filesz < phdr_table_size || p_memsz < phdr_table_size {
+                return Err(linker::DlError::Malformed);
+            }
+            load_bias = Some(
+                phdr.checked_sub(p_vaddr)
+                    .ok_or(linker::DlError::Malformed)?,
+            );
+            continue;
+        }
         if p_type != elf::PT_TLS {
             continue;
         }
         if tls_master.is_some()
             || p_memsz == 0
             || p_filesz > p_memsz
-            || p_align > 1 && !p_align.is_power_of_two()
+            || p_align > 1 && (!p_align.is_power_of_two() || p_vaddr % p_align != 0)
         {
             return Err(linker::DlError::Malformed);
         }
@@ -152,8 +166,18 @@ fn static_init(
     }
 
     if let Some((p_vaddr, p_filesz, p_memsz, tls_offset, tls_size)) = tls_master {
+        // AT_PHDR is the runtime address of the program-header table. PT_PHDR
+        // supplies its link-time virtual address, allowing the load bias to be
+        // applied to PT_TLS even when the main executable is PIE.
+        let load_bias = load_bias.ok_or(linker::DlError::Malformed)?;
+        let tls_image = load_bias
+            .checked_add(p_vaddr)
+            .ok_or(linker::DlError::Malformed)?;
+        tls_image
+            .checked_add(p_filesz)
+            .ok_or(linker::DlError::Malformed)?;
         unsafe {
-            STATIC_TCB_MASTER.ptr = p_vaddr as *const u8;
+            STATIC_TCB_MASTER.ptr = tls_image as *const u8;
             STATIC_TCB_MASTER.image_size = p_filesz;
             STATIC_TCB_MASTER.segment_size = p_memsz;
             STATIC_TCB_MASTER.offset = tls_offset;
