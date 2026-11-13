@@ -486,7 +486,11 @@ pub fn fexec_impl(
         return Err(Error::new(EINVAL));
     }
     let resugid = crate::sys::posix_getresugid();
-    let secure_exec = usize::from(resugid.ruid != resugid.euid || resugid.rgid != resugid.egid);
+    let secure_exec = if resugid.ruid != resugid.euid || resugid.rgid != resugid.egid {
+        1
+    } else {
+        0
+    };
 
     let startup_aux_words = (if interp_override.is_some() { 6usize } else { 4usize })
         .checked_add(4) // AT_PHNUM and AT_PHENT
