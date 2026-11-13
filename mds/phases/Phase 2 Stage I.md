@@ -13,7 +13,7 @@ Stage I completes the native ELF process-execution contract used by Version 1 ap
 3. **Complete initial process state.** Build bounded argv, envp, cwd and auxiliary vectors; enforce stack bounds/alignment; provide deterministic startup metadata and fail cleanly on oversized inputs.
 4. **Make exec transitions transactional.** Audit every failure point before address-space activation, descriptor close-on-exec handling, process naming, signal state, and filetable changes. A failed exec must not leave the current process partially modified.
 5. **Complete native thread/runtime startup.** Define and implement the native ABI for thread entry, TLS, signal delivery/return, process exit, and runtime initialization using existing Redox interfaces.
-6. **Integrate native resource and capability policy.** Ensure native process/thread creation and runtime services respect kernel-enforced memory, descriptor, scheduling and Stage H isolation boundaries.
+6. **Integrate native resource and capability policy.** Preserve native process/thread descriptor and memory authority; keep the supervisor-authorized Stage H guest policy separate and fail-closed rather than silently applying guest restrictions to ordinary native applications.
 7. **Close the native service contract.** Document the supported native syscall, filesystem, IPC, time, synchronization and device-facing interfaces; connect them to existing system services without introducing compatibility shims for other OS ABIs.
 8. **Document the supported native application profile.** Specify executable architecture, ABI, dynamic interpreter expectations, startup contract, resource limits and explicit unsupported features.
 
@@ -30,7 +30,7 @@ Stage I completes the native ELF process-execution contract used by Version 1 ap
 - Correctly sized, 16-byte-aligned initial stack with native auxv entries for image metadata, page size, real/effective IDs, secure-execution state, executable path, optional 16-byte system-random seed, signal masks, umask, cwd and inherited descriptors.
 - PIE-aware static TLS initialization using PT_PHDR/AT_PHDR load-bias resolution; PT_TLS size, alignment, template address and destination ranges are checked.
 - TCB allocation and TLS master-list validation, including pointer/length consistency, copied-master bounds and TLS destination bounds.
-- In-place exec stages image construction before its final transition, prepares required descriptors before TLS deactivation, applies process metadata changes at the end of the commit path, and propagates address-space and interpreter metadata write failures.
+- In-place exec stages image construction before its final transition, prepares required descriptors before TLS deactivation, restores the saved TCB if the kernel rejects the close-on-exec batch, applies process metadata changes at the end of the commit path, and propagates address-space and interpreter metadata write failures.
 - Native thread creation, TCB activation, TLS master copying, signal trampoline/return, process startup and thread exit use the existing relibc/redox-rt interfaces. Their supported contract and exclusions are documented in [the native application profile](../architecture/native-application-profile.md).
 - Native service boundaries are documented: scheme-backed filesystem/namespaces, process/thread descriptors, signals, address-space operations, IPC, time and mediated device descriptors.
 
