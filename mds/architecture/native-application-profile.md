@@ -15,7 +15,7 @@ The native loader accepts little-endian ELF images matching the running kernel's
 | AArch64 | ELF64 | EM_AARCH64 (183) |
 | RISC-V 64 | ELF64 | EM_RISCV (243) |
 
-Supported image types are `ET_EXEC` and `ET_DYN`. A dynamic interpreter handoff is supported for `ET_DYN` main images. The loader requires the ELF header and program-header dimensions to match the native ABI.
+Supported image types are `ET_EXEC` and `ET_DYN`. Either may request a `PT_INTERP` handoff; the interpreter image itself must be `ET_DYN`. The loader requires the ELF header and program-header dimensions to match the native ABI.
 
 The loader rejects malformed or unsupported images, including:
 
@@ -43,7 +43,8 @@ The loader constructs the initial stack with:
 - `argc`, a NULL-terminated `argv`, a NULL-terminated `envp`, and an auxiliary vector terminated by `AT_NULL`.
 - A 16-byte-aligned initial stack pointer and a bounded stack region.
 - Bounded argument, environment and working-directory strings. The aggregate startup string payload is limited to 2 MiB and the argument/environment count is limited to 65,536 entries.
-- Native auxiliary entries for the executable/interpreter metadata, inherited signal masks, umask, working directory and process/thread/namespace/filetable descriptors.
+- Native auxiliary entries for executable/interpreter metadata, page size, real/effective user and group IDs, secure-execution state, executable path, inherited signal masks, umask, working directory and process/thread/namespace/filetable descriptors.
+- An optional `AT_RANDOM` pointer to 16 bytes read from `/scheme/rand`; it is omitted if the entropy scheme is not available during early boot.
 
 The argument and environment byte strings must not contain embedded NUL bytes. Oversized or malformed startup data returns an execution error instead of overflowing the stack or allocation arithmetic.
 
@@ -67,7 +68,7 @@ Native applications use the Redox syscall ABI and scheme interfaces. These are n
 | Time | time scheme and native clock/timer interfaces |
 | Devices | device schemes and explicitly granted device descriptors |
 
-Applications must use the native runtime and services shipped in the TRION system image. The native profile does not provide arbitrary device access or unrestricted scheme creation. Device and IPC access is mediated by the system's descriptor and capability policy.
+Applications must use the native runtime and services shipped in the TRION system image. Ordinary native ELF launches use native Redox namespace and descriptor authority; they do not automatically activate the restricted Stage H guest policy. The Stage H guest backend remains a separate, supervisor-authorized profile with bounded pre-opened descriptor grants. Neither profile provides arbitrary hardware access outside the existing device and scheme interfaces.
 
 ## Explicitly unsupported
 
