@@ -750,20 +750,21 @@ pub fn fexec_impl(
             )
         };
 
+        // Acquire every descriptor needed for the commit path before changing
+        // the current thread's TLS state.
+        let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
+
         // Deactivate TLS before changing the active descriptor table. If this
         // operation fails, the current process still has its original filetable.
         unsafe {
             deactivate_tcb(thread_fd)?;
         }
 
-        {
-            let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
-            let _ = filetable_fd.call_wo(
-                fds_to_close_bytes,
-                CallFlags::empty(),
-                &[syscall::FileTableVerb::Close as u64],
-            );
-        }
+        let _ = filetable_fd.call_wo(
+            fds_to_close_bytes,
+            CallFlags::empty(),
+            &[syscall::FileTableVerb::Close as u64],
+        );
         {
             let mut guard = crate::current_filetable();
             for fd in fds_to_close {
