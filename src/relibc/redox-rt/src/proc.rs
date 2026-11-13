@@ -665,12 +665,12 @@ pub fn fexec_impl(
     push(argc)?;
 
     if let Ok(sighandler_fd) = thread_fd.dup_into_upper(b"sighandler") {
-        let _ = sighandler_fd.write(&SetSighandlerData {
+        sighandler_fd.write(&SetSighandlerData {
             user_handler: 0,
             excp_handler: 0,
             thread_control_addr: 0,
             proc_control_addr: 0,
-        });
+        })?;
         // TODO: sync with procmgr
     }
 
@@ -697,7 +697,7 @@ pub fn fexec_impl(
 
     if interp_override.is_some() {
         let mmap_min_fd = grants_fd.dup_into_upper(b"mmap-min-addr")?;
-        let _ = mmap_min_fd.write(&usize::to_ne_bytes(min_mmap_addr));
+        mmap_min_fd.write(&usize::to_ne_bytes(min_mmap_addr))?;
     }
 
     let addrspace_selection_fd = thread_fd.dup_into_upper(b"current-addrspace")?;
