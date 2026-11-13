@@ -812,17 +812,38 @@ pub fn fexec_impl(
         // the current thread's TLS state.
         let filetable_fd = thread_fd.dup_into_upper(b"filetable-binary")?;
 
+        // Keep the current TCB metadata so TLS can be restored if the
+        // kernel rejects the close-on-exec batch. The kernel filetable Close
+        // operation validates the complete descriptor list before removing it.
+        let current_tcb_ptr =
+            unsafe { crate::Tcb::current_ptr() }.ok_or(Error::new(EIO))?;
+        let current_tcb = unsafe { &*current_tcb_ptr };
+        let tls_end = current_tcb.tls_end as usize;
+        let tls_len = current_tcb.tls_len;
+        let os_specific = &current_tcb.os_specific;
+
         // Deactivate TLS before changing the active descriptor table. If this
         // operation fails, the current process still has its original filetable.
         unsafe {
             deactivate_tcb(thread_fd)?;
         }
 
-        let _ = filetable_fd.call_wo(
+        let close_result = filetable_fd.call_wo(
             fds_to_close_bytes,
             CallFlags::empty(),
             &[syscall::FileTableVerb::Close as u64],
         );
+        match close_result {
+            Ok(closed) if closed == fds_to_close.len() => {}
+            Ok(_) => {
+                unsafe { crate::tcb_activate(os_specific, tls_end, tls_len) };
+                return Err(Error::new(EIO));
+            }
+            Err(error) => {
+                unsafe { crate::tcb_activate(os_specific, tls_end, tls_len) };
+                return Err(error);
+            }
+        }
         {
             let mut guard = crate::current_filetable();
             for fd in fds_to_close {
