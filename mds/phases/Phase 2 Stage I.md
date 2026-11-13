@@ -28,7 +28,7 @@ Stage I completes the native ELF process-execution contract used by Version 1 ap
 - Checked page alignment, program-header slicing, mapped-address arithmetic and unrepresentable file offsets.
 - Bounded argv/envp/cwd/execfn and startup payload construction; the combined startup string data is limited to 2 MiB and argv/envp to 65,536 entries.
 - Correctly sized, 16-byte-aligned initial stack with native auxv entries for image metadata, page size, real/effective IDs, secure-execution state, executable path, optional 16-byte system-random seed, signal masks, umask, cwd and inherited descriptors.
-- PIE-aware static TLS initialization using PT_PHDR/AT_PHDR load-bias resolution; PT_TLS size, alignment, template address and destination ranges are checked.
+- PIE-aware static TLS initialization using PT_PHDR/AT_PHDR load-bias resolution; PT_TLS size, alignment, file-backed template and destination ranges are checked against mapped PT_LOAD segments.
 - TCB allocation and TLS master-list validation, including pointer/length consistency, copied-master bounds and TLS destination bounds.
 - In-place exec stages image construction before its final transition, prepares required descriptors before TLS deactivation, restores the saved TCB if the kernel rejects the close-on-exec batch, applies process metadata changes at the end of the commit path, and propagates address-space and interpreter metadata write failures.
 - Native thread creation, TCB activation, TLS master copying, signal trampoline/return, process startup and thread exit use the existing relibc/redox-rt interfaces. Their supported contract and exclusions are documented in [the native application profile](../architecture/native-application-profile.md).
