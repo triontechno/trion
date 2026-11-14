@@ -50,11 +50,8 @@ pub enum ServiceType {
 }
 
 impl Service {
-    /// Start a service, retrying only bounded failures observed before readiness.
-    ///
-    /// Long-running post-readiness supervision is deliberately not implied: the
-    /// init manager does not currently retain a child monitor for Notify/Scheme
-    /// services after they have handed readiness to the system.
+    /// Start a service with bounded retries and, for long-running services,
+    /// retain a monitor that can restart it after an unsuccessful exit.
     pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) -> bool {
         let retries = if self.restart_on_failure {
             self.max_restarts.min(MAX_RESTART_ATTEMPTS)
@@ -65,35 +62,39 @@ impl Service {
             self.restart_delay_ms.min(MAX_RESTART_DELAY_MS) as u64,
         );
 
-        for attempt in 0..=retries {
+        let mut remaining = retries;
+        loop {
             match self.spawn_once(base_envs) {
-                Ok(true) => return true,
-                Ok(false) => {
-                    eprintln!(
-                        "init: service {:?} did not complete startup (attempt {}/{})",
-                        self.cmd,
-                        attempt + 1,
-                        retries as u16 + 1,
-                    );
+                Ok(SpawnResult::Running(child)) => {
+                    if remaining > 0 {
+                        let service = self.clone();
+                        let envs = base_envs.clone();
+                        thread::spawn(move || {
+                            supervise(service, envs, child, remaining, delay);
+                        });
+                    }
+                    return true;
+                }
+                Ok(SpawnResult::Completed(true)) => return true,
+                Ok(SpawnResult::Completed(false)) => {
+                    eprintln!("init: service {:?} exited unsuccessfully during startup", self.cmd);
                 }
                 Err(err) => {
-                    eprintln!(
-                        "init: service {:?} startup failed (attempt {}/{}): {err}",
-                        self.cmd,
-                        attempt + 1,
-                        retries as u16 + 1,
-                    );
+                    eprintln!("init: service {:?} startup failed: {err}", self.cmd);
                 }
             }
 
-            if attempt < retries && !delay.is_zero() {
+            if remaining == 0 {
+                return false;
+            }
+            remaining -= 1;
+            if !delay.is_zero() {
                 thread::sleep(delay);
             }
         }
-        false
     }
 
-    fn spawn_once(&self, base_envs: &BTreeMap<String, OsString>) -> io::Result<bool> {
+    fn spawn_once(&self, base_envs: &BTreeMap<String, OsString>) -> io::Result<SpawnResult> {
         let mut command = Command::new(&self.cmd);
         command.args(self.args.iter().map(|arg| subst_env(arg)));
         command.env_clear();
@@ -172,23 +173,91 @@ impl Service {
             ServiceType::Oneshot => {
                 drop(read_pipe);
                 let status = child.wait()?;
-                Ok(status.success())
+                return Ok(SpawnResult::Completed(status.success()));
             }
             ServiceType::OneshotAsync => Ok(true),
         };
 
         match startup {
-            Ok(true) => Ok(true),
+            Ok(true) => Ok(SpawnResult::Running(child)),
             Ok(false) => {
-                // Startup failed before readiness. Reap the child before retrying.
                 let _ = child.kill();
                 let _ = child.wait();
-                Ok(false)
+                Ok(SpawnResult::Completed(false))
             }
             Err(err) => {
                 let _ = child.kill();
                 let _ = child.wait();
                 Err(err)
+            }
+        }
+    }
+}
+
+enum SpawnResult {
+    Running(std::process::Child),
+    Completed(bool),
+}
+
+fn supervise(
+    service: Service,
+    base_envs: BTreeMap<String, OsString>,
+    mut child: std::process::Child,
+    mut remaining: u8,
+    delay: Duration,
+) {
+    loop {
+        match child.wait() {
+            Ok(status) if status.success() => return,
+            Ok(status) => eprintln!(
+                "init: supervised service {:?} exited with {status}",
+                service.cmd,
+            ),
+            Err(err) => eprintln!(
+                "init: failed waiting for supervised service {:?}: {err}",
+                service.cmd,
+            ),
+        }
+
+        if remaining == 0 {
+            eprintln!(
+                "init: service {:?} exhausted its runtime restart budget",
+                service.cmd,
+            );
+            return;
+        }
+        remaining -= 1;
+        if !delay.is_zero() {
+            thread::sleep(delay);
+        }
+
+        loop {
+            match service.spawn_once(&base_envs) {
+                Ok(SpawnResult::Running(next_child)) => {
+                    child = next_child;
+                    break;
+                }
+                Ok(SpawnResult::Completed(true)) => return,
+                Ok(SpawnResult::Completed(false)) => eprintln!(
+                    "init: restarted service {:?} exited unsuccessfully",
+                    service.cmd,
+                ),
+                Err(err) => eprintln!(
+                    "init: failed to restart service {:?}: {err}",
+                    service.cmd,
+                ),
+            }
+
+            if remaining == 0 {
+                eprintln!(
+                    "init: service {:?} exhausted its runtime restart budget",
+                    service.cmd,
+                );
+                return;
+            }
+            remaining -= 1;
+            if !delay.is_zero() {
+                thread::sleep(delay);
             }
         }
     }
