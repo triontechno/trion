@@ -102,7 +102,12 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
                     service.cmd,
                 );
             }
-            service.spawn(&config.envs);
+            if !service.spawn(&config.envs) {
+                eprintln!(
+                    "init: service {} exhausted its startup attempts; dependent units may continue only through weak dependencies",
+                    unit.info.description.as_ref().unwrap_or(&unit.id.0),
+                );
+            }
         }
         UnitKind::Target {} => {
             if config.log_debug {
