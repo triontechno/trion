@@ -1,10 +1,20 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
+use std::thread;
+use std::time::Duration;
 
 use crate::InitConfig;
+use crate::service::{Service, ServiceStart};
 use crate::unit::{Unit, UnitId, UnitKind, UnitStore};
 
 pub struct Scheduler {
     pending: VecDeque<Job>,
+    supervised: BTreeMap<usize, SupervisedService>,
+}
+
+struct SupervisedService {
+    service: Service,
+    envs: BTreeMap<String, std::ffi::OsString>,
+    restarts_remaining: u8,
 }
 
 struct Job {
@@ -20,6 +30,7 @@ impl Scheduler {
     pub fn new() -> Scheduler {
         Scheduler {
             pending: VecDeque::new(),
+            supervised: BTreeMap::new(),
         }
     }
 
@@ -62,7 +73,7 @@ impl Scheduler {
 
             match job.kind {
                 JobKind::Start => {
-                    let unit = unit_store.unit_mut(&job.unit);
+                    let unit = unit_store.unit(&job.unit);
 
                     for dep in &unit.info.requires_weak {
                         for pending_job in &self.pending {
@@ -73,14 +84,63 @@ impl Scheduler {
                         }
                     }
 
-                    run(unit, init_config);
+                    if let Some((pid, service)) = run(unit, init_config) {
+                        self.supervised.insert(
+                            pid,
+                            SupervisedService {
+                                restarts_remaining: service.max_restarts.min(10),
+                                service,
+                                envs: init_config.envs.clone(),
+                            },
+                        );
+                    }
                 }
             }
         }
     }
+
+    /// Called only by PID 1's central waitpid loop after the child is reaped.
+    /// This keeps one authoritative reaper and avoids racing Child::wait callers.
+    pub fn child_exited(&mut self, pid: usize, status: usize) {
+        let Some(mut supervised) = self.supervised.remove(&pid) else {
+            return;
+        };
+
+        // A zero wait status is a normal successful exit. Restart only failures.
+        if status == 0 {
+            return;
+        }
+
+        if supervised.restarts_remaining == 0 {
+            eprintln!(
+                "init: supervised service {:?} exited with status {status:#x}; restart budget exhausted",
+                supervised.service.cmd,
+            );
+            return;
+        }
+
+        supervised.restarts_remaining -= 1;
+        let delay = Duration::from_millis(
+            supervised.service.restart_delay_ms.min(30_000) as u64,
+        );
+        if !delay.is_zero() {
+            thread::sleep(delay);
+        }
+
+        match supervised.service.spawn(&supervised.envs) {
+            ServiceStart::Running(new_pid) => {
+                self.supervised.insert(new_pid, supervised);
+            }
+            ServiceStart::Completed => {}
+            ServiceStart::Failed => eprintln!(
+                "init: supervised service {:?} could not be restarted",
+                supervised.service.cmd,
+            ),
+        }
+    }
 }
 
-fn run(unit: &mut Unit, config: &mut InitConfig) {
+fn run(unit: &Unit, config: &mut InitConfig) -> Option<(usize, Service)> {
     match &unit.kind {
         UnitKind::LegacyScript { script } => {
             for cmd in script.clone() {
@@ -93,7 +153,7 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
         UnitKind::Service { service } => {
             if config.skip_cmd.contains(&service.cmd) {
                 eprintln!("Skipping '{} {}'", service.cmd, service.args.join(" "));
-                return;
+                return None;
             }
             if config.log_debug {
                 eprintln!(
@@ -102,11 +162,17 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
                     service.cmd,
                 );
             }
-            if !service.spawn(&config.envs) {
-                eprintln!(
+            match service.spawn(&config.envs) {
+                ServiceStart::Running(pid)
+                    if service.restart_on_failure && service.max_restarts > 0 =>
+                {
+                    return Some((pid, service.clone()));
+                }
+                ServiceStart::Running(_) | ServiceStart::Completed => {}
+                ServiceStart::Failed => eprintln!(
                     "init: service {} exhausted its startup attempts; dependent units may continue only through weak dependencies",
                     unit.info.description.as_ref().unwrap_or(&unit.id.0),
-                );
+                ),
             }
         }
         UnitKind::Target {} => {
@@ -118,4 +184,5 @@ fn run(unit: &mut Unit, config: &mut InitConfig) {
             }
         }
     }
+    None
 }
