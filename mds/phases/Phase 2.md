@@ -39,7 +39,7 @@ Develop an adaptive binary/ternary architecture for TRION Version 1 while preser
 **Status: implementation complete for the declared native profile; validation deferred.** Completes the TRION/Redox native ELF process and runtime contract, including bounded image loading, interpreter handoff, startup state and auxv, PIE-aware TLS initialization, in-place exec transition handling, native thread/signal runtime integration, and the documented native service ABI. The native ELF ABI is not Linux compatibility. See [Stage I](Phase%202%20Stage%20I.md) and the [native application profile](../architecture/native-application-profile.md).
 
 ### Stage J — Native system integration and completion
-**Status: not yet implemented; validation deferred.** Integrates native executable dispatch, initfs and boot services, service dependency ordering, kernel/runtime ABI, device boundaries, security policy, and resource lifecycle into a coherent Version 1 system. See [Stage J](Phase%202%20Stage%20J.md).
+**Status: partially implemented; Stage J remains open; validation deferred.** Explicit executable signature dispatch and the native system integration contract are implemented. Bounded service restart policy, full kernel/runtime ABI audit, ordinary native resource accounting, and complete teardown/recovery audit remain open. See [Stage J](Phase%202%20Stage%20J.md) and the [native system integration contract](../architecture/native-system-integration.md).
 
 ### Version 2 compatibility (deferred)
 Windows, macOS and Linux application compatibility are explicitly outside Version 1 and outside Phase 2 Stages I/J. They require a separately scoped Version 2 workstream. The repository's native ELF/Redox process path is not Linux ABI compatibility.
