@@ -3,6 +3,18 @@ name: TRION adaptive policy
 # the Redox capability service, and the Stage G executable-format foundation.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "ternary/**"
+      - "src/**"
+      - "build/**"
+      - "config/**"
+      - "kernel/**"
+      - "filesystem/**"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   workflow_dispatch:
 
 jobs:
