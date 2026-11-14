@@ -50,11 +50,8 @@ pub enum ServiceType {
 }
 
 impl Service {
-    /// Start a service, retrying only failures detected before readiness.
-    ///
-    /// Runtime child reaping is centralized in init's waitpid loop. Keeping
-    /// restart attempts here avoids competing waitpid callers and double-reaping.
-    pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) -> bool {
+    /// Start a service with bounded retries for failures before readiness.
+    pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) -> ServiceStart {
         let retries = if self.restart_on_failure {
             self.max_restarts.min(MAX_RESTART_ATTEMPTS)
         } else {
@@ -66,8 +63,9 @@ impl Service {
 
         for attempt in 0..=retries {
             match self.spawn_once(base_envs) {
-                Ok(true) => return true,
-                Ok(false) => {
+                Ok(SpawnResult::Running(pid)) => return ServiceStart::Running(pid),
+                Ok(SpawnResult::Completed(true)) => return ServiceStart::Completed,
+                Ok(SpawnResult::Completed(false)) => {
                     eprintln!(
                         "init: service {:?} did not complete startup (attempt {}/{})",
                         self.cmd,
@@ -89,10 +87,10 @@ impl Service {
                 thread::sleep(delay);
             }
         }
-        false
+        ServiceStart::Failed
     }
 
-    fn spawn_once(&self, base_envs: &BTreeMap<String, OsString>) -> io::Result<bool> {
+    fn spawn_once(&self, base_envs: &BTreeMap<String, OsString>) -> io::Result<SpawnResult> {
         let mut command = Command::new(&self.cmd);
         command.args(self.args.iter().map(|arg| subst_env(arg)));
         command.env_clear();
@@ -119,6 +117,7 @@ impl Service {
         }
 
         let mut child = command.spawn()?;
+        let pid = child.id() as usize;
         drop(write_pipe);
 
         let startup = match &self.type_ {
@@ -171,17 +170,17 @@ impl Service {
             ServiceType::Oneshot => {
                 drop(read_pipe);
                 let status = child.wait()?;
-                return Ok(status.success());
+                return Ok(SpawnResult::Completed(status.success()));
             }
             ServiceType::OneshotAsync => Ok(true),
         };
 
         match startup {
-            Ok(true) => Ok(true),
+            Ok(true) => Ok(SpawnResult::Running(pid)),
             Ok(false) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                Ok(false)
+                Ok(SpawnResult::Completed(false))
             }
             Err(err) => {
                 let _ = child.kill();
@@ -190,6 +189,18 @@ impl Service {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceStart {
+    Running(usize),
+    Completed,
+    Failed,
+}
+
+enum SpawnResult {
+    Running(usize),
+    Completed(bool),
 }
 
 unsafe fn pass_fd(cmd: &mut Command, env: &str, fd: RawFd) {
