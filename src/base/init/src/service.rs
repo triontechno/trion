@@ -4,11 +4,15 @@ use std::io::Read;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
-use std::{env, io};
+use std::{env, io, thread, time::Duration};
 
 use serde::Deserialize;
 
 use crate::script::subst_env;
+
+// Keep restart work bounded even if a unit file is misconfigured.
+const MAX_RESTART_ATTEMPTS: u8 = 10;
+const MAX_RESTART_DELAY_MS: u32 = 30_000;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,6 +28,15 @@ pub struct Service {
     pub type_: ServiceType,
     #[serde(default)]
     pub priority: Option<i32>,
+    /// Retry only failures detected before startup/readiness completes.
+    #[serde(default)]
+    pub restart_on_failure: bool,
+    /// Number of additional startup attempts, capped at MAX_RESTART_ATTEMPTS.
+    #[serde(default)]
+    pub max_restarts: u8,
+    /// Delay between attempts, capped at MAX_RESTART_DELAY_MS.
+    #[serde(default)]
+    pub restart_delay_ms: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -37,7 +50,50 @@ pub enum ServiceType {
 }
 
 impl Service {
-    pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) {
+    /// Start a service, retrying only bounded failures observed before readiness.
+    ///
+    /// Long-running post-readiness supervision is deliberately not implied: the
+    /// init manager does not currently retain a child monitor for Notify/Scheme
+    /// services after they have handed readiness to the system.
+    pub fn spawn(&self, base_envs: &BTreeMap<String, OsString>) -> bool {
+        let retries = if self.restart_on_failure {
+            self.max_restarts.min(MAX_RESTART_ATTEMPTS)
+        } else {
+            0
+        };
+        let delay = Duration::from_millis(
+            self.restart_delay_ms.min(MAX_RESTART_DELAY_MS) as u64,
+        );
+
+        for attempt in 0..=retries {
+            match self.spawn_once(base_envs) {
+                Ok(true) => return true,
+                Ok(false) => {
+                    eprintln!(
+                        "init: service {:?} did not complete startup (attempt {}/{})",
+                        self.cmd,
+                        attempt + 1,
+                        retries as u16 + 1,
+                    );
+                }
+                Err(err) => {
+                    eprintln!(
+                        "init: service {:?} startup failed (attempt {}/{}): {err}",
+                        self.cmd,
+                        attempt + 1,
+                        retries as u16 + 1,
+                    );
+                }
+            }
+
+            if attempt < retries && !delay.is_zero() {
+                thread::sleep(delay);
+            }
+        }
+        false
+    }
+
+    fn spawn_once(&self, base_envs: &BTreeMap<String, OsString>) -> io::Result<bool> {
         let mut command = Command::new(&self.cmd);
         command.args(self.args.iter().map(|arg| subst_env(arg)));
         command.env_clear();
@@ -48,7 +104,7 @@ impl Service {
         }
         command.envs(base_envs).envs(&self.envs);
 
-        let (mut read_pipe, write_pipe) = io::pipe().unwrap();
+        let (mut read_pipe, write_pipe) = io::pipe()?;
         unsafe { pass_fd(&mut command, "INIT_NOTIFY", write_pipe.as_raw_fd()) };
 
         if let Some(priority) = self.priority {
@@ -63,28 +119,20 @@ impl Service {
             }
         }
 
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(err) => {
-                eprintln!("init: failed to execute {:?}: {}", command, err);
-                return;
-            }
-        };
+        let mut child = command.spawn()?;
         drop(write_pipe);
 
-        match &self.type_ {
-            ServiceType::Notify => match read_pipe.read_exact(&mut [0]) {
-                Ok(()) => {}
-                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
-                    eprintln!("init: {command:?} exited without notifying readiness");
+        let startup = match &self.type_ {
+            ServiceType::Notify => {
+                let mut ready = [0];
+                match read_pipe.read_exact(&mut ready) {
+                    Ok(()) => Ok(true),
+                    Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => Ok(false),
+                    Err(err) => Err(err),
                 }
-                Err(err) => {
-                    eprintln!("init: failed to wait for {command:?}: {err}");
-                }
-            },
+            }
             ServiceType::Scheme(scheme) => {
                 let mut new_fd = usize::MAX;
-
                 loop {
                     match libredox::call::call_ro(
                         read_pipe.as_raw_fd() as usize,
@@ -93,40 +141,55 @@ impl Service {
                         &[],
                     ) {
                         Err(err) if err.is_interrupt() => continue,
-                        Ok(0) => {
-                            eprintln!("init: {command:?} exited without notifying readiness");
-                            return;
+                        Ok(0) => break Ok(false),
+                        Ok(1) => {
+                            let namespace_fd = match libredox::call::getns() {
+                                Ok(fd) => fd,
+                                Err(err) => break Err(io::Error::other(format!(
+                                    "failed to get current namespace: {err}"
+                                ))),
+                            };
+                            match libredox::call::register_scheme_to_ns(
+                                namespace_fd,
+                                scheme,
+                                new_fd,
+                            ) {
+                                Ok(()) => break Ok(true),
+                                Err(err) => break Err(io::Error::other(format!(
+                                    "failed to register scheme {scheme}: {err}"
+                                ))),
+                            }
                         }
-                        Ok(1) => break,
-                        Ok(n) => {
-                            eprintln!("init: incorrect amount of fds {n} returned");
-                            return;
-                        }
-                        Err(err) => {
-                            eprintln!("init: failed to wait for {command:?}: {err}");
-                            return;
-                        }
+                        Ok(n) => break Err(io::Error::other(format!(
+                            "service returned {n} descriptors; expected exactly one"
+                        ))),
+                        Err(err) => break Err(io::Error::other(format!(
+                            "failed waiting for scheme readiness: {err}"
+                        ))),
                     }
                 }
-
-                let current_namespace_fd = libredox::call::getns().expect("TODO");
-                libredox::call::register_scheme_to_ns(current_namespace_fd, scheme, new_fd)
-                    .expect("TODO");
             }
             ServiceType::Oneshot => {
                 drop(read_pipe);
-                match child.wait() {
-                    Ok(exit_status) => {
-                        if !exit_status.success() {
-                            eprintln!("init: {command:?} failed with {exit_status}");
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("init: failed to wait for {:?}: {}", command, err)
-                    }
-                }
+                let status = child.wait()?;
+                Ok(status.success())
             }
-            ServiceType::OneshotAsync => {}
+            ServiceType::OneshotAsync => Ok(true),
+        };
+
+        match startup {
+            Ok(true) => Ok(true),
+            Ok(false) => {
+                // Startup failed before readiness. Reap the child before retrying.
+                let _ = child.kill();
+                let _ = child.wait();
+                Ok(false)
+            }
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(err)
+            }
         }
     }
 }
