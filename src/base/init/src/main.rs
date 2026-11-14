@@ -195,10 +195,11 @@ fn main() {
     loop {
         let mut status = 0;
         match libredox::call::waitpid(0, &mut status, 0) {
-            Ok(_) => {
+            Ok(pid) => {
                 if init_config.log_debug {
-                    eprintln!("init: reaped child with status {status:#x}");
+                    eprintln!("init: reaped child {pid} with status {status:#x}");
                 }
+                scheduler.child_exited(pid, status);
             }
             Err(err) if err.is_interrupt() => continue,
             Err(err) => {
