@@ -93,13 +93,16 @@ pub fn fexec_impl(
     extrainfo: &ExtraInfo,
     interp_override: Option<InterpOverride>,
 ) -> Result<Option<FexecResult>> {
-    // Native PE/Mach-O entry support is x86-64 only. Other Redox architectures
-    // continue through their existing executable-format path and reject these files.
+    // Classify the image exactly once before entering a format-specific loader.
+    // The native ELF ABI is the ordinary Version 1 path. The PE32+ and Mach-O64
+    // handlers are deliberately restricted freestanding x86-64 profiles, not
+    // Windows or macOS compatibility runtimes. Unknown and truncated formats
+    // fail closed instead of being passed to the ELF parser.
+    let mut format_magic = [0u8; 4];
+    pread_all(&image_file, 0, &mut format_magic)?;
     #[cfg(target_arch = "x86_64")]
-    {
-        let mut format_magic = [0u8; 4];
-        pread_all(&image_file, 0, &mut format_magic)?;
-        if format_magic.starts_with(b"MZ") {
+    match format_magic {
+        [b'M', b'Z', _, _] => {
             return trion::fexec_pe32_plus(
                 image_file,
                 thread_fd,
@@ -110,7 +113,7 @@ pub fn fexec_impl(
                 extrainfo,
             );
         }
-        if format_magic == [0xCF, 0xFA, 0xED, 0xFE] {
+        [0xCF, 0xFA, 0xED, 0xFE] => {
             return trion::fexec_macho64(
                 image_file,
                 thread_fd,
@@ -121,6 +124,12 @@ pub fn fexec_impl(
                 extrainfo,
             );
         }
+        [0x7F, b'E', b'L', b'F'] => {}
+        _ => return Err(Error::new(ENOEXEC)),
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    if format_magic != [0x7F, b'E', b'L', b'F'] {
+        return Err(Error::new(ENOEXEC));
     }
 
     // Here, we do the minimum part of loading an application, which is what the kernel used to do.
