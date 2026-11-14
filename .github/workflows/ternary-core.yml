@@ -4,8 +4,15 @@ on:
   push:
     branches: [main]
     paths:
-      - "ternary/core/**"
-      - ".github/workflows/ternary-core.yml"
+      - "ternary/**"
+      - "src/**"
+      - "build/**"
+      - "config/**"
+      - "kernel/**"
+      - "filesystem/**"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   pull_request:
     branches: [main]
     paths:
