@@ -59,10 +59,10 @@ pub fn rebase_pe32_plus(image:&mut InertImage, actual_base:u64)->Result<(),Error
         if end-at<8 { return Err(Error::Invalid("partial PE relocation block")); }
         let page=u32le(bytes,at)? as usize;
         let block_size=u32le(bytes,at+4)? as usize;
-        if block_size<8 || block_size%2!=0 || at.checked_add(block_size).ok_or(Error::Overflow)?>end {
+        if block_size<8 || !block_size.is_multiple_of(2) || at.checked_add(block_size).ok_or(Error::Overflow)?>end {
             return Err(Error::Invalid("invalid PE relocation block size"));
         }
-        if page%0x1000!=0 || page>=bytes.len() {
+        if !page.is_multiple_of(0x1000) || page>=bytes.len() {
             return Err(Error::Invalid("invalid PE relocation page RVA"));
         }
         let entries=(block_size-8)/2;
