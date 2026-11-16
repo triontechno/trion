@@ -308,6 +308,7 @@ else
 	rm -f "$@.partial"/$(GNU_TARGET)/lib/libstdc++.la
 	rm -f "$@.partial"/$(GNU_TARGET)/lib/libsupc++.la
 	@#TODO: Needed by clang, yet not emitted
+	rm -f "$@.partial"/lib/gcc/$(GNU_TARGET)/13.2.0/crtbeginT.o
 	ln -s crtbegin.o "$@.partial"/lib/gcc/$(GNU_TARGET)/13.2.0/crtbeginT.o
 # hosted libstdcxx
 	export PATH="$(ROOT)/$@.partial/bin:$$PATH" \
