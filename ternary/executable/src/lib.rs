@@ -138,7 +138,7 @@ pub mod pe{
                     let thunk=r32(dsc,16,"import address table")?;
                     if r32(dsc,0,"import lookup table")?==0&&name==0&&thunk==0{term=true;break}
                     let mut no=None;
-                    if name as u64+1<=headers{no=Some(name as usize)}
+                    if (name as u64) < headers {no=Some(name as usize)}
                     for s in &sections{if name as u64>=s.address&&(name as u64)<s.address+s.file_size{no=Some((s.file_offset+name as u64-s.address) as usize)}}
                     let lib=cstr(d,no.ok_or(Error::Invalid("import name RVA not file-backed"))?,4096,"import library name")?;
                     if lib.is_empty(){return Err(Error::Invalid("empty import library"))}
@@ -313,7 +313,7 @@ mod tests {
         let opt = coff+20;
         put16(&mut d, opt, 0x20b);
         put32(&mut d, opt+16, 0x1000);
-        put64(&mut d, opt+24, 0x1400_0000_0);
+        put64(&mut d, opt+24, 0x0001_4000_0000);
         put32(&mut d, opt+32, 0x1000);
         put32(&mut d, opt+36, 0x200);
         put32(&mut d, opt+56, 0x2000);
