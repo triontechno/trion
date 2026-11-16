@@ -185,7 +185,6 @@ pub fn resolve_pe32_plus_imports(
         let library = read_name(bytes, name_rva, 4096, "PE import library name")?;
         let lookup = if original_thunk == 0 { first_thunk } else { original_thunk };
         let mut thunk_index = 0usize;
-        let mut thunk_terminated = false;
         loop {
             if thunk_index >= MAX_THUNKS_PER_LIBRARY {
                 return Err(Error::Limit("PE import thunk count"));
@@ -195,7 +194,6 @@ pub fn resolve_pe32_plus_imports(
             let iat_at = first_thunk.checked_add(offset).ok_or(Error::Overflow)?;
             let value = u64le(bytes, lookup_at)?;
             if value == 0 {
-                thunk_terminated = true;
                 break;
             }
             let symbol = if value & ORDINAL_FLAG64 != 0 {
@@ -241,9 +239,6 @@ pub fn resolve_pe32_plus_imports(
                 return Err(Error::Limit("PE total import count"));
             }
             thunk_index += 1;
-        }
-        if !thunk_terminated {
-            return Err(Error::Invalid("unterminated PE import thunk table"));
         }
         descriptor_at = descriptor_at.checked_add(20).ok_or(Error::Overflow)?;
     }
