@@ -66,6 +66,24 @@ jobs:
           make -C build all
           make -C build live
 
+      - name: Diagnose cross-compilation configure failures
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+          found=0
+          while IFS= read -r -d '' log; do
+            found=1
+            echo "::group::Compiler configure log: $log"
+            if ! grep -n -E 'cannot create executables|fatal error:|undefined reference|cannot find|collect2:|ld returned|configure: error' "$log" | tail -n 80; then
+              tail -n 80 "$log"
+            fi
+            echo "::endgroup::"
+          done < <(find build/recipes -type f -name config.log -print0 2>/dev/null)
+          if [ "$found" -eq 0 ]; then
+            echo "No Autoconf config.log files were retained."
+          fi
+
       - name: Verify build outputs
         shell: bash
         run: |
