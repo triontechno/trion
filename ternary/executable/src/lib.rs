@@ -39,7 +39,7 @@ impl fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
-fn range(data:&[u8], off:u64, len:u64, what:&'static str)->Result<&[u8],Error>{
+fn range<'a>(data:&'a [u8], off:u64, len:u64, what:&'static str)->Result<&'a [u8],Error>{
     let a=usize::try_from(off).map_err(|_|Error::Overflow)?;
     let n=usize::try_from(len).map_err(|_|Error::Overflow)?;
     let b=a.checked_add(n).ok_or(Error::Overflow)?;
@@ -139,7 +139,7 @@ pub mod pe{
                     if r32(dsc,0,"import lookup table")?==0&&name==0&&thunk==0{term=true;break}
                     let mut no=None;
                     if name as u64+1<=headers{no=Some(name as usize)}
-                    for s in &sections{if name as u64>=s.address&&name as u64<s.address+s.file_size{no=Some((s.file_offset+name as u64-s.address) as usize)}}
+                    for s in &sections{if name as u64>=s.address&&(name as u64)<s.address+s.file_size{no=Some((s.file_offset+name as u64-s.address) as usize)}}
                     let lib=cstr(d,no.ok_or(Error::Invalid("import name RVA not file-backed"))?,4096,"import library name")?;
                     if lib.is_empty(){return Err(Error::Invalid("empty import library"))}
                     if !deps.contains(&lib){deps.push(lib)}
