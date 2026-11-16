@@ -120,17 +120,22 @@ jobs:
             cargo clippy --manifest-path "$manifest" --all-targets -- -D warnings
           done
 
+      - name: Install nightly Rust for Redox workspace
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
       - name: Test Redox capability services
-        run: cargo test --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
+        run: cargo +nightly test --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
 
       - name: Check Redox capability services
-        run: cargo check --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
+        run: cargo +nightly check --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
 
       - name: Check capability-service formatting
-        run: cargo fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -- --check
+        run: cargo +nightly fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -- --check
 
       - name: Lint capability services
-        run: cargo clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets --no-deps -- -D warnings
+        run: cargo +nightly clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets --no-deps -- -D warnings
 
       - name: Run comparative benchmark correctness gate
         run: cargo run --manifest-path ternary/benchmarks/Cargo.toml --release
