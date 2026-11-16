@@ -39,13 +39,25 @@ jobs:
             | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Cache image-build toolchain and recipe outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/build/podman
+            build/prefix
+            build/repo
+            build/recipes/**/target
+          key: trion-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'Cargo.lock', '**/Cargo.lock') }}
+          restore-keys: |
+            trion-images-${{ runner.os }}-
+
       - name: Install build dependencies
         shell: bash
         run: bash build/podman_bootstrap.sh -d
 
       - name: Configure Podman build
         shell: bash
-        run: printf 'PODMAN_BUILD?=1\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
 
       - name: Build desktop disk image and live ISO
         shell: bash
