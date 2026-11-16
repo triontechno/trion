@@ -45,7 +45,7 @@ jobs:
 
       - name: Configure Podman build
         shell: bash
-        run: printf 'PODMAN_BUILD?=1\\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\n' > build/.config
 
       - name: Build desktop disk image and live ISO
         shell: bash
