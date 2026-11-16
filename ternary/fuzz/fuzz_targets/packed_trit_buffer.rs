@@ -19,9 +19,11 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
     if let Ok(buffer) = PackedTritBuffer::from_packed_bytes(logical_len, &data[8..]) {
-        let expanded = buffer.to_balanced_trits().expect("validated buffer must decode");
-        let reencoded = PackedTritBuffer::from_balanced_trits(&expanded)
-            .expect("decoded trits must re-encode");
+        let expanded = buffer
+            .to_balanced_trits()
+            .expect("validated buffer must decode");
+        let reencoded =
+            PackedTritBuffer::from_balanced_trits(&expanded).expect("decoded trits must re-encode");
         assert_eq!(reencoded, buffer);
     }
 });
