@@ -38,18 +38,22 @@ impl AddressSpace {
 
     pub fn map(&mut self, base: u64, size: u64, permissions: Permissions) -> Result<(), Error> {
         permissions.validate()?;
-        if size == 0 || base % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
+        if size == 0 || !base.is_multiple_of(PAGE_SIZE) || !size.is_multiple_of(PAGE_SIZE) {
             return Err(Error::Invalid("mapping must be nonzero and page aligned"));
         }
         let end = base.checked_add(size).ok_or(Error::Overflow)?;
         let next = self.committed.checked_add(size).ok_or(Error::Overflow)?;
         if next > MAX_GUEST_MEMORY { return Err(Error::Limit("guest address-space quota")); }
         if self.mappings.len() >= MAX_MAPPINGS { return Err(Error::Limit("guest mapping count")); }
-        if let Some((_, prev)) = self.mappings.range(..=base).next_back() {
-            if prev.end()? > base { return Err(Error::Invalid("overlapping guest mapping")); }
+        if let Some((_, prev)) = self.mappings.range(..=base).next_back()
+            && prev.end()? > base
+        {
+            return Err(Error::Invalid("overlapping guest mapping"));
         }
-        if let Some((&next_base, _)) = self.mappings.range(base..).next() {
-            if next_base < end { return Err(Error::Invalid("overlapping guest mapping")); }
+        if let Some((&next_base, _)) = self.mappings.range(base..).next()
+            && next_base < end
+        {
+            return Err(Error::Invalid("overlapping guest mapping"));
         }
         let len = usize::try_from(size).map_err(|_| Error::Overflow)?;
         let mut bytes = Vec::new();
@@ -125,8 +129,10 @@ pub struct GuestProcess {
 impl GuestProcess {
     pub fn new(id: u64, instruction_budget: u64) -> Result<Self, Error> {
         if id == 0 || instruction_budget == 0 { return Err(Error::Invalid("guest process identity or budget")); }
-        let mut cpu = CpuState::default();
-        cpu.rflags = RFLAGS_RESERVED_ONE;
+        let cpu = CpuState {
+            rflags: RFLAGS_RESERVED_ONE,
+            ..CpuState::default()
+        };
         Ok(Self { id, state: ProcessState::Created, address_space: AddressSpace::new(), cpu, instruction_budget, entry_return_slot: None })
     }
     pub fn set_entry(&mut self, entry: u64, stack: u64) -> Result<(), Error> {
