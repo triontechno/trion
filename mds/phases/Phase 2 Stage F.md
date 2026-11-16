@@ -46,12 +46,12 @@ cargo fuzz run app_bundle_plist -- -max_total_time=60 -max_len=1048576
 
 Preserve corpus, crash artifacts, toolchain versions, campaign duration, and coverage. Stage G has added PE32+, Mach-O 64, and app-bundle metadata fuzz targets; campaigns remain deferred. Instruction-decoder fuzzing is to be added when a decoder exists.
 
-## 3. Automated validation workflows
+## 3. Automated validation and release workflows
 
-- `.github/workflows/adaptive.yml` contains adaptive, packed-memory, TIR research-runtime, platform, capability-service, formatting, lint, benchmark, and bounded fuzz validation.
-- The adaptive workflow supports manual dispatch and automatically runs on relevant Phase 2 source or workflow changes on `main`.
-- `.github/workflows/trion-release.yml` builds the x86_64 desktop image and live ISO, verifies artifacts, and runs QEMU checks for kernel entry, TRION capability-service readiness, and user-space validation of the three capability endpoints.
-- The release workflow supports manual dispatch and automatically runs on relevant Phase 2 source or workflow changes on `main`. It builds images and runs QEMU validation by default; GitHub Release publishing is a separate opt-in input and defaults to false.
+- `.github/workflows/phase2-validation.yml` runs the Phase 2 host-crate and capability-service tests, formatting, Clippy, comparative benchmark correctness gate, bounded fuzz campaigns, full x86_64 image build, and QEMU checks for kernel entry, TRION capability-service readiness, and user-space validation of all three capability endpoints.
+- The Phase 2 validation workflow runs on relevant source/document changes on `main`, on matching pull requests, and by manual dispatch. Its final report job emits an explicit **SUCCESS** only when every validation group passes; otherwise it emits **FAILURE** and fails the workflow.
+- `.github/workflows/trion-release.yml` is the separate image-build workflow. It builds the x86_64 desktop `.img` and live `.iso`, runs the QEMU smoke test, and uploads both outputs as workflow artifacts.
+- `.github/workflows/release-iso.yml` is the separate manually dispatched release workflow. It validates a `1.x.xx` version, requires a successful image-build run, and publishes the ISO as a GitHub Release.
 
 ## 4. Release acceptance gates
 
