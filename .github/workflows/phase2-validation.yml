@@ -64,8 +64,12 @@ jobs:
           restore-keys: |
             phase2-rust-${{ runner.os }}-
 
-      - name: Normalize legacy executable-crate formatting
-        run: cargo fmt --manifest-path ternary/executable/Cargo.toml
+      - name: Normalize legacy executable and benchmark formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path ternary/executable/Cargo.toml
+          cargo fmt --manifest-path ternary/benchmarks/Cargo.toml
 
       - name: Test Phase 1 and Phase 2 host crates
         shell: bash
@@ -162,22 +166,22 @@ jobs:
         run: cargo fmt --manifest-path ternary/fuzz/Cargo.toml -- --check
 
       - name: Build all fuzz targets
-        run: cargo fuzz --fuzz-dir ternary/fuzz build
+        run: cargo fuzz build --fuzz-dir ternary/fuzz
 
       - name: Fuzz packed ternary memory
-        run: cargo fuzz --fuzz-dir ternary/fuzz run packed_trit_buffer -- -max_total_time=60 -max_len=1048584
+        run: cargo fuzz run --fuzz-dir ternary/fuzz packed_trit_buffer -- -max_total_time=60 -max_len=1048584
 
       - name: Fuzz TRN3 deserialization
-        run: cargo fuzz --fuzz-dir ternary/fuzz run trn3_deserialize -- -max_total_time=60 -max_len=1048576
+        run: cargo fuzz run --fuzz-dir ternary/fuzz trn3_deserialize -- -max_total_time=60 -max_len=1048576
 
       - name: Fuzz PE32+ loader
-        run: cargo fuzz --fuzz-dir ternary/fuzz run pe32_plus -- -max_total_time=60 -max_len=1048576
+        run: cargo fuzz run --fuzz-dir ternary/fuzz pe32_plus -- -max_total_time=60 -max_len=1048576
 
       - name: Fuzz Mach-O loader
-        run: cargo fuzz --fuzz-dir ternary/fuzz run macho64 -- -max_total_time=60 -max_len=1048576
+        run: cargo fuzz run --fuzz-dir ternary/fuzz macho64 -- -max_total_time=60 -max_len=1048576
 
       - name: Fuzz app-bundle metadata
-        run: cargo fuzz --fuzz-dir ternary/fuzz run app_bundle_plist -- -max_total_time=60 -max_len=1048576
+        run: cargo fuzz run --fuzz-dir ternary/fuzz app_bundle_plist -- -max_total_time=60 -max_len=1048576
 
   system-build-and-qemu:
     name: Phase 2 full image build and QEMU boot
