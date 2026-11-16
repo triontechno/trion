@@ -1,7 +1,7 @@
 //! Format-neutral direct image preparation. This produces a checked mapping plan;
 //! it does not map pages into the kernel or enter guest code.
 
-use crate::{Error, Format, InertImage, Description};
+use crate::{Error, Format, Description};
 use crate::guest::Permissions;
 
 pub const DEFAULT_STACK_SIZE: u64 = 8 * 1024 * 1024;
