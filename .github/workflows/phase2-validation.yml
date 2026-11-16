@@ -198,7 +198,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            build/podman
+            build/build/podman
             build/prefix
             build/repo
             build/recipes/**/target
@@ -212,7 +212,7 @@ jobs:
 
       - name: Configure Podman build
         shell: bash
-        run: printf 'PODMAN_BUILD?=1\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
 
       - name: Build desktop IMG and live ISO
         shell: bash
