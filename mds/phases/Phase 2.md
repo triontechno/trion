@@ -27,7 +27,7 @@ Develop an adaptive binary/ternary architecture for TRION Version 1 while preser
 **Status: implementation delivered; validation deferred.** Includes target capability reporting, Redox read-only capability scheme, adaptive runtime policy evidence, PCI/ACPI inventory, binary hardware boundaries, initfs packaging, service ordering, and endpoint integration checker.
 
 ### Stage F — Measurement, hardening, and release infrastructure
-**Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, manual validation workflow, and manual release/build/QEMU workflow. No measurements or validation have been run.
+**Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, automated Phase 2 validation workflow, separate image-build workflow, and versioned ISO release workflow. No measurements or validation have been run.
 
 ### Stage G — Executable format and loader completion
 **Status: implementation complete for the declared freestanding x86-64 execution profiles; validation deferred.** Includes direct PE32+ and Mach-O64 freestanding image loading into Redox process address spaces, W^X segment mapping, initial user context setup, process-manager exit handling, and bounded COSMIC Files dispatch. These narrow entry profiles are not Windows or macOS application compatibility and do not imply general platform API support. See [Stage G](Phase%202%20Stage%20G.md).
