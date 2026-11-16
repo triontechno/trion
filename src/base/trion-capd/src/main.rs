@@ -26,8 +26,9 @@ fn pci_inventory_with_retry(
 
 #[cfg(test)]
 mod tests {
-    use super::pci_inventory_with_retry;
     use std::time::Duration;
+
+    use super::pci_inventory_with_retry;
 
     #[test]
     fn pci_inventory_waits_for_registration_and_returns_enumerated_count() {
