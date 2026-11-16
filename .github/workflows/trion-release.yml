@@ -1,4 +1,4 @@
-name: TRION Build and Release
+name: TRION Image Build
 
 on:
   push:
@@ -14,27 +14,17 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: "Publish a GitHub Release after image and QEMU validation"
-        required: true
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: trion-release-v2-${{ github.ref }}
+  group: trion-image-build-${{ github.ref }}
   cancel-in-progress: false
-
-env:
-  # Change 1.0 to 2.0 when starting the next version series.
-  VERSION_PREFIX: "1.0"
 
 jobs:
   build:
-    name: Build TRION images
+    name: Build TRION IMG and ISO
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
@@ -51,13 +41,11 @@ jobs:
 
       - name: Install build dependencies
         shell: bash
-        run: |
-          bash build/podman_bootstrap.sh -d
+        run: bash build/podman_bootstrap.sh -d
 
       - name: Configure Podman build
         shell: bash
-        run: |
-          printf 'PODMAN_BUILD?=1\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\\n' > build/.config
 
       - name: Build desktop disk image and live ISO
         shell: bash
@@ -106,16 +94,12 @@ jobs:
           fi
           echo "QEMU validated kernel entry, capability service readiness, and user-space report reads."
 
-      - name: Publish GitHub Release
-        if: inputs.publish_release
-        uses: softprops/action-gh-release@v2
+      - name: Upload build artifacts for release
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ env.VERSION_PREFIX }}.${{ github.run_number }}
-          name: TRION v${{ env.VERSION_PREFIX }}.${{ github.run_number }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: |
+          name: trion-images
+          path: |
             build/build/x86_64/desktop/harddrive.img
             build/build/x86_64/desktop/redox-live.iso
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: error
+          retention-days: 30
