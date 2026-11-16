@@ -267,11 +267,13 @@ mod tests {
                 address: 0x400000,
                 memory_size: crate::guest::PAGE_SIZE,
                 permissions: Permissions::READ_EXECUTE,
-                initial_bytes: vec![0xf4],
+                // mov rax, 42; ret (the loader-installed zero return sentinel exits the guest).
+                initial_bytes: vec![0x48, 0xb8, 42, 0, 0, 0, 0, 0, 0, 0, 0xc3],
             }],
         };
         let mut process = materialize(&plan, 10).unwrap();
         assert_eq!(process.run().unwrap(), crate::guest::ExecutionEvent::Halted);
+        assert_eq!(process.cpu.rax, 42);
     }
 
     #[test]
