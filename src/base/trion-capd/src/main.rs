@@ -24,7 +24,6 @@ fn pci_inventory_with_retry(
     (false, 0, max_attempts)
 }
 
-
 fn daemon(daemon: daemon::Daemon) -> ! {
     common::setup_logging(
         "misc",
