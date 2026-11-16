@@ -36,7 +36,7 @@ permissions:
 
 concurrency:
   group: trion-phase2-validation-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   rust-tests:
@@ -51,6 +51,18 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Cache Rust dependencies and crate targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ternary/**/target
+            src/base/target
+          key: phase2-rust-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            phase2-rust-${{ runner.os }}-
 
       - name: Test Phase 1 and Phase 2 host crates
         shell: bash
@@ -126,6 +138,19 @@ jobs:
 
       - name: Install nightly Rust
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Cache fuzz dependencies and targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ternary/fuzz/target
+          key: phase2-fuzz-${{ runner.os }}-${{ hashFiles('ternary/fuzz/Cargo.lock', 'ternary/fuzz/Cargo.toml') }}
+          restore-keys: |
+            phase2-fuzz-${{ runner.os }}-
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
@@ -171,6 +196,18 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Cache image-build toolchain and recipe outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/podman
+            build/prefix
+            build/repo
+            build/recipes/**/target
+          key: phase2-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'Cargo.lock', '**/Cargo.lock') }}
+          restore-keys: |
+            phase2-images-${{ runner.os }}-
 
       - name: Install image-build dependencies
         shell: bash
