@@ -7,11 +7,15 @@ include mk/depends.mk
 
 all: $(BUILD)/harddrive.img
 
-live:
-	-$(FUMOUNT) $(BUILD)/filesystem/ || true
-	-$(FUMOUNT) /tmp/redox_installer/ || true
-	rm -f $(BUILD)/redox-live.iso
-	$(MAKE) $(BUILD)/redox-live.iso
+live: $(BUILD)/redox-live.iso
+
+.PHONY: images verify-images
+images: all live
+
+verify-images: images
+	@test -s $(BUILD)/harddrive.img
+	@test -s $(BUILD)/redox-live.iso
+	@sha256sum $(BUILD)/harddrive.img $(BUILD)/redox-live.iso
 
 popsicle: $(BUILD)/redox-live.iso
 	popsicle-gtk $(BUILD)/redox-live.iso
@@ -19,14 +23,13 @@ popsicle: $(BUILD)/redox-live.iso
 image:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
 	-$(FUMOUNT) /tmp/redox_installer/ || true
-	rm -f $(BUILD)/harddrive.img $(BUILD)/redox-live.iso
-	$(MAKE) all
+	$(MAKE) images
 
 rebuild:
 	-$(FUMOUNT) $(BUILD)/filesystem/ || true
 	-$(FUMOUNT) /tmp/redox_installer/ || true
-	rm -rf $(BUILD)/repo.tag $(BUILD)/harddrive.img $(BUILD)/redox-live.iso
-	$(MAKE) all
+	rm -f $(BUILD)/repo.tag
+	$(MAKE) images
 
 # To tell that it's not safe
 # to execute the cookbook binary
