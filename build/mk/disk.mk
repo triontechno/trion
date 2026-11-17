@@ -1,37 +1,49 @@
-# Configuration file with the commands configuration of the Redox image
+# Transactional disk-image generation for the Redox installer.
+# Build into a temporary file and publish only after the installer succeeds.
 
 $(BUILD)/harddrive.img: $(FSTOOLS) $(REPO_TAG)
 ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
-	mkdir -p $(BUILD)
-	-$(FUMOUNT) $(MOUNT_DIR) || true
-	-$(FUMOUNT) /tmp/redox_installer || true
-	rm -rf $@  $@.partial $(MOUNT_DIR)
-	FILESYSTEM_SIZE=$(FILESYSTEM_SIZE) && \
-	if [ -z "$$FILESYSTEM_SIZE" ] ; then \
-	FILESYSTEM_SIZE=$(shell $(INSTALLER) --filesystem-size -c $(FILESYSTEM_CONFIG)); \
-	fi && \
-	truncate -s "$$FILESYSTEM_SIZE"m $@.partial
-	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) -c $(FILESYSTEM_CONFIG) $@.partial
-	mv $@.partial $@
+	@set -eu; \
+	mkdir -p "$(BUILD)"; \
+	partial="$@.partial"; \
+	cleanup() { rm -f "$$partial"; }; \
+	trap cleanup EXIT HUP INT TERM; \
+	filesystem_size="$(FILESYSTEM_SIZE)"; \
+	if [ -z "$$filesystem_size" ]; then filesystem_size="$$("$(INSTALLER)" --filesystem-size -c "$(FILESYSTEM_CONFIG)")"; fi; \
+	case "$$filesystem_size" in ''|*[!0-9]*) echo "Invalid filesystem size in MB: $$filesystem_size" >&2; exit 1;; esac; \
+	rm -f "$$partial"; \
+	truncate -s "$$filesystem_size"m "$$partial"; \
+	umask 002; \
+	"$(INSTALLER)" $(INSTALLER_OPTS) -c "$(FILESYSTEM_CONFIG)" "$$partial"; \
+	test -s "$$partial"; \
+	mv -f "$$partial" "$@"; \
+	trap - EXIT HUP INT TERM; \
+	echo "Created $@ ($$(du -h "$@" | cut -f1))"
 endif
 
 $(BUILD)/redox-live.iso: $(FSTOOLS) $(REPO_TAG) redox.ipxe
 ifeq ($(FSTOOLS_IN_PODMAN),1)
 	$(PODMAN_RUN) make $@
 else
-	mkdir -p $(BUILD)
-	rm -rf $@  $@.partial
-	-$(FUMOUNT) /tmp/redox_installer || true
-	FILESYSTEM_SIZE=$(FILESYSTEM_SIZE) && \
-	if [ -z "$$FILESYSTEM_SIZE" ] ; then \
-	FILESYSTEM_SIZE=$(shell $(INSTALLER) --filesystem-size -c $(FILESYSTEM_CONFIG)); \
-	fi && \
-	truncate -s "$$FILESYSTEM_SIZE"m $@.partial
-	umask 002 && $(INSTALLER) $(INSTALLER_OPTS) -c $(FILESYSTEM_CONFIG) --write-bootloader="$(BUILD)/bootloader-live.efi" --live $@.partial
-	mv $@.partial $@
-	cp redox.ipxe $(BUILD)/redox.ipxe
+	@set -eu; \
+	mkdir -p "$(BUILD)"; \
+	partial="$@.partial"; \
+	cleanup() { rm -f "$$partial"; }; \
+	trap cleanup EXIT HUP INT TERM; \
+	filesystem_size="$(FILESYSTEM_SIZE)"; \
+	if [ -z "$$filesystem_size" ]; then filesystem_size="$$("$(INSTALLER)" --filesystem-size -c "$(FILESYSTEM_CONFIG)")"; fi; \
+	case "$$filesystem_size" in ''|*[!0-9]*) echo "Invalid filesystem size in MB: $$filesystem_size" >&2; exit 1;; esac; \
+	rm -f "$$partial"; \
+	truncate -s "$$filesystem_size"m "$$partial"; \
+	umask 002; \
+	"$(INSTALLER)" $(INSTALLER_OPTS) -c "$(FILESYSTEM_CONFIG)" --write-bootloader="$(BUILD)/bootloader-live.efi" --live "$$partial"; \
+	test -s "$$partial"; \
+	mv -f "$$partial" "$@"; \
+	cp redox.ipxe "$(BUILD)/redox.ipxe"; \
+	trap - EXIT HUP INT TERM; \
+	echo "Created $@ ($$(du -h "$@" | cut -f1))"
 endif
 
 $(BUILD)/filesystem.img: $(FSTOOLS) $(REPO_TAG)
@@ -40,7 +52,7 @@ ifeq ($(FSTOOLS_IN_PODMAN),1)
 else
 	mkdir -p $(BUILD)
 	-$(FUMOUNT) $(MOUNT_DIR) || true
-	rm -rf $@  $@.partial $(MOUNT_DIR)
+	rm -rf $@.partial $(MOUNT_DIR)
 	-$(FUMOUNT) /tmp/redox_installer || true
 	FILESYSTEM_SIZE=$(FILESYSTEM_SIZE) && \
 	if [ -z "$$FILESYSTEM_SIZE" ] ; then \
@@ -56,7 +68,8 @@ else
 	sync
 	-$(FUMOUNT) $(MOUNT_DIR) || true
 	rm -rf $(MOUNT_DIR)
-	mv $@.partial $@
+	test -s $@.partial
+	mv -f $@.partial $@
 endif
 
 mount: $(FSTOOLS) FORCE
