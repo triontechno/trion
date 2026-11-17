@@ -223,7 +223,7 @@ def changed_recipes(previous_head, previous_fingerprints, current_fingerprints):
             parts = name.split("/")
             if len(parts) > 3:
                 changed.add(parts[3])
-    return sorted(changed)
+    return sorted(changed.intersection(current_fingerprints))
 
 def rebuild_changed(recipes, arch, name, board):
     if not recipes:
