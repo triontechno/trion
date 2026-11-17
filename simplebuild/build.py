@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
-CACHE = BUILD / "simplebuild" / "cache" / "manifest.json"
+CACHE_ROOT = BUILD / "simplebuild" / "cache"
 DOWNLOADS = ROOT / "simplebuild" / "downloads.json"
 
 
@@ -361,8 +361,8 @@ def main():
 
     if args.check:
         missing = []
-        if not installer.is_file():
-            missing.append(str(installer.relative_to(ROOT)))
+        if not installer.is_file() or not os.access(installer, os.X_OK):
+            missing.append(str(installer.relative_to(ROOT)) + " (missing or not executable)")
         if not repository.is_dir() or not any(repository.iterdir()):
             missing.append(str(repository.relative_to(ROOT)))
         if not ipxe.is_file():
@@ -390,8 +390,8 @@ def main():
     rebuild_changed(changed, args.arch, args.config, args.board)
 
     output = BUILD / "build" / args.arch / args.config
-    if args.board:
-        output = BUILD / "build" / args.arch / args.config
+    cache_file = CACHE_ROOT / args.arch / (args.board or "_") / (args.config + ".json")
+    state = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.is_file() else state
     inputs = input_fingerprint(config, installer, repository, ipxe, args.arch, args.config, args.board)
     inputs["recipe_fingerprints"] = current_recipe_fingerprints
     log("Using existing compiled repository and host installer; full Cookbook and Podman builds are bypassed.")
@@ -412,8 +412,8 @@ def main():
         "".join(value["sha256"] + "  " + name + "\n" for name, value in artifacts.items()),
         encoding="utf-8"
     )
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE.write_text(json.dumps({
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(json.dumps({
         "source_revision": head,
         "recipe_fingerprints": current_recipe_fingerprints,
         "inputs": inputs,
