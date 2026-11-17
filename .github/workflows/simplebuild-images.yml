@@ -1,6 +1,7 @@
 name: SimpleBuild OS Images
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - simplebuild/initial-implementation
