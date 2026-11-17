@@ -1,0 +1,133 @@
+name: SimpleBuild OS Images
+
+on:
+  push:
+    branches:
+      - simplebuild/initial-implementation
+    paths:
+      - "simplebuild/**"
+      - "build/**"
+      - "config/**"
+      - "filesystem/**"
+      - "kernel/**"
+      - "src/**"
+      - ".github/workflows/simplebuild-images.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simplebuild-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-images:
+    name: Build images with SimpleBuild
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Restore compiled build prerequisites
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/build/podman
+            build/prefix
+            build/repo
+            build/fstools
+            build/fstools-target
+            build/fstools.tag
+            build/recipes/**/target
+          key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'simplebuild/**', 'Cargo.lock', '**/Cargo.lock') }}
+          restore-keys: |
+            simplebuild-prerequisites-${{ runner.os }}-
+            phase2-images-${{ runner.os }}-
+
+      - name: Install image-build dependencies
+        shell: bash
+        run: bash build/podman_bootstrap.sh -d
+
+      - name: Configure Podman build
+        shell: bash
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
+
+      - name: Prepare compiled package repository and installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C build repo fstools
+          test -x build/fstools/bin/redox_installer
+          test -d build/repo
+          test -n "$(find build/repo -type f -print -quit)"
+
+      - name: Check SimpleBuild prerequisites
+        shell: bash
+        run: bash simplebuild/build.sh --arch x86_64 --config desktop --check
+
+      - name: Generate harddrive.img and redox-live.iso with SimpleBuild
+        shell: bash
+        run: bash simplebuild/build.sh --arch x86_64 --config desktop
+
+      - name: Verify generated image checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/build/x86_64/desktop
+          test -s harddrive.img
+          test -s redox-live.iso
+          sha256sum -c SHA256SUMS
+
+      - name: Validate OS boot and TRION capability endpoints in QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          trap 'rm -f "$log"' EXIT
+          set +e
+          timeout --signal=TERM --kill-after=10s 120s \
+            make -C build qemu gpu=no kvm=no uefi=no net=no audio=no usb=no serial=yes \
+            >"$log" 2>&1
+          qemu_status=$?
+          set -e
+
+          if ! grep -Fq 'Redox OS starting...' "$log"; then
+            cat "$log"
+            echo "FAIL: QEMU did not reach kernel entry."
+            exit 1
+          fi
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            cat "$log"
+            exit "$qemu_status"
+          fi
+          if ! grep -Fq 'capability scheme registered at /scheme/trion' "$log"; then
+            cat "$log"
+            echo "FAIL: TRION capability scheme did not become ready."
+            exit 1
+          fi
+          if ! grep -Fq 'capability reports validated from /scheme/trion' "$log"; then
+            cat "$log"
+            echo "FAIL: user-space capability endpoint validation did not complete."
+            exit 1
+          fi
+          echo "PASS: kernel entry, capability service readiness and endpoint validation."
+
+      - name: Upload SimpleBuild image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trion-simplebuild-x86_64-desktop
+          path: |
+            build/build/x86_64/desktop/harddrive.img
+            build/build/x86_64/desktop/redox-live.iso
+            build/build/x86_64/desktop/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
