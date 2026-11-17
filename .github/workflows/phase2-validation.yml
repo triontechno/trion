@@ -210,8 +210,11 @@ jobs:
             build/build/podman
             build/prefix
             build/repo
+            build/fstools
+            build/fstools-target
+            build/fstools.tag
             build/recipes/**/target
-          key: phase2-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'Cargo.lock', '**/Cargo.lock') }}
+          key: phase2-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'simplebuild/**', 'Cargo.lock', '**/Cargo.lock') }}
           restore-keys: |
             phase2-images-${{ runner.os }}-
 
@@ -223,19 +226,38 @@ jobs:
         shell: bash
         run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
 
-      - name: Build desktop IMG and live ISO
+      - name: Prepare reusable compiled packages and installer
         shell: bash
         run: |
           set -euo pipefail
-          make -C build all
-          make -C build live
+          make -C build repo fstools
 
-      - name: Verify image artifacts
+      - name: Build desktop images with SimpleBuild
         shell: bash
         run: |
           set -euo pipefail
-          test -s build/build/x86_64/desktop/harddrive.img
-          test -s build/build/x86_64/desktop/redox-live.iso
+          bash simplebuild/build.sh --arch x86_64 --config desktop
+
+      - name: Verify image artifacts and SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/build/x86_64/desktop
+          test -s harddrive.img
+          test -s redox-live.iso
+          sha256sum -c SHA256SUMS
+
+      - name: Upload SimpleBuild images
+        uses: actions/upload-artifact@v4
+        with:
+          name: trion-simplebuild-x86_64-desktop
+          path: |
+            build/build/x86_64/desktop/harddrive.img
+            build/build/x86_64/desktop/redox-live.iso
+            build/build/x86_64/desktop/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
       - name: Validate kernel, capability service and endpoints in QEMU
         shell: bash
