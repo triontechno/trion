@@ -6,9 +6,7 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tarfile
-import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -162,8 +160,54 @@ def acquire_repo(repository, downloads):
         temporary.unlink(missing_ok=True)
 
 
-def changed_recipes(previous_head):
-    changed = set()
+def recipe_fingerprints():
+    """Fingerprint recipe metadata and fetched source revisions/working trees."""
+    fingerprints = {}
+    git = shutil.which("git")
+    for recipe_file in sorted((BUILD / "recipes").rglob("recipe.toml")):
+        recipe_dir = recipe_file.parent
+        digest = hashlib.sha256()
+        digest.update(file_digest(recipe_file).encode())
+        source = recipe_dir / "source"
+        if source.is_dir():
+            head = None
+            if git:
+                head = subprocess.run([git, "-C", str(source), "rev-parse", "HEAD"],
+                                      capture_output=True, text=True, check=False)
+            if head and head.returncode == 0:
+                digest.update(head.stdout.strip().encode())
+                status = subprocess.run(
+                    [git, "-C", str(source), "status", "--porcelain", "--untracked-files=all", "-z"],
+                    capture_output=True, check=False
+                )
+                digest.update(status.stdout)
+                diff = subprocess.run(
+                    [git, "-C", str(source), "diff", "HEAD", "--binary"],
+                    capture_output=True, check=False
+                )
+                digest.update(diff.stdout)
+                untracked = subprocess.run(
+                    [git, "-C", str(source), "ls-files", "--others", "--exclude-standard", "-z"],
+                    capture_output=True, check=False
+                )
+                for raw_path in untracked.stdout.split(b"\\0"):
+                    if not raw_path:
+                        continue
+                    candidate = source / os.fsdecode(raw_path)
+                    if candidate.is_file():
+                        digest.update(raw_path)
+                        digest.update(bytes.fromhex(file_digest(candidate)))
+            else:
+                digest.update(bytes.fromhex(tree_digest(source)))
+        fingerprints[recipe_dir.name] = digest.hexdigest()
+    return fingerprints
+
+
+def changed_recipes(previous_head, previous_fingerprints, current_fingerprints):
+    changed = {
+        name for name, fingerprint in current_fingerprints.items()
+        if previous_fingerprints.get(name) != fingerprint
+    }
     if previous_head:
         names = git_output("diff", "--name-only", previous_head + "..HEAD",
                            "--", "build/recipes").splitlines()
@@ -178,7 +222,6 @@ def changed_recipes(previous_head):
             if len(parts) > 3:
                 changed.add(parts[3])
     return sorted(changed)
-
 
 def rebuild_changed(recipes, arch, name, board):
     if not recipes:
@@ -337,7 +380,9 @@ def main():
     head = git_output("rev-parse", "HEAD")
     state = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.is_file() else None
     previous_head = state.get("source_revision", "") if state else ""
-    changed = changed_recipes(previous_head)
+    current_recipe_fingerprints = recipe_fingerprints()
+    previous_recipe_fingerprints = state.get("recipe_fingerprints", {}) if state else {}
+    changed = changed_recipes(previous_head, previous_recipe_fingerprints, current_recipe_fingerprints)
     if changed and args.no_rebuild_changed:
         fail("Changed recipe sources detected: " + ", ".join(changed))
     rebuild_changed(changed, args.arch, args.config, args.board)
@@ -346,6 +391,7 @@ def main():
     if args.board:
         output = BUILD / "build" / args.arch / args.config
     inputs = input_fingerprint(config, installer, repository, ipxe, args.arch, args.config, args.board)
+    inputs["recipe_fingerprints"] = current_recipe_fingerprints
     log("Using existing compiled repository and host installer; full Cookbook and Podman builds are bypassed.")
     log("Backend C selected: native Redox installer. Independent assembler B remains a future replaceable backend.")
     if not cache_valid(state, inputs, output):
@@ -367,6 +413,7 @@ def main():
     CACHE.parent.mkdir(parents=True, exist_ok=True)
     CACHE.write_text(json.dumps({
         "source_revision": head,
+        "recipe_fingerprints": current_recipe_fingerprints,
         "inputs": inputs,
         "artifacts": artifacts,
         "backend": "redox_installer",
