@@ -196,11 +196,19 @@ def rebuild_changed(recipes, arch, name, board):
 
 
 def build_one(installer, config, output, arch, name, board, live):
-    # Match build/mk/disk.mk: installer paths are relative to the build/ directory.
+    # Match build/mk/config.mk exports and build/mk/disk.mk working directory.
     config_arg = config.relative_to(BUILD).as_posix()
+    environment = os.environ.copy()
+    environment.update({
+        "ARCH": arch,
+        "BOARD": board or "",
+        "CONFIG_NAME": name,
+        "TARGET": ("riscv64gc" if arch == "riscv64gc" else arch) + "-unknown-redox",
+        "GNU_TARGET": ("riscv64" if arch == "riscv64gc" else arch) + "-unknown-redox",
+    })
     size_result = subprocess.run(
         [str(installer), "--filesystem-size", "-c", config_arg],
-        cwd=BUILD, text=True, capture_output=True, check=True
+        cwd=BUILD, env=environment, text=True, capture_output=True, check=True
     )
     size = size_result.stdout.strip()
     if not size.isdigit() or int(size) < 1:
@@ -217,7 +225,7 @@ def build_one(installer, config, output, arch, name, board, live):
         command.extend(["--write-bootloader=" + str(bootloader), "--live"])
     command.append(str(partial))
     try:
-        subprocess.run(command, cwd=BUILD, check=True)
+        subprocess.run(command, cwd=BUILD, env=environment, check=True)
         if not partial.is_file() or partial.stat().st_size == 0:
             fail("Installer produced an empty image: " + str(partial))
         partial.replace(output)
