@@ -204,10 +204,12 @@ def recipe_fingerprints():
 
 
 def changed_recipes(previous_head, previous_fingerprints, current_fingerprints):
-    changed = {
-        name for name, fingerprint in current_fingerprints.items()
-        if previous_fingerprints.get(name) != fingerprint
-    }
+    changed = set()
+    if previous_fingerprints is not None:
+        changed.update(
+            name for name, fingerprint in current_fingerprints.items()
+            if previous_fingerprints.get(name) != fingerprint
+        )
     if previous_head:
         names = git_output("diff", "--name-only", previous_head + "..HEAD",
                            "--", "build/recipes").splitlines()
@@ -381,7 +383,7 @@ def main():
     state = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.is_file() else None
     previous_head = state.get("source_revision", "") if state else ""
     current_recipe_fingerprints = recipe_fingerprints()
-    previous_recipe_fingerprints = state.get("recipe_fingerprints", {}) if state else {}
+    previous_recipe_fingerprints = state.get("recipe_fingerprints") if state else None
     changed = changed_recipes(previous_head, previous_recipe_fingerprints, current_recipe_fingerprints)
     if changed and args.no_rebuild_changed:
         fail("Changed recipe sources detected: " + ", ".join(changed))
