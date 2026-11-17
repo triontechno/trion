@@ -1,6 +1,9 @@
 name: TRION Build and Release
 
 on:
+  push:
+    branches:
+      - triontechno-complete-stage-h-i
   workflow_dispatch:
     inputs:
       publish_release:
