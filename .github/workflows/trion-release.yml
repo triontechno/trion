@@ -51,8 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          make -C build all
-          make -C build live
+          bash build/build-images.sh
 
       - name: Verify build outputs
         shell: bash
