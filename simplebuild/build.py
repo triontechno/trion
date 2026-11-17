@@ -380,7 +380,9 @@ def main():
         fail("Missing build/redox.ipxe; this file is required by the existing live-image recipe.")
 
     head = git_output("rev-parse", "HEAD")
-    state = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.is_file() else None
+    output = BUILD / "build" / args.arch / args.config
+    cache_file = CACHE_ROOT / args.arch / (args.board or "_") / (args.config + ".json")
+    state = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.is_file() else None
     previous_head = state.get("source_revision", "") if state else ""
     current_recipe_fingerprints = recipe_fingerprints()
     previous_recipe_fingerprints = state.get("recipe_fingerprints") if state else None
@@ -389,9 +391,6 @@ def main():
         fail("Changed recipe sources detected: " + ", ".join(changed))
     rebuild_changed(changed, args.arch, args.config, args.board)
 
-    output = BUILD / "build" / args.arch / args.config
-    cache_file = CACHE_ROOT / args.arch / (args.board or "_") / (args.config + ".json")
-    state = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.is_file() else state
     inputs = input_fingerprint(config, installer, repository, ipxe, args.arch, args.config, args.board)
     inputs["recipe_fingerprints"] = current_recipe_fingerprints
     log("Using existing compiled repository and host installer; full Cookbook and Podman builds are bypassed.")
