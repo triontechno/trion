@@ -32,7 +32,8 @@ else
 	mkdir -p "$(BUILD)"; \
 	partial="$@.partial"; \
 	cleanup() { rm -f "$$partial"; }; \
-	trap cleanup EXIT HUP INT TERM; \
+	trap cleanup EXIT; \\
+	trap 'exit 1' HUP INT TERM; \
 	filesystem_size="$(FILESYSTEM_SIZE)"; \
 	if [ -z "$$filesystem_size" ]; then filesystem_size="$$("$(INSTALLER)" --filesystem-size -c "$(FILESYSTEM_CONFIG)")"; fi; \
 	case "$$filesystem_size" in ''|*[!0-9]*) echo "Invalid filesystem size in MB: $$filesystem_size" >&2; exit 1;; esac; \
