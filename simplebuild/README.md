@@ -7,10 +7,10 @@ Cookbook/toolchain/Podman build by default.
 ## Commands
 
 ```sh
-./simplebuild/build.sh --list-configs
-./simplebuild/build.sh --arch x86_64 --config desktop --check
-./simplebuild/build.sh --arch x86_64 --config desktop
-./simplebuild/build.sh --arch x86_64 --config desktop --qemu
+bash simplebuild/build.sh --list-configs
+bash simplebuild/build.sh --arch x86_64 --config desktop --check
+bash simplebuild/build.sh --arch x86_64 --config desktop
+bash simplebuild/build.sh --arch x86_64 --config desktop --qemu
 ```
 
 Use `--board <board>` for board-specific configurations. Output paths match
