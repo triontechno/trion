@@ -26,8 +26,9 @@ the traditional Makefile's `BUILD=build/<ARCH>/<CONFIG_NAME>`:
   when `simplebuild/downloads.json` has a corresponding HTTPS URL and
   matching SHA-256. A repository archive must be a tar archive containing
   repository files at its root, or a single top-level `repo/` directory.
-- Changed recipe source files are detected against the last successful
-  build's Git revision and the working tree. Only changed recipe targets are
+- Changed recipe source files are detected using recipe metadata, fetched
+  source-repository revisions and working-tree changes, plus the main Git
+  revision. The first run seeds this fingerprint baseline. Only changed recipe targets are
   rebuilt with `PODMAN_BUILD=0`; the full OS is never rebuilt implicitly.
 - `--no-rebuild-changed` stops instead of rebuilding changed recipe targets.
 - `--check` reports missing prerequisites without starting a build.
