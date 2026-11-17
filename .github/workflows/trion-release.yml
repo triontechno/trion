@@ -33,6 +33,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Preserve the expensive Redox cross-toolchain and package build outputs
+      # between runs. The cache key changes when core build definitions change.
+      - name: Restore Redox toolchain and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            prefix/x86_64-unknown-redox
+            recipes/**/target
+            build/fstools
+            build/fstools.tag
+            build/podman
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: trion-redox-${{ runner.os }}-x86_64-${{ hashFiles('build/mk/*.mk', 'podman/redox-base-containerfile', 'cookbook.toml') }}
+          restore-keys: |
+            trion-redox-${{ runner.os }}-x86_64-
+
       - name: Install Rust
         shell: bash
         run: |
