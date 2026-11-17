@@ -40,13 +40,15 @@ jobs:
         with:
           path: |
             prefix/x86_64-unknown-redox
+            recipes/**/source
             recipes/**/target
             build/fstools
             build/fstools.tag
+            build/container.tag
             build/podman
             ~/.cargo/registry
             ~/.cargo/git
-          key: trion-redox-${{ runner.os }}-x86_64-${{ hashFiles('build/mk/*.mk', 'podman/redox-base-containerfile', 'cookbook.toml') }}
+          key: trion-redox-${{ runner.os }}-x86_64-incremental-${{ hashFiles('build/mk/*.mk', 'podman/redox-base-containerfile', 'cookbook.toml') }}
           restore-keys: |
             trion-redox-${{ runner.os }}-x86_64-
 
@@ -72,6 +74,9 @@ jobs:
           # binaries to avoid compiling the Rust compiler itself.
           PREFIX_BINARY=0
           PREFIX_USE_UPSTREAM_RUST_COMPILER=1
+          # Reuse existing Cookbook build directories instead of deleting them.
+          export COOKBOOK_CLEAN_BUILD=false
+          export COOKBOOK_CLEAN_TARGET=false
           EOF
 
       - name: Build desktop disk image and live ISO
