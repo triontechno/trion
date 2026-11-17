@@ -48,7 +48,14 @@ jobs:
       - name: Configure Podman build
         shell: bash
         run: |
-          printf 'PODMAN_BUILD?=1\n' > build/.config
+          cat > build/.config <<'EOF'
+          PODMAN_BUILD?=1
+          # The Redox prebuilt toolchain host is returning HTTP 403 in CI.
+          # Build the cross-toolchain from source instead; use upstream Rust
+          # binaries to avoid compiling the Rust compiler itself.
+          PREFIX_BINARY=0
+          PREFIX_USE_UPSTREAM_RUST_COMPILER=1
+          EOF
 
       - name: Build desktop disk image and live ISO
         shell: bash
