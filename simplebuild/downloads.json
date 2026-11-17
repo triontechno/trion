@@ -1,0 +1,3 @@
+{
+  "_comment": "Add redox_installer with a trusted HTTPS URL and its 64-character SHA-256. No unverified binaries."
+}
