@@ -59,10 +59,10 @@ pub fn rebase_pe32_plus(image:&mut InertImage, actual_base:u64)->Result<(),Error
         if end-at<8 { return Err(Error::Invalid("partial PE relocation block")); }
         let page=u32le(bytes,at)? as usize;
         let block_size=u32le(bytes,at+4)? as usize;
-        if block_size<8 || block_size%2!=0 || at.checked_add(block_size).ok_or(Error::Overflow)?>end {
+        if block_size<8 || !block_size.is_multiple_of(2) || at.checked_add(block_size).ok_or(Error::Overflow)?>end {
             return Err(Error::Invalid("invalid PE relocation block size"));
         }
-        if page%0x1000!=0 || page>=bytes.len() {
+        if !page.is_multiple_of(0x1000) || page>=bytes.len() {
             return Err(Error::Invalid("invalid PE relocation page RVA"));
         }
         let entries=(block_size-8)/2;
@@ -185,7 +185,6 @@ pub fn resolve_pe32_plus_imports(
         let library = read_name(bytes, name_rva, 4096, "PE import library name")?;
         let lookup = if original_thunk == 0 { first_thunk } else { original_thunk };
         let mut thunk_index = 0usize;
-        let mut thunk_terminated = false;
         loop {
             if thunk_index >= MAX_THUNKS_PER_LIBRARY {
                 return Err(Error::Limit("PE import thunk count"));
@@ -195,7 +194,6 @@ pub fn resolve_pe32_plus_imports(
             let iat_at = first_thunk.checked_add(offset).ok_or(Error::Overflow)?;
             let value = u64le(bytes, lookup_at)?;
             if value == 0 {
-                thunk_terminated = true;
                 break;
             }
             let symbol = if value & ORDINAL_FLAG64 != 0 {
@@ -241,9 +239,6 @@ pub fn resolve_pe32_plus_imports(
                 return Err(Error::Limit("PE total import count"));
             }
             thunk_index += 1;
-        }
-        if !thunk_terminated {
-            return Err(Error::Invalid("unterminated PE import thunk table"));
         }
         descriptor_at = descriptor_at.checked_add(20).ok_or(Error::Overflow)?;
     }

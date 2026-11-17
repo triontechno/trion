@@ -1,13 +1,13 @@
 # TRION OS — Phase 2: Adaptive Binary/Ternary Computing
 
-**Status:** Active implementation  
+**Status:** Y — implementation complete; consolidated validation in progress (C pending)  
 **Parent:** [TRION-ARCHITECTURE.md](../architecture/TRION-ARCHITECTURE.md)  
 **Prerequisite:** Phase 1 ternary core  
 **Rule:** Work directly on main where practical. Do not run tests, builds, benchmarks, fuzzing, or QEMU validation until all Phase 2 implementation stages are complete.
 
 ## 1. Objective
 
-Develop an adaptive binary/ternary architecture that preserves conventional hardware and software compatibility. Commodity processors are not assumed to execute ternary instructions or contain ternary RAM.
+Develop an adaptive binary/ternary architecture for TRION Version 1 while preserving conventional hardware and native ABI boundaries. Windows, macOS and Linux application compatibility are deferred to Version 2. Commodity processors are not assumed to execute ternary instructions or contain ternary RAM.
 
 ## 2. Stage plan
 
@@ -27,22 +27,23 @@ Develop an adaptive binary/ternary architecture that preserves conventional hard
 **Status: implementation delivered; validation deferred.** Includes target capability reporting, Redox read-only capability scheme, adaptive runtime policy evidence, PCI/ACPI inventory, binary hardware boundaries, initfs packaging, service ordering, and endpoint integration checker.
 
 ### Stage F — Measurement, hardening, and release infrastructure
-**Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, manual validation workflow, and manual release/build/QEMU workflow. No measurements or validation have been run.
+**Status: implementation delivered; execution deferred.** Includes comparative benchmark harness, bounded fuzz targets, automated Phase 2 validation workflow, separate image-build workflow, and versioned ISO release workflow. No measurements or validation have been run.
 
 ### Stage G — Executable format and loader completion
-**Status: implementation complete for the declared freestanding x86-64 profile; validation deferred.** Includes direct native PE32+ and Mach-O64 loading into real Redox process address spaces, W^X segment mapping, initial user context setup through the process scheme, process-manager exit trampoline, complete semantics for the declared bounded interpreter subset, and COSMIC Files .exe/.app dispatch. Unsupported imports, dyld, platform APIs, environment/argument blocks and other runtime features fail closed. General Windows and macOS application compatibility remains in Stages I and J. See [Stage G](Phase%202%20Stage%20G.md).
+**Status: implementation complete for the declared freestanding x86-64 execution profiles; validation deferred.** Includes direct PE32+ and Mach-O64 freestanding image loading into Redox process address spaces, W^X segment mapping, initial user context setup, process-manager exit handling, and bounded COSMIC Files dispatch. These narrow entry profiles are not Windows or macOS application compatibility and do not imply general platform API support. See [Stage G](Phase%202%20Stage%20G.md).
 
 ### Stage H — Isolated guest process and execution backend
-**Status: restricted syscall isolation, authenticated guest exit, mapped-memory/descriptor/CPU quotas and process-manager fault diagnostics implemented; full isolation incomplete.** The loader uses Redox address-space selection, user register setup, scheduler/context switching and process-manager exit. Filesystem/network/device/IPC capabilities and brokered I/O, guest-specific crash reports, complete thread/descendant policy and full cleanup auditing remain. See [Stage H](Phase%202%20Stage%20H.md).
+**Status: implementation complete for the restricted guest profile; validation deferred.** Includes kernel-enforced per-address-space syscall isolation, authenticated exit, memory/descriptor/CPU quotas, supervisor-selected pre-opened filesystem/network/device/IPC stream capabilities with read/write enforcement, descriptor revocation, guest cancellation, structured guest crash reports, sibling termination and atomic descriptor cleanup during address-space activation. Arbitrary scheme calls, path creation, descriptor duplication and guest-created processes/threads remain denied. The guest backend is a restricted native execution security boundary, not an application compatibility layer. See [Stage H](Phase%202%20Stage%20H.md).
 
-### Stage I — Windows compatibility runtime
-**Status: restricted freestanding PE32+ launch, DIR64 rebasing, minimal PEB/TEB and `ExitProcess`/process-identity imports exist; the selected profile remains incomplete.** Broader import/export resolution and API classification exist; full process parameters, loader module lists, TLS, unwind handling and kernel-backed Win32/NT services remain. See [Stage I](Phase%202%20Stage%20I.md).
+### Stage I — Native application runtime
+**Status: implementation complete for the declared native profile; validation deferred.** Completes the TRION/Redox native ELF process and runtime contract, including bounded image loading, interpreter handoff, startup state and auxv, PIE-aware TLS initialization, in-place exec transition handling, native thread/signal runtime integration, and the documented native service ABI. The native ELF ABI is not Linux compatibility. See [Stage I](Phase%202%20Stage%20I.md) and the [native application profile](../architecture/native-application-profile.md).
 
-### Stage J — macOS compatibility runtime and unified dispatch
-**Status: restricted freestanding Mach-O launch and XML .app routing implemented; general macOS runtime incomplete.** Broker-fed member validation, XML bundle planning, native segment mapping, minimal `argc`/`argv[0]` startup and an `LC_MAIN` return adapter exist. Binary plist, dyld linking, full Darwin startup, frameworks, code-signature policy and macOS services remain. See [Stage J](Phase%202%20Stage%20J.md).
+### Stage J — Native system integration and completion
+**Status: implementation complete for the declared Version 1 native system scope; validation deferred.** Includes explicit executable dispatch, initfs/service integration, bounded startup retries and PID 1-supervised runtime restarts, native Redox ABI composition, device boundaries, Stage H security composition, and centralized child lifecycle handling. See [Stage J](Phase%202%20Stage%20J.md) and the [native system integration contract](../architecture/native-system-integration.md).
 
-### Linux compatibility — not currently specified or implemented
-The Phase 2 plan defines PE32+ Windows and Mach-O macOS profiles, but no Linux compatibility profile, Linux distribution/version target, or Linux syscall ABI layer. The repository's native ELF/Redox process path is not Linux ABI compatibility. Linux compatibility is therefore outside the current Phase 2 stages and must not be attributed to Stages G, I, or J. Any future Linux support requires a separately scoped stage/workstream defining its ELF and architecture profile, Linux process ABI, syscall/service surface, runtime/dependency policy, and compatibility matrix before implementation.
+### Version 2 compatibility (deferred)
+Windows, macOS and Linux application compatibility are explicitly outside Version 1 and outside Phase 2 Stages I/J. They require a separately scoped Version 2 workstream. The repository's native ELF/Redox process path is not Linux ABI compatibility.
+undefined
 
 ## 3. Global engineering gates
 
@@ -59,8 +60,8 @@ The Phase 2 plan defines PE32+ Windows and Mach-O macOS profiles, but no Linux c
 
 ## 4. Phase 2 exit criteria
 
-Phase 2 implementation is complete only when Stages A–C and E–J are implemented to their stated scope; Stage D remains intentionally retired. In particular, Stage G–J must provide the declared loader, decoder, isolated process executor, dynamic linking, Windows/macOS compatibility profiles, launcher integration, and security controls.
+Phase 2 implementation is complete only when Stages A–C and E–J are implemented to their stated scope; Stage D remains intentionally retired. In particular, Stages G–J must provide the declared executable loader, isolated process executor, native runtime contract, unified native dispatch, boot/service integration, and security controls.
 
-Only after all implementation stages are complete may the consolidated validation pass run: automated tests, fuzz campaigns, comparative benchmarks, direct executable capability checks, compatibility-path tests, supported OS builds, and QEMU boot validation. Until then, all such execution remains deferred.
+Only after all implementation stages are complete may the consolidated validation pass run: automated tests, fuzz campaigns, comparative benchmarks, native executable capability checks, supported OS builds, and QEMU boot validation. Until then, all such execution remains deferred.
 
 The final project phase is **Phase 6** (formerly named Phase H); it is separate from Phase 2. The repository currently has no confirmed Phase 3–5 specifications, so their scope must not be invented or inferred from this Phase 2 plan.

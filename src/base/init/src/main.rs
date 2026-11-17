@@ -194,6 +194,20 @@ fn main() {
 
     loop {
         let mut status = 0;
-        libredox::call::waitpid(0, &mut status, 0).unwrap();
+        match libredox::call::waitpid(0, &mut status, 0) {
+            Ok(pid) => {
+                if init_config.log_debug {
+                    eprintln!("init: reaped child {pid} with status {status:#x}");
+                }
+                scheduler.child_exited(pid, status);
+            }
+            Err(err) if err.is_interrupt() => continue,
+            Err(err) => {
+                // PID 1 must not panic and abandon child reaping because a wait
+                // was interrupted or a transient process-scheme error occurred.
+                eprintln!("init: waitpid failed: {err}");
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
     }
 }

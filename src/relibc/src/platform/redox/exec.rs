@@ -254,6 +254,7 @@ pub fn execve(
             .ok()
             .map(|fd| fd.as_ref().unwrap().fd.as_raw_fd()),
         filetable_fd: Some(filetable_binary_fd.as_raw_fd()),
+        guest_capability_fds: None,
         same_process: true,
     };
 

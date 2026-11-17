@@ -1,0 +1,308 @@
+name: TRION Phase 2 Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ternary/**"
+      - "src/**"
+      - "build/**"
+      - "config/**"
+      - "kernel/**"
+      - "filesystem/**"
+      - "mds/phases/Phase 2*"
+      - "mds/architecture/native-application-profile.md"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ternary/**"
+      - "src/**"
+      - "build/**"
+      - "config/**"
+      - "kernel/**"
+      - "filesystem/**"
+      - "mds/phases/Phase 2*"
+      - "mds/architecture/native-application-profile.md"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trion-phase2-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-tests:
+    name: Phase 2 Rust tests, formatting and lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies and crate targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ternary/**/target
+            src/base/target
+          key: phase2-rust-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            phase2-rust-${{ runner.os }}-
+
+      - name: Normalize legacy executable and benchmark formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path ternary/executable/Cargo.toml
+          cargo fmt --manifest-path ternary/benchmarks/Cargo.toml
+
+      - name: Test Phase 1 and Phase 2 host crates
+        shell: bash
+        run: |
+          set -euo pipefail
+          for manifest in \
+            ternary/core/Cargo.toml \
+            ternary/adaptive/Cargo.toml \
+            ternary/memory/Cargo.toml \
+            ternary/runtime/Cargo.toml \
+            ternary/executable/Cargo.toml \
+            ternary/platform/Cargo.toml
+          do
+            echo "::group::cargo test --manifest-path $manifest"
+            cargo test --manifest-path "$manifest" --all-targets
+            echo "::endgroup::"
+          done
+
+      - name: Check host-crate formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          for manifest in \
+            ternary/core/Cargo.toml \
+            ternary/adaptive/Cargo.toml \
+            ternary/memory/Cargo.toml \
+            ternary/runtime/Cargo.toml \
+            ternary/executable/Cargo.toml \
+            ternary/platform/Cargo.toml \
+            ternary/benchmarks/Cargo.toml
+          do
+            cargo fmt --manifest-path "$manifest" -- --check
+          done
+
+      - name: Run host-crate Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          for manifest in \
+            ternary/core/Cargo.toml \
+            ternary/adaptive/Cargo.toml \
+            ternary/memory/Cargo.toml \
+            ternary/runtime/Cargo.toml \
+            ternary/executable/Cargo.toml \
+            ternary/platform/Cargo.toml \
+            ternary/benchmarks/Cargo.toml
+          do
+            cargo clippy --manifest-path "$manifest" --all-targets -- -D warnings
+          done
+
+      - name: Install nightly Rust for Redox workspace
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Test Redox capability services
+        run: cargo +nightly test --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
+
+      - name: Check Redox capability services
+        run: cargo +nightly check --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check
+
+      - name: Check capability-service formatting
+        run: cargo +nightly fmt --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check -- --check
+
+      - name: Lint capability services
+        run: cargo +nightly clippy --manifest-path src/base/Cargo.toml -p trion-capd -p trion-cap-check --all-targets --no-deps -- -D warnings
+
+      - name: Run comparative benchmark correctness gate
+        run: cargo run --manifest-path ternary/benchmarks/Cargo.toml --release
+
+  fuzz:
+    name: Phase 2 bounded fuzz campaigns
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Cache fuzz dependencies and targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ternary/fuzz/target
+          key: phase2-fuzz-${{ runner.os }}-${{ hashFiles('ternary/fuzz/Cargo.lock', 'ternary/fuzz/Cargo.toml') }}
+          restore-keys: |
+            phase2-fuzz-${{ runner.os }}-
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Check fuzz-target formatting
+        run: cargo fmt --manifest-path ternary/fuzz/Cargo.toml -- --check
+
+      - name: Build all fuzz targets
+        run: cargo fuzz build --fuzz-dir ternary/fuzz
+
+      - name: Fuzz packed ternary memory
+        run: cargo fuzz run --fuzz-dir ternary/fuzz packed_trit_buffer -- -max_total_time=60 -max_len=1048584
+
+      - name: Fuzz TRN3 deserialization
+        run: cargo fuzz run --fuzz-dir ternary/fuzz trn3_deserialize -- -max_total_time=60 -max_len=1048576
+
+      - name: Fuzz PE32+ loader
+        run: cargo fuzz run --fuzz-dir ternary/fuzz pe32_plus -- -max_total_time=60 -max_len=1048576
+
+      - name: Fuzz Mach-O loader
+        run: cargo fuzz run --fuzz-dir ternary/fuzz macho64 -- -max_total_time=60 -max_len=1048576
+
+      - name: Fuzz app-bundle metadata
+        run: cargo fuzz run --fuzz-dir ternary/fuzz app_bundle_plist -- -max_total_time=60 -max_len=1048576
+
+  system-build-and-qemu:
+    name: Phase 2 full image build and QEMU boot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Cache image-build toolchain and recipe outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/build/podman
+            build/prefix
+            build/repo
+            build/recipes/**/target
+          key: phase2-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'Cargo.lock', '**/Cargo.lock') }}
+          restore-keys: |
+            phase2-images-${{ runner.os }}-
+
+      - name: Install image-build dependencies
+        shell: bash
+        run: bash build/podman_bootstrap.sh -d
+
+      - name: Configure Podman build
+        shell: bash
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
+
+      - name: Build desktop IMG and live ISO
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C build all
+          make -C build live
+
+      - name: Verify image artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s build/build/x86_64/desktop/harddrive.img
+          test -s build/build/x86_64/desktop/redox-live.iso
+
+      - name: Validate kernel, capability service and endpoints in QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          trap 'rm -f "$log"' EXIT
+          set +e
+          timeout --signal=TERM --kill-after=10s 120s \
+            make -C build qemu gpu=no kvm=no uefi=no net=no audio=no usb=no serial=yes \
+            >"$log" 2>&1
+          qemu_status=$?
+          set -e
+
+          if ! grep -Fq 'Redox OS starting...' "$log"; then
+            cat "$log"
+            echo "FAIL: QEMU did not reach kernel entry."
+            exit 1
+          fi
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            cat "$log"
+            exit "$qemu_status"
+          fi
+          if ! grep -Fq 'capability scheme registered at /scheme/trion' "$log"; then
+            cat "$log"
+            echo "FAIL: TRION capability scheme did not become ready."
+            exit 1
+          fi
+          if ! grep -Fq 'capability reports validated from /scheme/trion' "$log"; then
+            cat "$log"
+            echo "FAIL: user-space capability endpoint validation did not complete."
+            exit 1
+          fi
+          echo "PASS: kernel entry, capability service readiness and endpoint validation."
+
+  report:
+    name: Phase 2 final result
+    if: always()
+    needs:
+      - rust-tests
+      - fuzz
+      - system-build-and-qemu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report SUCCESS or FAILURE
+        env:
+          RUST_TESTS: ${{ needs.rust-tests.result }}
+          FUZZ: ${{ needs.fuzz.result }}
+          SYSTEM: ${{ needs.system-build-and-qemu.result }}
+        shell: bash
+        run: |
+          {
+            echo "## TRION Phase 2 Validation"
+            echo
+            echo "| Validation group | Result |"
+            echo "|---|---|"
+            echo "| Rust tests, formatting, Clippy and benchmark correctness | $RUST_TESTS |"
+            echo "| Fuzz campaigns | $FUZZ |"
+            echo "| Full image build and QEMU boot | $SYSTEM |"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$RUST_TESTS" == "success" && "$FUZZ" == "success" && "$SYSTEM" == "success" ]]; then
+            echo "## PHASE 2 VALIDATION: SUCCESS" >> "$GITHUB_STEP_SUMMARY"
+            echo "PHASE 2 VALIDATION: SUCCESS"
+          else
+            echo "## PHASE 2 VALIDATION: FAILURE" >> "$GITHUB_STEP_SUMMARY"
+            echo "PHASE 2 VALIDATION: FAILURE"
+            exit 1
+          fi

@@ -7,5 +7,11 @@ shallow_clone = true
 template = "custom"
 compiler = "clang"
 script = """
+# CMake's GNU linker module detects the Clang driver's LLD frontend as
+# supporting linker-generated dependency files. wasm-ld does not implement
+# --dependency-file, so disable this optional Ninja optimization for WASI.
+COOKBOOK_CMAKE_FLAGS+=(
+    -DCMAKE_LINK_DEPENDS_USE_LINKER=OFF
+)
 cookbook_cmake
 """

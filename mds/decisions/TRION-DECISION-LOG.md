@@ -198,7 +198,7 @@ Required outcomes:
 - Audited cleanup for partial loads and process failures.
 - Isolation integrated with any broader platform runtimes added by Stages I/J.
 
-**Current known status:** native process hand-off, real Redox address spaces/user contexts, scheduler integration, dedicated restricted guest exit, a deny-all syscall baseline, initial address-space/descriptor/CPU quotas, signal-handler reset, exception-to-signal mapping, and existing process teardown are present. Explicit filesystem/network/device/IPC capability enforcement, brokered I/O, guest-specific structured fault reports, complete descendant/thread policy, and a comprehensive cleanup audit remain incomplete. Stage H must remain **N** until the security boundary is implemented. Do not run untrusted applications under the restricted native profile as though it were already a complete sandbox.
+**Current known status:** Stage H implementation is complete for the restricted guest profile. Native guests use real Redox address spaces and user contexts; the kernel enforces the deny-by-default syscall gate, authenticated exit, memory/descriptor/CPU quotas, supervisor-selected pre-opened descriptor allowlists, read/write operation grants, capability revocation on close, guest cancellation, structured guest crash reports, sibling termination and kernel-owned descriptor cleanup at the address-space transition. Guest-created processes/threads, descriptor duplication, arbitrary scheme calls, path creation and unrestricted device control remain denied. Ordinary exec call sites supply no capabilities unless a trusted supervisor explicitly provides them. This implementation status is separate from validation, which remains deferred until all Phase 2 stages are implemented. Do not describe this restricted profile as general-purpose Windows/macOS application compatibility.
 
 ## 11. Repository and collaboration decisions
 
@@ -230,7 +230,7 @@ This section is a point-in-time record and should be updated as code changes.
 | E | Implementation delivered | Validation deferred |
 | F | Infrastructure authored | Benchmarks/fuzz/build workflows not executed |
 | G | Implemented for restricted freestanding x86-64 profiles | No general Windows/macOS compatibility; validation deferred |
-| H | Incomplete | Base deny-all guest policy and quotas exist; capability broker and containment remain |
+| H | Implemented for restricted guest profile | Delegated pre-opened stream capabilities, read/write broker, cancellation, crash report and atomic cleanup; validation deferred |
 | I | Incomplete | General Windows runtime services missing |
 | J | Incomplete | General macOS runtime services missing |
 

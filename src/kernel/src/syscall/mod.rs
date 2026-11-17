@@ -39,11 +39,13 @@ fn guest_syscall_allowed(
     e: usize,
     f: usize,
     g: usize,
+    io_allowed: bool,
 ) -> bool {
     match syscall_number {
         // The extra register arguments are unspecified by the one-argument
         // SYS_CLOSE ABI and are ignored by its dispatcher.
         SYS_CLOSE => true,
+        SYS_READ | SYS_READ2 | SYS_WRITE | SYS_WRITE2 => io_allowed,
         SYS_GUEST_EXIT => {
             first_arg <= u8::MAX as usize && c == 0 && d == 0 && e == 0 && f == 0 && g == 0
         }
@@ -98,15 +100,22 @@ pub fn syscall(
     ) -> Result<usize> {
         // Native guests can close inherited descriptors or exit with a bounded
         // status. Enforce this before any syscall-specific or scheme dispatch.
-        let guest_restricted = {
+        let (guest_restricted, guest_io_allowed) = {
             let context = context::current().read(token.token());
-            context.guest_syscalls_denied
+            let restricted = context.guest_syscalls_denied
                 || context
                     .addr_space
                     .as_ref()
-                    .is_some_and(|addr_space| addr_space.guest_syscalls_denied())
+                    .is_some_and(|addr_space| addr_space.guest_syscalls_denied());
+            let io_allowed = context
+                .addr_space
+                .as_ref()
+                .is_some_and(|addr_space| addr_space.guest_io_allowed(a, b));
+            (restricted, io_allowed)
         };
-        if guest_restricted && !guest_syscall_allowed(a, b, c, d, e, f, g) {
+        if guest_restricted
+            && !guest_syscall_allowed(a, b, c, d, e, f, g, guest_io_allowed)
+        {
             return Err(Error::new(EPERM));
         }
         let fd = FileHandle::from(b);
@@ -233,7 +242,20 @@ pub fn syscall(
                 })
             }
 
-            SYS_CLOSE => close(fd, token).map(|()| 0),
+            SYS_CLOSE => {
+                close(fd, token).map(|()| {
+                    if guest_restricted {
+                        if let Some(addr_space) = context::current()
+                            .read(token.token())
+                            .addr_space
+                            .as_ref()
+                        {
+                            addr_space.revoke_guest_capability(b);
+                        }
+                    }
+                    0
+                })
+            },
             SYS_CALL => {
                 // TODO: remove soon
                 if e & (1 << 17) != 0 {
@@ -358,16 +380,22 @@ mod guest_policy_tests {
     use super::*;
 
     #[test]
-    fn guest_policy_allows_only_close_exit_and_identity_queries() {
-        assert!(guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 0, 0, 0));
-        assert!(guest_syscall_allowed(SYS_GUEST_EXIT, 255, 0, 0, 0, 0, 0));
-        assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 256, 0, 0, 0, 0, 0));
-        assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 0, 1, 0, 0, 0, 0));
-        assert!(guest_syscall_allowed(SYS_GUEST_GETPID, 0, 0, 0, 0, 0, 0));
-        assert!(guest_syscall_allowed(SYS_GUEST_GETTID, 0, 0, 0, 0, 0, 0));
-        assert!(!guest_syscall_allowed(SYS_GUEST_GETPID, 1, 0, 0, 0, 0, 0));
-        assert!(!guest_syscall_allowed(SYS_GUEST_GETTID, 0, 0, 1, 0, 0, 0));
-        assert!(!guest_syscall_allowed(SYS_CALL, 17, 0, 0, 2, 0, 0));
-        assert!(!guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 1, 0, 0));
+    fn guest_policy_requires_an_explicit_io_capability() {
+        assert!(guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 0, 0, 0, false));
+        assert!(guest_syscall_allowed(SYS_READ, 17, 8, 64, 0, 0, 0, true));
+        assert!(guest_syscall_allowed(SYS_READ2, 17, 8, 64, 0, 0, 0, true));
+        assert!(guest_syscall_allowed(SYS_WRITE, 17, 8, 64, 0, 0, 0, true));
+        assert!(guest_syscall_allowed(SYS_WRITE2, 17, 8, 64, 0, 0, 0, true));
+        assert!(!guest_syscall_allowed(SYS_READ, 17, 8, 64, 0, 0, 0, false));
+        assert!(!guest_syscall_allowed(SYS_WRITE, 17, 8, 64, 0, 0, 0, false));
+        assert!(guest_syscall_allowed(SYS_GUEST_EXIT, 255, 0, 0, 0, 0, 0, false));
+        assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 256, 0, 0, 0, 0, 0, false));
+        assert!(!guest_syscall_allowed(SYS_GUEST_EXIT, 0, 1, 0, 0, 0, 0, false));
+        assert!(guest_syscall_allowed(SYS_GUEST_GETPID, 0, 0, 0, 0, 0, 0, false));
+        assert!(guest_syscall_allowed(SYS_GUEST_GETTID, 0, 0, 0, 0, 0, 0, false));
+        assert!(!guest_syscall_allowed(SYS_GUEST_GETPID, 1, 0, 0, 0, 0, 0, false));
+        assert!(!guest_syscall_allowed(SYS_GUEST_GETTID, 0, 0, 1, 0, 0, 0, false));
+        assert!(!guest_syscall_allowed(SYS_CALL, 17, 0, 0, 2, 0, 0, true));
+        assert!(!guest_syscall_allowed(SYS_CLOSE, 17, 0, 0, 1, 0, 0, false));
     }
 }

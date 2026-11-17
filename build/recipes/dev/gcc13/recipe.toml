@@ -100,9 +100,10 @@ fi
 """
 
 [package]
-dependencies = [
-    "gnu-binutils"
-]
+# The prefix build stages host binutils separately in mk/prefix.mk.
+# Pulling the Redox-target gnu-binutils package here forces expat to be
+# cross-compiled before the freestanding relibc sysroot exists.
+dependencies = []
 
 [[optional-packages]]
 name = "cxx"

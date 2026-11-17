@@ -6,7 +6,7 @@
 
 ## 1. Objective
 
-Provide one direct execution path for original Windows PE32+ .exe files and macOS Mach-O64 .app executables. Stage G establishes the executable engine and native process hand-off. It does not claim general Windows or macOS application compatibility; those platform runtimes belong to Stages I and J.
+Provide narrow, direct freestanding execution profiles for original PE32+ and Mach-O64 image bytes. Stage G establishes executable-format handling and native process hand-off; it does not implement Windows or macOS application compatibility. Those compatibility workstreams are deferred to Version 2.
 
 ## 2. Non-negotiable architecture
 
@@ -52,10 +52,11 @@ Provide one direct execution path for original Windows PE32+ .exe files and macO
 ## 4. Work assigned to later stages
 
 - Stage H: explicit guest fault/signal policy, capability isolation, resource accounting, brokered filesystem/network/device access, thread lifecycle, and containment.
-- Stage I: Windows process parameters, PEB/TEB, DLL catalog/linking, TLS, unwind/exception handling, Win32/NT services, and documented Windows application classes.
-- Stage J: binary plist, dyld, Mach-O rebasing/binding/chained fixups, code-signature policy, frameworks, macOS ABI/startup and application services.
+- Version 2: Windows PE application compatibility, including full Windows process parameters, DLL catalog/linking, unwind/exception handling, and Win32/NT services.
+- Version 2: macOS application compatibility, including binary plist, dyld, Mach-O rebasing/binding/chained fixups, code-signature policy, frameworks, Darwin ABI/startup and application services.
+- Version 2: Linux application compatibility, including a separately specified Linux process and syscall ABI.
 
-These are not prerequisites for the freestanding Stage G profile; they remain required for broader application compatibility.
+These are not prerequisites for the freestanding Stage G profile. Windows, macOS and Linux application compatibility are deferred to Version 2 and are not Phase 2 Stage I/J deliverables.
 
 ## 5. Completion criteria
 

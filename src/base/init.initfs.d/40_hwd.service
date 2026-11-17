@@ -6,3 +6,6 @@ requires_weak = ["10_inputd.service", "10_lived.service", "20_graphics.target"]
 cmd = "hwd"
 inherit_envs = ["RSDP_ADDR", "RSDP_SIZE"]
 type = "notify"
+restart_on_failure = true
+max_restarts = 3
+restart_delay_ms = 500

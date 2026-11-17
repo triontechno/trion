@@ -5,3 +5,6 @@ requires_weak = ["40_hwd.service", "40_pcid-spawner-initfs.service"]
 [service]
 cmd = "trion-capd"
 type = "notify"
+restart_on_failure = true
+max_restarts = 3
+restart_delay_ms = 250

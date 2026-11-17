@@ -15,7 +15,11 @@ pub struct ExportTable { symbols: BTreeMap<(String, ImportSymbol), u64> }
 impl ExportTable {
     pub fn insert(&mut self, library:String, symbol:ImportSymbol, address:u64)->Result<(),Error>{
         if library.is_empty() || library.len()>MAX_SYMBOL_NAME { return Err(Error::Invalid("Windows import library name")); }
-        if let ImportSymbol::Name(n)=&symbol { if n.is_empty()||n.len()>MAX_SYMBOL_NAME { return Err(Error::Invalid("Windows import symbol name")); } }
+        if let ImportSymbol::Name(n) = &symbol
+            && (n.is_empty() || n.len() > MAX_SYMBOL_NAME)
+        {
+            return Err(Error::Invalid("Windows import symbol name"));
+        }
         if address==0 { return Err(Error::Invalid("null Windows export address")); }
         let key = (library.to_ascii_lowercase(), symbol);
         if self.symbols.contains_key(&key) {

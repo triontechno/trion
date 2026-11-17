@@ -1,31 +1,36 @@
-name: TRION Build and Release
+name: TRION Image Build
 
 on:
   push:
     branches:
+      - main
       - triontechno-complete-stage-h-i
+    paths:
+      - "ternary/**"
+      - "src/**"
+      - "build/**"
+      - "config/**"
+      - "kernel/**"
+      - "filesystem/**"
+      - "podman/**"
+      - "recipes/**"
+      - "cookbook.toml"
+      - ".github/workflows/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "**/Cargo.lock"
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: "Publish a GitHub Release after image and QEMU validation"
-        required: true
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: trion-release-v2-${{ github.ref }}
+  group: trion-image-build-${{ github.ref }}
   cancel-in-progress: false
-
-env:
-  # Change 1.0 to 2.0 when starting the next version series.
-  VERSION_PREFIX: "1.0"
 
 jobs:
   build:
-    name: Build TRION images
+    name: Build TRION IMG and ISO
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
@@ -59,31 +64,49 @@ jobs:
             | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Cache image-build toolchain and recipe outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/build/podman
+            build/prefix
+            build/repo
+            build/recipes/**/target
+          key: trion-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'Cargo.lock', '**/Cargo.lock') }}
+          restore-keys: |
+            trion-images-${{ runner.os }}-
+
       - name: Install build dependencies
         shell: bash
-        run: |
-          bash build/podman_bootstrap.sh -d
+        run: bash build/podman_bootstrap.sh -d
 
       - name: Configure Podman build
         shell: bash
-        run: |
-          cat > build/.config <<'EOF'
-          PODMAN_BUILD?=1
-          # The Redox prebuilt toolchain host is returning HTTP 403 in CI.
-          # Build the cross-toolchain from source instead; use upstream Rust
-          # binaries to avoid compiling the Rust compiler itself.
-          PREFIX_BINARY=0
-          PREFIX_USE_UPSTREAM_RUST_COMPILER=1
-          # Reuse existing Cookbook build directories instead of deleting them.
-          export COOKBOOK_CLEAN_BUILD=false
-          export COOKBOOK_CLEAN_TARGET=false
-          EOF
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
 
       - name: Build desktop disk image and live ISO
         shell: bash
         run: |
           set -euo pipefail
           bash build/build-images.sh
+
+      - name: Diagnose cross-compilation configure failures
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+          found=0
+          while IFS= read -r -d '' log; do
+            found=1
+            echo "::group::Compiler configure log: $log"
+            if ! grep -n -E 'cannot create executables|fatal error:|undefined reference|cannot find|collect2:|ld returned|configure: error' "$log" | tail -n 80; then
+              tail -n 80 "$log"
+            fi
+            echo "::endgroup::"
+          done < <(find build/recipes -type f -name config.log -print0 2>/dev/null)
+          if [ "$found" -eq 0 ]; then
+            echo "No Autoconf config.log files were retained."
+          fi
 
       - name: Verify build outputs
         shell: bash
@@ -125,16 +148,12 @@ jobs:
           fi
           echo "QEMU validated kernel entry, capability service readiness, and user-space report reads."
 
-      - name: Publish GitHub Release
-        if: inputs.publish_release
-        uses: softprops/action-gh-release@v2
+      - name: Upload build artifacts for release
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: v${{ env.VERSION_PREFIX }}.${{ github.run_number }}
-          name: TRION v${{ env.VERSION_PREFIX }}.${{ github.run_number }}
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: |
+          name: trion-images
+          path: |
             build/build/x86_64/desktop/harddrive.img
             build/build/x86_64/desktop/redox-live.iso
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: error
+          retention-days: 30

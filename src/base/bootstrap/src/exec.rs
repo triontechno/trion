@@ -228,6 +228,7 @@ pub fn main() -> ! {
         ns_fd: Some(initns_fd.take()),
         cwd_fd: Some(cwd_fd.as_raw_fd()),
         filetable_fd: Some(filetable_binary_fd.as_raw_fd()),
+        guest_capability_fds: None,
         same_process: true,
     };
 

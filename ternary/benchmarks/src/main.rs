@@ -42,21 +42,20 @@ fn host_cpu() -> String {
     if let Ok(identifier) = std::env::var("PROCESSOR_IDENTIFIER") {
         return identifier;
     }
-    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
-        if let Some(model) = cpuinfo.lines().find_map(|line| {
+    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo")
+        && let Some(model) = cpuinfo.lines().find_map(|line| {
             line.strip_prefix("model name")
                 .and_then(|value| value.split_once(':').map(|(_, value)| value.trim()))
-        }) {
-            return model.to_owned();
-        }
+        })
+    {
+        return model.to_owned();
     }
     if let Ok(output) = Command::new("sysctl")
         .args(["-n", "machdep.cpu.brand_string"])
         .output()
+        && output.status.success()
     {
-        if output.status.success() {
-            return String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        }
+        return String::from_utf8_lossy(&output.stdout).trim().to_owned();
     }
     "unavailable; record host CPU manually".to_owned()
 }

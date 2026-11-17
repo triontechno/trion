@@ -166,6 +166,8 @@ enum ContextHandle {
     OpenViaDup,
     SchedAffinity,
     GuestPolicy,
+    GuestCrash,
+    GuestCancel,
 
     MmapMinAddr(Arc<AddrSpaceWrapper>),
 }
@@ -272,6 +274,9 @@ impl ProcScheme {
             "sched-affinity" => (ContextHandle::SchedAffinity, true),
             // The process manager/loader may only tighten a context's policy.
             "guest-policy" => (ContextHandle::GuestPolicy, false),
+            // Versioned guest fault/exit report; readable by the supervising process.
+            "guest-crash" => (ContextHandle::GuestCrash, false),
+            "guest-cancel" => (ContextHandle::GuestCancel, false),
             "status" => (ContextHandle::Status { privileged: false }, false),
             _ if path.starts_with("auth-") => {
                 let nonprefix = &path["auth-".len()..];
@@ -1365,6 +1370,30 @@ impl ContextHandle {
                 addrspace.acquire_write(lock_token.downgrade()).mmap_min = val;
                 Ok(size_of::<usize>())
             }
+            Self::GuestCancel => {
+                if buf.len() != size_of::<usize>() || buf.read_usize()? != 1 {
+                    return Err(Error::new(EINVAL));
+                }
+                if !context.read(token.token()).guest_syscalls_denied {
+                    return Err(Error::new(EPERM));
+                }
+                if context::is_current(&context) {
+                    drop(context.read(token.token()));
+                    crate::syscall::exit_this_context(None, token);
+                } else {
+                    let cpu_id = {
+                        let mut guest = context.write(token.token());
+                        if guest.status.is_dead() {
+                            return Ok(size_of::<usize>());
+                        }
+                        guest.status = Status::Runnable;
+                        guest.being_sigkilled = true;
+                        guest.cpu_id
+                    };
+                    wakeup_context(&context, cpu_id, &mut token.downgrade());
+                }
+                Ok(size_of::<usize>())
+            }
             Self::GuestPolicy => {
                 if buf.len() < 3 * size_of::<usize>()
                     || !buf.len().is_multiple_of(size_of::<usize>())
@@ -1415,7 +1444,9 @@ impl ContextHandle {
                     if !matches!(
                         scheme,
                         KernelSchemes::User(_)
-                            | KernelSchemes::Global(GlobalSchemes::Pipe)
+                            | KernelSchemes::Global(
+                                GlobalSchemes::Pipe | GlobalSchemes::Serio | GlobalSchemes::Irq
+                            )
                     ) {
                         return Err(Error::new(EPERM));
                     }
@@ -1464,7 +1495,7 @@ impl ContextHandle {
                     .validate_guest_memory_limit_pages(GUEST_MEMORY_LIMIT_PAGES)?;
                 addrspace.prepare_guest_capabilities(&capabilities)?;
                 context.guest_policy_prepared_addr_space = Some(Arc::clone(&addrspace));
-                Ok(2 * size_of::<usize>())
+                Ok(buf.len())
             }
             Self::SchedAffinity => {
                 let cpuset = unsafe { buf.read_exact::<CpuSet>()? };
@@ -1754,6 +1785,38 @@ impl ContextHandle {
                 buf.copy_exactly(mask.as_bytes())?;
                 Ok(size_of_val(&mask))
             } // TODO: Replace write() with SYS_SENDFD?
+            ContextHandle::GuestCrash => {
+                let report = {
+                    let guest = context.read(token.token());
+                    if !guest.guest_syscalls_denied {
+                        return Err(Error::new(EPERM));
+                    }
+                    match guest.status {
+                        Status::Dead { excp: Some(exception) } => {
+                            let mut report = syscall::CtxtStsBuf::default();
+                            report.status = ContextStatus::GuestFault as usize;
+                            report.excp = exception;
+                            report
+                        }
+                        Status::Dead { excp: None } if guest.guest_exit_status.is_some() => {
+                            let mut report = syscall::CtxtStsBuf::default();
+                            report.status = ContextStatus::GuestExit as usize;
+                            report.excp = syscall::Exception::unpack(
+                                guest.guest_exit_status.unwrap() as usize,
+                                0,
+                            );
+                            report
+                        }
+                        Status::Dead { excp: None } if guest.being_sigkilled => {
+                            let mut report = syscall::CtxtStsBuf::default();
+                            report.status = ContextStatus::ForceKilled as usize;
+                            report
+                        }
+                        _ => return Err(Error::new(EAGAIN)),
+                    }
+                };
+                buf.copy_common_bytes_from_slice(&report)
+            }
             ContextHandle::Status { .. } => {
                 let status = {
                     let context = context.read(token.token());
