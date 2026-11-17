@@ -46,7 +46,7 @@ The backend boundary is isolated in the image-generation function.
 Cache reuse requires matching SHA-256 fingerprints for the filesystem
 configuration, installer, complete compiled package repository and iPXE
 script, plus matching SHA-256 checksums for both output images. Successful
-builds write `SHA256SUMS` and `build/simplebuild/cache/manifest.json`.
+builds write `SHA256SUMS` and `build/simplebuild/cache/<ARCH>/<BOARD>/<CONFIG>.json`.
 
 ## QEMU
 
