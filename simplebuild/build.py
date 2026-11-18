@@ -343,7 +343,10 @@ def main():
     parser.add_argument("--board", default=os.getenv("BOARD", ""))
     parser.add_argument("--list-configs", action="store_true")
     parser.add_argument("--check", action="store_true", help="Check prerequisites without building images.")
-    parser.add_argument("--no-rebuild-changed", action="store_true")
+    parser.add_argument("--no-rebuild-changed", action="store_true",
+                        help="Fail on changed recipe sources instead of invoking Make/Cookbook.")
+    parser.add_argument("--force", action="store_true",
+                        help="Always regenerate both images, bypassing the output-image cache.")
     parser.add_argument("--qemu", action="store_true")
     parser.add_argument("--memory", default="2048")
     args = parser.parse_args()
@@ -395,7 +398,12 @@ def main():
     inputs["recipe_fingerprints"] = current_recipe_fingerprints
     log("Using existing compiled repository and host installer; full Cookbook and Podman builds are bypassed.")
     log("Backend C selected: native Redox installer. Independent assembler B remains a future replaceable backend.")
-    if not cache_valid(state, inputs, output):
+    if args.force:
+        log("Forced image regeneration requested; bypassing the output-image cache.")
+        rebuild_images = True
+    else:
+        rebuild_images = not cache_valid(state, inputs, output)
+    if rebuild_images:
         build_one(installer, config, output / "harddrive.img", args.arch, args.config, args.board, False)
         build_one(installer, config, output / "redox-live.iso", args.arch, args.config, args.board, True)
     else:
