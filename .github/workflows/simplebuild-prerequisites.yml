@@ -45,7 +45,7 @@ jobs:
             build/fstools.tag
             build/target
             build/recipes/**/target
-          key: ${{ steps.prerequisite-key.outputs.key }}nner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
+          key: ${{ steps.prerequisite-key.outputs.key }}
           restore-keys: |
             simplebuild-prerequisites-${{ runner.os }}-
             phase2-images-${{ runner.os }}-
@@ -110,7 +110,7 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
-          key: ${{ steps.prerequisite-key.outputs.key }}nner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
+          key: ${{ steps.prerequisite-key.outputs.key }}
 
       - name: Publish reusable prerequisite bundle
         uses: actions/upload-artifact@v4
