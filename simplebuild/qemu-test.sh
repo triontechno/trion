@@ -65,10 +65,22 @@ run_guest "harddrive.img" \
   -device nvme,drive=triondisk,serial=TRION_DISK \
   -boot order=c
 
-run_guest "redox-live.iso" \
-  -device ich9-ahci,id=ahci \
-  -drive "file=$live_iso,format=raw,media=cdrom,readonly=on,if=none,id=trioncd" \
-  -device ide-cd,drive=trioncd,bus=ahci.0 \
+ovmf_code=$(find /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF_CODE.fd /usr/share/qemu/OVMF_CODE.fd -type f -print -quit 2>/dev/null || true)
+ovmf_vars=$(find /usr/share/OVMF/OVMF_VARS.fd /usr/share/ovmf/OVMF_VARS.fd /usr/share/qemu/OVMF_VARS.fd -type f -print -quit 2>/dev/null || true)
+if [[ -z "$ovmf_code" || -z "$ovmf_vars" ]]; then
+  echo "OVMF UEFI firmware is required to boot-test the live ISO (install the ovmf package)." >&2
+  exit 1
+fi
+vars_copy=$(mktemp)
+trap 'rm -f "$vars_copy"' EXIT
+cp "$ovmf_vars" "$vars_copy"
+
+run_guest "redox-live.iso" \\
+  -drive "if=pflash,format=raw,unit=0,file=$ovmf_code,readonly=on" \\
+  -drive "if=pflash,format=raw,unit=1,file=$vars_copy" \\
+  -device ich9-ahci,id=ahci \\
+  -drive "file=$live_iso,format=raw,media=cdrom,readonly=on,if=none,id=trioncd" \\
+  -device ide-cd,drive=trioncd,bus=ahci.0 \\
   -boot order=d
 
 echo "Both generated images passed direct QEMU boot validation."
