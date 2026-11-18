@@ -248,6 +248,7 @@ jobs:
         shell: bash
         run: |
           bash -n simplebuild/build.sh
+          bash -n simplebuild/prerequisite-key.sh
           bash -n simplebuild/qemu-test.sh
           python3 -m py_compile simplebuild/build.py
 
