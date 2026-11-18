@@ -41,13 +41,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        shell: bash
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
       - name: Restore reusable compiled prerequisites and prior images
         uses: actions/cache/restore@v4
         with:
@@ -107,7 +100,7 @@ jobs:
           test -s build/simplebuild/cache/repo_archive.tar.gz
           test -s build/simplebuild/prerequisites.sha256
           (cd build && sha256sum -c simplebuild/prerequisites.sha256)
-          tar -dzf build/simplebuild/cache/repo_archive.tar.gz -C build/repo
+          tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
 
       - name: Check SimpleBuild prerequisites
         shell: bash
