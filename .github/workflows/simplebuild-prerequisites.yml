@@ -53,6 +53,20 @@ jobs:
         shell: bash
         run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
 
+      - name: Build the Cookbook container
+        shell: bash
+        run: make -C build build/container.tag
+
+      - name: Verify the Cookbook src/base mount
+        shell: bash
+        run: |
+          set -euo pipefail
+          podman run --rm \
+            --volume "$GITHUB_WORKSPACE/build:/mnt/redox:Z" \
+            --volume "$GITHUB_WORKSPACE/src:/mnt/redox/src:Z" \
+            redox-base \
+            bash -e -c 'test -f /mnt/redox/src/base/Makefile'
+
       - name: Build compiled package repository and host installer
         shell: bash
         run: |
