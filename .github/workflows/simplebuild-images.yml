@@ -49,12 +49,22 @@ jobs:
             build/fstools.tag
             build/target
             build/recipes/**/target
-            build/simplebuild/cache
-            build/build/x86_64/desktop
+            build/simplebuild/cache/repo_archive.tar.gz
+            build/simplebuild/prerequisites.sha256
           key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'simplebuild/**', 'Cargo.lock', '**/Cargo.lock') }}
           restore-keys: |
             simplebuild-prerequisites-${{ runner.os }}-
             phase2-images-${{ runner.os }}-
+
+      - name: Restore previously generated SimpleBuild images
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/build/x86_64/desktop
+            build/simplebuild/cache/x86_64
+          key: simplebuild-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'simplebuild/**', 'Cargo.lock', '**/Cargo.lock') }}
+          restore-keys: |
+            simplebuild-images-${{ runner.os }}-
 
       - name: Install image-build dependencies
         shell: bash
@@ -120,6 +130,14 @@ jobs:
           fi
           grep -Fq 'capability scheme registered at /scheme/trion' "$log" || { cat "$log"; exit 1; }
           grep -Fq 'capability reports validated from /scheme/trion' "$log" || { cat "$log"; exit 1; }
+
+      - name: Save generated images for subsequent runs
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/build/x86_64/desktop
+            build/simplebuild/cache/x86_64
+          key: simplebuild-images-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'simplebuild/**', 'Cargo.lock', '**/Cargo.lock') }}
 
       - name: Upload SimpleBuild image artifacts
         uses: actions/upload-artifact@v4
