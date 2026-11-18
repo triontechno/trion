@@ -31,7 +31,9 @@ endif
 ## Podman Home Directory
 PODMAN_HOME=$(ROOT)/build/podman
 ## Podman command with its many arguments
-PODMAN_VOLUMES=--volume $(ROOT):$(CONTAINER_WORKDIR)$(PODMAN_VOLUME_FLAG) --volume $(PODMAN_HOME):/root$(PODMAN_VOLUME_FLAG)
+# ROOT is build/ when make is invoked with -C build. Cookbook path sources
+# such as src/base live beside build/, so mount that source tree explicitly.
+PODMAN_VOLUMES=--volume $(ROOT):$(CONTAINER_WORKDIR)$(PODMAN_VOLUME_FLAG) --volume $(ROOT)/../src:$(CONTAINER_WORKDIR)/src$(PODMAN_VOLUME_FLAG) --volume $(PODMAN_HOME):/root$(PODMAN_VOLUME_FLAG)
 PODMAN_ENV=--env PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --env PODMAN_BUILD=0
 PODMAN_CONFIG=--env ARCH=$(ARCH) --env BOARD=$(BOARD) --env CONFIG_NAME=$(CONFIG_NAME) --env FILESYSTEM_CONFIG=$(FILESYSTEM_CONFIG) --env PREFIX_BINARY=$(PREFIX_BINARY) \
                --env CI=$(CI) --env COOKBOOK_MAKE_JOBS=$(COOKBOOK_MAKE_JOBS) --env COOKBOOK_LOGS=$(COOKBOOK_LOGS) --env COOKBOOK_VERBOSE=$(COOKBOOK_VERBOSE) --env COOKBOOK_COMPRESSED=$(COOKBOOK_COMPRESSED) \
