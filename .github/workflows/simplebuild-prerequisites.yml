@@ -40,7 +40,7 @@ jobs:
             build/fstools.tag
             build/target
             build/recipes/**/target
-          key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'Cargo.lock', '**/Cargo.lock') }}
+          key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
           restore-keys: |
             simplebuild-prerequisites-${{ runner.os }}-
             phase2-images-${{ runner.os }}-
