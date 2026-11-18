@@ -26,12 +26,31 @@ the traditional Makefile's `BUILD=build/<ARCH>/<CONFIG_NAME>`:
   when `simplebuild/downloads.json` has a corresponding HTTPS URL and
   matching SHA-256. A repository archive must be a tar archive containing
   repository files at its root, or a single top-level `repo/` directory.
+- The download entries are optional fallbacks for deployments that publish
+  immutable artifacts externally. The GitHub Actions pipeline instead restores
+  the installer and repository from its prerequisite cache and verifies them
+  against `build/simplebuild/prerequisites.sha256`.
 - Changed recipe source files are detected using recipe metadata, fetched
   source-repository revisions and working-tree changes, plus the main Git
   revision. The first run seeds this fingerprint baseline. Only changed recipe targets are
   rebuilt with `PODMAN_BUILD=0`; the full OS is never rebuilt implicitly.
 - `--no-rebuild-changed` stops instead of rebuilding changed recipe targets.
 - `--check` reports missing prerequisites without starting a build.
+
+## CI setup and execution
+
+1. Run **Actions → Prepare SimpleBuild Prerequisites → Run workflow** once,
+   and repeat it when the compiled installer or package repository must be
+   refreshed. This isolated bootstrap workflow is the only SimpleBuild-related
+   workflow that invokes the traditional Cookbook `make repo fstools` build.
+2. The **SimpleBuild OS Images** workflow runs for relevant pull requests
+   targeting `main`, relevant pushes to `main`, or manual dispatch. It does
+   not invoke the full Cookbook build; it restores the reusable prerequisites,
+   verifies their SHA-256 manifest, and builds both images through SimpleBuild.
+3. The image workflow records the actual combined image-generation duration
+   in its job summary and reports whether it met the 30-minute target. A
+   successful checksum or cache check is not treated as proof of the timing
+   target; the measured build duration is the evidence.
 
 ## Image backend
 
