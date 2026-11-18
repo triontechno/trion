@@ -21,6 +21,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Compute stable prerequisite cache key
+        id: prerequisite-key
+        shell: bash
+        run: bash simplebuild/prerequisite-key.sh
+
       - name: Install Rust
         shell: bash
         run: |
@@ -40,7 +45,7 @@ jobs:
             build/fstools.tag
             build/target
             build/recipes/**/target
-          key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
+          key: ${{ steps.prerequisite-key.outputs.key }}nner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
           restore-keys: |
             simplebuild-prerequisites-${{ runner.os }}-
             phase2-images-${{ runner.os }}-
@@ -105,7 +110,7 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
-          key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
+          key: ${{ steps.prerequisite-key.outputs.key }}nner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
 
       - name: Publish reusable prerequisite bundle
         uses: actions/upload-artifact@v4
