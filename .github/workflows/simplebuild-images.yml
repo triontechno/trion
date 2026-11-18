@@ -33,7 +33,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-images:
+  verify-zlib-source:
+    name: Verify zlib 1.3 download and BLAKE3 checksum
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust and BLAKE3 verifier
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install b3sum
+        run: cargo install b3sum --locked
+
+      - name: Download and verify the exact zlib 1.3 release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/madler/zlib/releases/download/v1.3/zlib-1.3.tar.gz"
+          archive="zlib-1.3.tar.gz"
+          curl --fail --location --retry 3 --retry-all-errors --output "$archive" "$url"
+          test "$(stat -c '%s' "$archive")" -eq 1495873
+          file "$archive"
+          tar -tzf "$archive" | grep -q '^zlib-1.3/'
+          expected_sha256="ff0ba4c292013dbc27530b3a81e1f9a813cd39de01ca5e0f8bf355702efa593e"
+          printf '%s  %s\n' "$expected_sha256" "$archive" | sha256sum --check
+          expected_blake3="$(sed -n 's/^blake3 = "\([0-9a-f]*\)"/\1/p' build/recipes/libs/zlib/recipe.toml)"
+          test -n "$expected_blake3"
+          printf '%s  %s\n' "$expected_blake3" "$archive" | b3sum --check
+          echo "zlib 1.3 download, archive structure, SHA-256 and recipe BLAKE3 all verified."
     name: Build both images with SimpleBuild
     runs-on: ubuntu-24.04
     timeout-minutes: 60
