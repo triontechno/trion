@@ -38,7 +38,7 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Restore reusable compiled prerequisites and prior images
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             build/build/podman
