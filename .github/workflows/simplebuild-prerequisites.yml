@@ -89,7 +89,7 @@ jobs:
               > simplebuild/prerequisites.sha256
           )
           (cd build && sha256sum -c simplebuild/prerequisites.sha256)
-          tar -dzf build/simplebuild/cache/repo_archive.tar.gz -C build/repo
+          tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
 
       - name: Save reusable compiled prerequisites
         uses: actions/cache/save@v4
