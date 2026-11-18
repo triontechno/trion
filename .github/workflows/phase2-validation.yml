@@ -47,6 +47,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Compute stable prerequisite cache key
+        id: prerequisite-key
+        shell: bash
+        run: bash simplebuild/prerequisite-key.sh
+
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -211,7 +216,7 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
-          key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
+          key: ${{ steps.prerequisite-key.outputs.key }}nner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
 
       - name: Verify cached prerequisite checksums
         shell: bash
