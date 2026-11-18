@@ -10,6 +10,8 @@ Cookbook/toolchain/Podman build by default.
 bash simplebuild/build.sh --list-configs
 bash simplebuild/build.sh --arch x86_64 --config desktop --check
 bash simplebuild/build.sh --arch x86_64 --config desktop
+# Force a fresh image build instead of accepting cached images:
+bash simplebuild/build.sh --arch x86_64 --config desktop --force
 bash simplebuild/build.sh --arch x86_64 --config desktop --qemu
 ```
 
@@ -34,7 +36,8 @@ the traditional Makefile's `BUILD=build/<ARCH>/<CONFIG_NAME>`:
   source-repository revisions and working-tree changes, plus the main Git
   revision. The first run seeds this fingerprint baseline. Only changed recipe targets are
   rebuilt with `PODMAN_BUILD=0`; the full OS is never rebuilt implicitly.
-- `--no-rebuild-changed` stops instead of rebuilding changed recipe targets.
+- `--no-rebuild-changed` stops instead of rebuilding changed recipe targets. CI always uses this option, so changed recipes cannot silently invoke Make/Cookbook during an image job.
+- `--force` regenerates both images even when cached image files and fingerprints are valid. CI uses it so the 30-minute timing measures real image generation, not a cache hit.
 - `--check` reports missing prerequisites without starting a build.
 
 ## CI setup and execution
@@ -47,10 +50,9 @@ the traditional Makefile's `BUILD=build/<ARCH>/<CONFIG_NAME>`:
    targeting `main`, relevant pushes to `main`, or manual dispatch. It does
    not invoke the full Cookbook build; it restores the reusable prerequisites,
    verifies their SHA-256 manifest, and builds both images through SimpleBuild.
-3. The image workflow records the actual combined image-generation duration
-   in its job summary and reports whether it met the 30-minute target. A
-   successful checksum or cache check is not treated as proof of the timing
-   target; the measured build duration is the evidence.
+3. The image workflow restores compiled prerequisites, but forces both images to be regenerated. Its timing summary therefore measures real image generation rather than a cached-image no-op.
+4. QEMU validation runs `simplebuild/qemu-test.sh` against the two completed image files directly. It never calls `make -C build qemu`, `make images`, or Cookbook. QEMU is a consumer/test runner for images, not an image builder.
+5. The workflow records the fresh combined image-generation duration and reports whether it met the 30-minute target.
 
 ## Image backend
 
@@ -69,7 +71,4 @@ builds write `SHA256SUMS` and `build/simplebuild/cache/<ARCH>/<BOARD>/<CONFIG>.j
 
 ## QEMU
 
-`--qemu` starts an interactive x86_64 UEFI/NVMe boot attempt using QEMU and
-OVMF. Other architectures can build images, but their QEMU launch profiles
-are not yet implemented. A QEMU process starting is not proof that the guest
-reached userspace; inspect the VM boot screen/serial output.
+`simplebuild/qemu-test.sh <harddrive.img> <redox-live.iso>` boots both completed x86_64 artifacts directly with QEMU and checks the Redox startup and TRION capability markers over serial. It does not invoke Make or Cookbook. The workflow installs QEMU separately from the image-build dependencies. The interactive `--qemu` option remains available for manual inspection.
