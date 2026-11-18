@@ -61,7 +61,7 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
-          key: ${{ steps.prerequisite-key.outputs.key }}nner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'recipes/**', 'cookbook.toml', 'Cargo.lock', '**/Cargo.lock') }}
+          key: ${{ steps.prerequisite-key.outputs.key }}
 
       - name: Restore previously generated SimpleBuild images
         uses: actions/cache/restore@v4
