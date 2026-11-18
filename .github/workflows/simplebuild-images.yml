@@ -2,9 +2,20 @@ name: SimpleBuild OS Images
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "simplebuild/**"
+      - "build/**"
+      - "config/**"
+      - "filesystem/**"
+      - "kernel/**"
+      - "src/**"
+      - ".github/workflows/simplebuild-images.yml"
   push:
     branches:
-      - simplebuild/pipeline-30m
+      - main
     paths:
       - "simplebuild/**"
       - "build/**"
@@ -99,6 +110,17 @@ jobs:
           elapsed=$((SECONDS - started))
           echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
           echo "SimpleBuild elapsed seconds: $elapsed"
+          {
+            echo "### SimpleBuild build timing"
+            echo
+            echo "- Total image-generation time: ${elapsed}s ($((elapsed / 60))m $((elapsed % 60))s)"
+            if (( elapsed <= 1800 )); then
+              echo "- 30-minute target: **MET**"
+            else
+              echo "- 30-minute target: **NOT MET**"
+              echo "- Over target by: $((elapsed - 1800))s"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
           if (( elapsed > 1800 )); then
             echo "::warning::The 30-minute target was exceeded: ${elapsed}s"
           fi
