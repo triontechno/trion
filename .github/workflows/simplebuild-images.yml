@@ -56,7 +56,8 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors --output "$archive" "$url"
           test "$(stat -c '%s' "$archive")" -eq 1495873
           file "$archive"
-          tar -tzf "$archive" | grep -q '^zlib-1.3/'
+          tar -tzf "$archive" > zlib-1.3.contents.txt
+          grep -q '^zlib-1.3/' zlib-1.3.contents.txt
           expected_sha256="ff0ba4c292013dbc27530b3a81e1f9a813cd39de01ca5e0f8bf355702efa593e"
           printf '%s  %s\n' "$expected_sha256" "$archive" | sha256sum --check
           expected_blake3="$(sed -n 's/^blake3 = "\([0-9a-f]*\)"/\1/p' build/recipes/libs/zlib/recipe.toml)"
