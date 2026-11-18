@@ -213,6 +213,22 @@ jobs:
             build/simplebuild/prerequisites.sha256
           key: simplebuild-prerequisites-${{ runner.os }}-${{ hashFiles('build/**', 'config/**', 'filesystem/**', 'kernel/**', 'src/**', 'Cargo.lock', '**/Cargo.lock') }}
 
+      - name: Verify cached prerequisite checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.prerequisites-cache.outputs.cache-hit }}" != "true" ]]; then
+            echo "::error::No exact prerequisite cache for the current build inputs."
+            echo "Run Actions → Prepare SimpleBuild Prerequisites on main once, then retry this workflow."
+            exit 1
+          fi
+          test -x build/fstools/bin/redox_installer
+          test -d build/repo
+          test -s build/simplebuild/cache/repo_archive.tar.gz
+          test -s build/simplebuild/prerequisites.sha256
+          (cd build && sha256sum -c simplebuild/prerequisites.sha256)
+          tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
+
       - name: Install image-build dependencies
         shell: bash
         run: bash build/podman_bootstrap.sh -d
@@ -229,22 +245,6 @@ jobs:
           bash -n simplebuild/build.sh
           bash -n simplebuild/qemu-test.sh
           python3 -m py_compile simplebuild/build.py
-
-      - name: Verify cached prerequisite checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ steps.prerequisites-cache.outputs.cache-hit }}" != "true" ]]; then
-            echo "::error::No exact prerequisite cache for the current build inputs."
-            echo "Run Actions → Prepare SimpleBuild Prerequisites on main once, then retry this workflow."
-            exit 1
-          fi
-          test -x build/fstools/bin/redox_installer
-          test -d build/repo
-          test -s build/simplebuild/cache/repo_archive.tar.gz
-          test -s build/simplebuild/prerequisites.sha256
-          (cd build && sha256sum -c simplebuild/prerequisites.sha256)
-          tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
 
       - name: Check SimpleBuild prerequisites
         shell: bash
