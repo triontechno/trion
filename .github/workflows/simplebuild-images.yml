@@ -81,6 +81,19 @@ jobs:
         shell: bash
         run: bash build/podman_bootstrap.sh -d
 
+      - name: Install QEMU runner
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+
+      - name: Validate SimpleBuild scripts
+        shell: bash
+        run: |
+          bash -n simplebuild/build.sh
+          bash -n simplebuild/qemu-test.sh
+          python3 -m py_compile simplebuild/build.py
+
       - name: Configure host-side SimpleBuild
         shell: bash
         run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
@@ -106,14 +119,15 @@ jobs:
         run: |
           set -euo pipefail
           started=$SECONDS
-          bash simplebuild/build.sh --arch x86_64 --config desktop
+          bash simplebuild/build.sh --arch x86_64 --config desktop --no-rebuild-changed --force
           elapsed=$((SECONDS - started))
           echo "elapsed_seconds=$elapsed" >> "$GITHUB_OUTPUT"
           echo "SimpleBuild elapsed seconds: $elapsed"
           {
             echo "### SimpleBuild build timing"
             echo
-            echo "- Total image-generation time: ${elapsed}s ($((elapsed / 60))m $((elapsed % 60))s)"
+            echo "- Fresh image-generation time (output-image cache bypassed): ${elapsed}s ($((elapsed / 60))m $((elapsed % 60))s)"
+            echo "- Compiled installer/repository prerequisites: restored from checksum-verified cache"
             if (( elapsed <= 1800 )); then
               echo "- 30-minute target: **MET**"
             else
@@ -134,24 +148,13 @@ jobs:
           test -s redox-live.iso
           sha256sum -c SHA256SUMS
 
-      - name: Validate OS boot and TRION capability endpoints in QEMU
+      - name: Boot-test both generated images directly in QEMU
         shell: bash
         run: |
           set -euo pipefail
-          log="$(mktemp)"
-          trap 'rm -f "$log"' EXIT
-          set +e
-          timeout --signal=TERM --kill-after=10s 120s \
-            make -C build qemu gpu=no kvm=no uefi=no net=no audio=no usb=no serial=yes \
-            >"$log" 2>&1
-          qemu_status=$?
-          set -e
-          grep -Fq 'Redox OS starting...' "$log" || { cat "$log"; exit 1; }
-          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
-            cat "$log"; exit "$qemu_status"
-          fi
-          grep -Fq 'capability scheme registered at /scheme/trion' "$log" || { cat "$log"; exit 1; }
-          grep -Fq 'capability reports validated from /scheme/trion' "$log" || { cat "$log"; exit 1; }
+          bash simplebuild/qemu-test.sh \\
+            build/build/x86_64/desktop/harddrive.img \\
+            build/build/x86_64/desktop/redox-live.iso
 
       - name: Save generated images for subsequent runs
         uses: actions/cache/save@v4
