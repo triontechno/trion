@@ -1,0 +1,11 @@
+{
+  "_comment": "Optional verified artifacts. Each entry requires an HTTPS URL and exact SHA-256. repo_archive must be a tar archive of the compiled repository.",
+  "redox_installer": {
+    "url": "",
+    "sha256": ""
+  },
+  "repo_archive": {
+    "url": "",
+    "sha256": ""
+  }
+}
