@@ -68,8 +68,13 @@ jobs:
           printf '%s  %s\n' "$expected_blake3" "$archive" | b3sum --check
           echo "zlib 1.3 download, archive structure, SHA-256 and recipe BLAKE3 all verified."
 
+  prepare-prerequisites:
+    name: Prepare checksum-verified SimpleBuild prerequisites
+    uses: ./.github/workflows/simplebuild-prerequisites.yml
+
   build-images:
     name: Build both images with SimpleBuild
+    needs: prepare-prerequisites
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
