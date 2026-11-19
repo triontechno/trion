@@ -34,7 +34,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: simplebuild-prerequisites-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: simplebuild-prerequisites-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -56,14 +56,6 @@ jobs:
         shell: bash
         run: bash simplebuild/prerequisite-key.sh
 
-      - name: Install Rust
-        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
       - name: Restore any existing compiled prerequisites
         id: prerequisite-cache
         uses: actions/cache/restore@v4
@@ -84,6 +76,14 @@ jobs:
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
+
+      - name: Install Rust
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Verify downloaded or restored Redox prefix archives
         shell: bash
