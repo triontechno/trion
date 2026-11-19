@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "simplebuild/**"
+      - main
     paths:
       - "build/Makefile"
       - "build/mk/**"
