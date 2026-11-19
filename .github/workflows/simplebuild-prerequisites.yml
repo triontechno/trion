@@ -106,15 +106,14 @@ jobs:
             build/target
             build/recipes/**/target
           key: ${{ steps.prerequisite-key.outputs.key }}
-          restore-keys: |
-            simplebuild-prerequisites-${{ runner.os }}-
-            phase2-images-${{ runner.os }}-
 
       - name: Verify downloaded or restored Redox prefix archives
         shell: bash
         run: |
           set -euo pipefail
           (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
+          actual_manifest_sha256="$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)"
+          test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
 
       - name: Install build dependencies
         shell: bash
@@ -215,7 +214,6 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
-            build/simplebuild/prefix-archives.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
 
       - name: Publish reusable prerequisite bundle
