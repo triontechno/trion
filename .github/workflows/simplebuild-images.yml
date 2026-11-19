@@ -81,16 +81,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch and fingerprint official Redox prebuilt toolchains
-        id: prefix-archives
-        shell: bash
-        run: bash simplebuild/fetch-prefix.sh
-
-      - name: Compute stable prerequisite cache key
-        id: prerequisite-key
-        shell: bash
-        run: bash simplebuild/prerequisite-key.sh
-
       - name: Restore reusable compiled prerequisites and prior images
         id: prerequisites-cache
         uses: actions/cache/restore@v4
@@ -110,7 +100,7 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
-          key: ${{ steps.prerequisite-key.outputs.key }}
+          key: ${{ needs.prepare-prerequisites.outputs.cache_key }}
 
       - name: Restore previously generated SimpleBuild images
         id: images-cache
@@ -137,7 +127,7 @@ jobs:
             exit 1
           fi
           actual_manifest_sha256="$(printf '%s\n' "$(sha256sum build/simplebuild/prefix-mode | cut -d' ' -f1)" "$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
-          test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
+          test "$actual_manifest_sha256" = "${{ needs.prepare-prerequisites.outputs.archive_sha256 }}"
 
       - name: Verify cached prerequisite checksums
         shell: bash
@@ -177,7 +167,7 @@ jobs:
 
       - name: Configure host-side SimpleBuild
         shell: bash
-        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=${{ steps.prefix-archives.outputs.prefix_binary }}\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=${{ needs.prepare-prerequisites.outputs.prefix_binary }}\n' > build/.config
 
       - name: Check SimpleBuild prerequisites
         shell: bash
