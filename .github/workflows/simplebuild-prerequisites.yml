@@ -32,6 +32,7 @@ on:
   pull_request:
     branches:
       - main
+      - simplebuild/fix-zlib-source-download
     paths:
       - "build/Makefile"
       - "build/mk/**"
