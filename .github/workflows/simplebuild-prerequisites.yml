@@ -3,6 +3,7 @@ name: Prepare SimpleBuild Prerequisites
 # One-time / refresh workflow. The full Cookbook build is intentionally isolated
 # here; SimpleBuild image CI never invokes it.
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches:
@@ -29,33 +30,6 @@ on:
       - "**/Cargo.lock"
       - "simplebuild/**"
       - ".github/workflows/simplebuild-prerequisites.yml"
-  pull_request:
-    branches:
-      - main
-      - simplebuild/fix-zlib-source-download
-    paths:
-      - "build/Makefile"
-      - "build/mk/**"
-      - "build/podman/**"
-      - "build/podman_bootstrap.sh"
-      - "build/recipes/**"
-      - "build/config/**"
-      - "build/redox.ipxe"
-      - "config/**"
-      - "filesystem/**"
-      - "kernel/**"
-      - "src/**"
-      - "ternary/**"
-      - "recipes/**"
-      - "podman/**"
-      - "cookbook.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "simplebuild/**"
-      - ".github/workflows/simplebuild-prerequisites.yml"
-
 permissions:
   contents: read
 
@@ -83,6 +57,7 @@ jobs:
         run: bash simplebuild/prerequisite-key.sh
 
       - name: Install Rust
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
@@ -106,6 +81,8 @@ jobs:
             build/fstools.tag
             build/target
             build/recipes/**/target
+            build/simplebuild/cache/repo_archive.tar.gz
+            build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
 
       - name: Verify downloaded or restored Redox prefix archives
@@ -125,18 +102,22 @@ jobs:
           test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
 
       - name: Install build dependencies
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: bash build/podman_bootstrap.sh -d
 
       - name: Configure Cookbook prerequisites build
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=${{ steps.prefix-archives.outputs.prefix_binary }}\n' > build/.config
 
       - name: Build the Cookbook container
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: make -C build build/container.tag
 
       - name: Verify the Cookbook src/base mount
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -147,6 +128,7 @@ jobs:
             bash -e -c 'test -f /mnt/redox/src/base/Makefile'
 
       - name: Build compiled package repository and host installer
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -169,6 +151,7 @@ jobs:
           fi
 
       - name: Verify LLVM 21 toolchain inside Debian Trixie
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -196,6 +179,7 @@ jobs:
             '
 
       - name: Package and checksum reusable prerequisites
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -211,6 +195,7 @@ jobs:
           tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
 
       - name: Save reusable compiled prerequisites
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -229,6 +214,21 @@ jobs:
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
+
+      - name: Verify restored or freshly built prerequisite bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x build/fstools/bin/redox_installer
+          test -d build/prefix/x86_64-unknown-redox/sysroot
+          test -d build/repo
+          test -n "$(find build/repo -type f -print -quit)"
+          test -s build/simplebuild/cache/repo_archive.tar.gz
+          test -s build/simplebuild/prerequisites.sha256
+          (cd build && sha256sum -c simplebuild/prerequisites.sha256)
+          tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
+          actual_relibc_revision="$(git -C build/recipes/core/relibc/source rev-parse HEAD)"
+          test "$actual_relibc_revision" = "${{ steps.prerequisite-key.outputs.relibc_revision }}"
 
       - name: Publish reusable prerequisite bundle
         uses: actions/upload-artifact@v4
