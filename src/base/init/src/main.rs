@@ -199,8 +199,7 @@ fn main() {
                 if init_config.log_debug {
                     eprintln!("init: reaped child {pid} with status {status:#x}");
                 }
-                // waitpid exposes the encoded status as i32; preserve its raw bits for the scheduler.
-                scheduler.child_exited(pid, status as u32 as usize);
+                scheduler.child_exited(pid, status);
             }
             Err(err) if err.is_interrupt() => continue,
             Err(err) => {
