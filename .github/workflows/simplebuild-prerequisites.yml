@@ -19,6 +19,7 @@ on:
       - "filesystem/**"
       - "kernel/**"
       - "src/**"
+      - "ternary/**"
       - "recipes/**"
       - "podman/**"
       - "cookbook.toml"
@@ -26,7 +27,7 @@ on:
       - "Cargo.lock"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-      - "simplebuild/prerequisite-key.sh"
+      - "simplebuild/**"
       - ".github/workflows/simplebuild-prerequisites.yml"
   pull_request:
     branches:
@@ -43,6 +44,7 @@ on:
       - "filesystem/**"
       - "kernel/**"
       - "src/**"
+      - "ternary/**"
       - "recipes/**"
       - "podman/**"
       - "cookbook.toml"
@@ -50,7 +52,7 @@ on:
       - "Cargo.lock"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-      - "simplebuild/prerequisite-key.sh"
+      - "simplebuild/**"
       - ".github/workflows/simplebuild-prerequisites.yml"
 
 permissions:
