@@ -78,11 +78,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Compute stable prerequisite cache key
-        id: prerequisite-key
-        shell: bash
-        run: bash simplebuild/prerequisite-key.sh
-
       - name: Restore reusable compiled prerequisites and prior images
         id: prerequisites-cache
         uses: actions/cache/restore@v4
@@ -98,7 +93,7 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
-          key: ${{ steps.prerequisite-key.outputs.key }}
+          key: ${{ needs.prepare-prerequisites.outputs.cache_key }}
 
       - name: Restore previously generated SimpleBuild images
         uses: actions/cache/restore@v4
