@@ -123,6 +123,8 @@ jobs:
         run: |
           set -euo pipefail
           (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
+          actual_manifest_sha256="$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)"
+          test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
           test -d build/prefix/x86_64-unknown-redox/sysroot
 
       - name: Verify cached prerequisite checksums
