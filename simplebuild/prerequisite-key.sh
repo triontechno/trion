@@ -75,7 +75,7 @@ input_hash=$(
     sha256sum -- "$path" | cut -d' ' -f1
   done | sha256sum | cut -d' ' -f1
 )
-archive_hash="$(sha256sum "$mode_file" "$manifest" | sha256sum | cut -d' ' -f1)"
+archive_hash="$(printf '%s\n' "$(sha256sum "$mode_file" | cut -d' ' -f1)" "$(sha256sum "$manifest" | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
 key_material="$RUNNER_OS|$HOST_TARGET|$TARGET|$prefix_mode|$relibc_revision|$llvm_revision|$archive_hash|$input_hash"
 key_digest="$(printf '%s' "$key_material" | sha256sum | cut -d' ' -f1)"
 key="simplebuild-prerequisites-${RUNNER_OS:-Linux}-$TARGET-$key_digest"
