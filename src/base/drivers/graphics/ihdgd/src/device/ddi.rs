@@ -9,7 +9,7 @@ use ihdgd_macros::define_regs;
 use syscall::error::{Error, Result, EIO};
 
 use super::{GpioPort, MmioRegion};
-use crate::device::aux::Aux;
+use super::aux_device::Aux;
 use crate::device::power::PowerWells;
 use crate::device::Gmbus;
 
