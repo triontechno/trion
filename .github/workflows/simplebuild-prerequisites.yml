@@ -3,6 +3,7 @@ name: Prepare SimpleBuild Prerequisites
 # One-time / refresh workflow. The full Cookbook build is intentionally isolated
 # here; SimpleBuild image CI never invokes it.
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches:
@@ -28,31 +29,6 @@ on:
       - "**/Cargo.lock"
       - "simplebuild/prerequisite-key.sh"
       - ".github/workflows/simplebuild-prerequisites.yml"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "build/Makefile"
-      - "build/mk/**"
-      - "build/podman/**"
-      - "build/podman_bootstrap.sh"
-      - "build/recipes/**"
-      - "build/config/**"
-      - "build/redox.ipxe"
-      - "config/**"
-      - "filesystem/**"
-      - "kernel/**"
-      - "src/**"
-      - "recipes/**"
-      - "podman/**"
-      - "cookbook.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "simplebuild/prerequisite-key.sh"
-      - ".github/workflows/simplebuild-prerequisites.yml"
-
 permissions:
   contents: read
 
