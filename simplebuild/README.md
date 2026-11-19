@@ -66,20 +66,25 @@ The backend boundary is isolated in the image-generation function.
 
 ## Cache and verification
 
-The prerequisite workflow uses Redox's existing `PREFIX_BINARY=1` download
-path for the GCC, Rust and Clang/LLD archives. The archives are fetched before
-cache lookup, checked as gzip/tar files, and recorded in
-`build/simplebuild/prefix-archives.sha256`. The cache key includes the exact
-archive SHA-256 manifest, host/target triples, tracked build inputs, and the
-resolved upstream relibc revision. The restored cache contains the extracted
-prefix and completed sysroot, so a cache hit does not rebuild relibc.
+The prerequisite workflow first attempts Redox's existing `PREFIX_BINARY=1`
+download path for the GCC, Rust and Clang/LLD archives. The current public
+toolchain endpoint returns HTTP 403 in GitHub Actions, so the workflow
+explicitly falls back to `PREFIX_BINARY=0` for the one-time prefix bootstrap.
+It then caches the completed prefix and sysroot (including relibc), so later
+builds restore those outputs instead of recompiling the toolchain or libc.
 
-The current archive SHA-256 manifest is generated from the downloaded bytes
-rather than hard-coded as a trusted checksum lock. It binds cache identity and
-detects cache corruption, but is not an independent authenticity pin; commit
-fixed archive hashes only after the first CI run verifies the actual published
-archives. The prerequisite workflow also checks that Clang, LLD and
-`llvm-config` are LLVM 21 inside the Debian Trixie container.
+If Redox's archive endpoint becomes accessible, the workflow automatically
+uses the binary archives. In that mode it checks gzip/tar integrity and
+records the exact archive SHA-256 values in
+`build/simplebuild/prefix-archives.sha256`. The cache key includes the
+prefix mode, archive fingerprint, host/target triples, tracked build inputs,
+and the resolved upstream relibc and Redox LLVM revisions. The current archive
+hashes are generated from downloaded bytes rather than hard-coded as trusted
+checksum pins; they bind cache identity and detect cache corruption, but are
+not independent authenticity pins.
+
+The prerequisite workflow checks that Clang, LLD and `llvm-config` are LLVM 21
+inside the Debian Trixie container.
 
 Image-cache reuse requires matching SHA-256 fingerprints for the filesystem
 configuration, installer, complete compiled package repository and iPXE
