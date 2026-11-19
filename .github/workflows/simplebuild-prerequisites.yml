@@ -8,6 +8,12 @@ on:
       cache_key:
         description: Exact prerequisite cache key created or restored by this workflow.
         value: ${{ jobs.prepare.outputs.cache_key }}
+      prefix_binary:
+        description: Whether the verified Redox prefix uses prebuilt binary archives.
+        value: ${{ jobs.prepare.outputs.prefix_binary }}
+      archive_sha256:
+        description: Fingerprint of the verified prefix mode and archive manifest.
+        value: ${{ jobs.prepare.outputs.archive_sha256 }}
   workflow_dispatch:
   push:
     branches:
@@ -24,6 +30,7 @@ on:
       - "filesystem/**"
       - "kernel/**"
       - "src/**"
+      - "ternary/**"
       - "recipes/**"
       - "podman/**"
       - "cookbook.toml"
@@ -31,13 +38,13 @@ on:
       - "Cargo.lock"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-      - "simplebuild/prerequisite-key.sh"
+      - "simplebuild/**"
       - ".github/workflows/simplebuild-prerequisites.yml"
 permissions:
   contents: read
 
 concurrency:
-  group: simplebuild-prerequisites-${{ github.ref }}
+  group: simplebuild-prerequisites-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -45,54 +52,86 @@ jobs:
     name: Compile reusable installer and package repository
     outputs:
       cache_key: ${{ steps.prerequisite-key.outputs.key }}
+      prefix_binary: ${{ steps.prefix-archives.outputs.prefix_binary }}
+      archive_sha256: ${{ steps.prefix-archives.outputs.archive_sha256 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Fetch and fingerprint official Redox prebuilt toolchains
+        id: prefix-archives
+        shell: bash
+        run: bash simplebuild/fetch-prefix.sh
+
       - name: Compute stable prerequisite cache key
         id: prerequisite-key
         shell: bash
         run: bash simplebuild/prerequisite-key.sh
 
-      - name: Install Rust
-        shell: bash
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
       - name: Restore any existing compiled prerequisites
+        id: prerequisite-cache
         uses: actions/cache/restore@v4
         with:
           path: |
             build/build/podman
+            build/build/**/repo.tag
             build/prefix
+            build/recipes/core/relibc/source
+            build/simplebuild/prefix-archives.sha256
+            build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
             build/fstools.tag
             build/target
             build/recipes/**/target
+            build/simplebuild/cache/repo_archive.tar.gz
+            build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
-          restore-keys: |
-            simplebuild-prerequisites-${{ runner.os }}-
-            phase2-images-${{ runner.os }}-
+
+      - name: Install Rust
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Verify downloaded or restored Redox prefix archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(cat build/simplebuild/prefix-mode)"
+          if [[ "$mode" == "binary" ]]; then
+            (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
+          elif [[ "$mode" == "source" ]]; then
+            test ! -s build/simplebuild/prefix-archives.sha256
+          else
+            echo "Invalid prefix mode: $mode" >&2
+            exit 1
+          fi
+          actual_manifest_sha256="$(printf '%s\n' "$(sha256sum build/simplebuild/prefix-mode | cut -d' ' -f1)" "$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
+          test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
 
       - name: Install build dependencies
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: bash build/podman_bootstrap.sh -d
 
-      - name: Configure traditional Cookbook prerequisites build
+      - name: Configure Cookbook prerequisites build
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
-        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=${{ steps.prefix-archives.outputs.prefix_binary }}\n' > build/.config
 
       - name: Build the Cookbook container
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: make -C build build/container.tag
 
       - name: Verify the Cookbook src/base mount
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -103,15 +142,58 @@ jobs:
             bash -e -c 'test -f /mnt/redox/src/base/Makefile'
 
       - name: Build compiled package repository and host installer
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
+          started=$SECONDS
           make -C build repo fstools
+          elapsed=$((SECONDS - started))
+          echo "Prerequisite preparation elapsed seconds: $elapsed"
+          echo "The 60-second target is measured by the artifact-first SimpleBuild image workflow, not this isolated preparation workflow."
           test -x build/fstools/bin/redox_installer
           test -d build/repo
           test -n "$(find build/repo -type f -print -quit)"
+          test -d build/prefix/x86_64-unknown-redox/sysroot
+          actual_relibc_revision="$(git -C build/recipes/core/relibc/source rev-parse HEAD)"
+          expected_relibc_revision="${{ steps.prerequisite-key.outputs.relibc_revision }}"
+          test "$actual_relibc_revision" = "$expected_relibc_revision"
+          if [[ -d build/recipes/dev/llvm21/source/.git ]]; then
+            actual_llvm_revision="$(git -C build/recipes/dev/llvm21/source rev-parse HEAD)"
+            expected_llvm_revision="${{ steps.prerequisite-key.outputs.llvm_revision }}"
+            test "$actual_llvm_revision" = "$expected_llvm_revision"
+          fi
+
+      - name: Verify LLVM 21 toolchain inside Debian Trixie
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          podman run --rm --workdir /mnt/redox \
+            --volume "$GITHUB_WORKSPACE/build:/mnt/redox:Z" \
+            --volume "$GITHUB_WORKSPACE/src:/mnt/redox/src:Z" \
+            --volume "$GITHUB_WORKSPACE/ternary:/mnt/redox/ternary:Z" \
+            --volume "$GITHUB_WORKSPACE/build/podman:/root:Z" \
+            --env TARGET=x86_64-unknown-redox \
+            --env GNU_TARGET=x86_64-unknown-redox \
+            redox-base bash -euc '
+              prefix="/mnt/redox/prefix/$TARGET"
+              export PATH="$prefix/clang-install/bin:$prefix/gcc-install/bin:$prefix/rust-install/bin:$PATH"
+              clang --version
+              lld_version="$(ld.lld --version)"
+              echo "$lld_version"
+              lld_major="$(printf '%s\n' "$lld_version" | sed -n "s/^LLD \\([0-9][0-9]*\\).*/\\1/p")"
+              test "$lld_major" = 21
+              llvm-config --version
+              test "$(llvm-config --version | cut -d. -f1)" = 21
+              clang_major="$(clang --version | sed -n "s/.*version \\([0-9][0-9]*\\).*/\\1/p" | head -n1)"
+              test "$clang_major" = 21
+              test -d "$prefix/sysroot"
+              test -x "$prefix/gcc-install/bin/x86_64-unknown-redox-gcc"
+            '
 
       - name: Package and checksum reusable prerequisites
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -127,11 +209,16 @@ jobs:
           tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
 
       - name: Save reusable compiled prerequisites
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
             build/build/podman
+            build/build/**/repo.tag
             build/prefix
+            build/recipes/core/relibc/source
+            build/simplebuild/prefix-archives.sha256
+            build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
@@ -141,6 +228,21 @@ jobs:
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
+
+      - name: Verify restored or freshly built prerequisite bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x build/fstools/bin/redox_installer
+          test -d build/prefix/x86_64-unknown-redox/sysroot
+          test -d build/repo
+          test -n "$(find build/repo -type f -print -quit)"
+          test -s build/simplebuild/cache/repo_archive.tar.gz
+          test -s build/simplebuild/prerequisites.sha256
+          (cd build && sha256sum -c simplebuild/prerequisites.sha256)
+          tar -tzf build/simplebuild/cache/repo_archive.tar.gz >/dev/null
+          actual_relibc_revision="$(git -C build/recipes/core/relibc/source rev-parse HEAD)"
+          test "$actual_relibc_revision" = "${{ steps.prerequisite-key.outputs.relibc_revision }}"
 
       - name: Publish reusable prerequisite bundle
         uses: actions/upload-artifact@v4
