@@ -188,8 +188,13 @@ jobs:
       - name: Fuzz app-bundle metadata
         run: cargo fuzz run --fuzz-dir ternary/fuzz app_bundle_plist -- -max_total_time=60 -max_len=1048576
 
+  prepare-prerequisites:
+    name: Prepare checksum-verified SimpleBuild prerequisites
+    uses: ./.github/workflows/simplebuild-prerequisites.yml
+
   system-build-and-qemu:
     name: Phase 2 SimpleBuild image build and QEMU boot
+    needs: prepare-prerequisites
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
