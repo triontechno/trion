@@ -34,8 +34,8 @@ for archive_name in gcc-install.tar.gz rust-install.tar.gz clang-install.tar.gz;
   archive="$PREFIX/$archive_name"
   url="https://static.redox-os.org/toolchain/$HOST_TARGET/$TARGET/$archive_name"
   echo "Fetching $url"
-  curl --fail --location --retry 3 --retry-all-errors \
-    --proto '=https' --tlsv1.2 --output "$archive.partial" "$url"
+  wget --tries=4 --timeout=60 --user-agent="Wget/1.21.3" \
+    --output-document="$archive.partial" "$url"
 
   # Reject HTML/error pages, truncated downloads and unsafe archive paths.
   gzip -t "$archive.partial"
