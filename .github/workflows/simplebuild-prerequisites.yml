@@ -4,6 +4,16 @@ name: Prepare SimpleBuild Prerequisites
 # here; SimpleBuild image CI never invokes it.
 on:
   workflow_call:
+    outputs:
+      cache_key:
+        description: Exact prerequisite cache key created or restored by this workflow.
+        value: ${{ jobs.prepare.outputs.cache_key }}
+      prefix_binary:
+        description: Whether the verified Redox prefix uses prebuilt binary archives.
+        value: ${{ jobs.prepare.outputs.prefix_binary }}
+      archive_sha256:
+        description: Fingerprint of the verified prefix mode and archive manifest.
+        value: ${{ jobs.prepare.outputs.archive_sha256 }}
   workflow_dispatch:
   push:
     branches:
@@ -40,6 +50,10 @@ concurrency:
 jobs:
   prepare:
     name: Compile reusable installer and package repository
+    outputs:
+      cache_key: ${{ steps.prerequisite-key.outputs.key }}
+      prefix_binary: ${{ steps.prefix-archives.outputs.prefix_binary }}
+      archive_sha256: ${{ steps.prefix-archives.outputs.archive_sha256 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
