@@ -92,7 +92,6 @@ jobs:
         with:
           path: |
             build/build/podman
-            build/container.tag
             build/build/**/repo.tag
             build/prefix
             build/recipes/core/relibc/source
