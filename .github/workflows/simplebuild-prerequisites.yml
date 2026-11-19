@@ -99,6 +99,7 @@ jobs:
             build/prefix
             build/recipes/core/relibc/source
             build/simplebuild/prefix-archives.sha256
+            build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
@@ -111,17 +112,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
-          actual_manifest_sha256="$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)"
+          mode="$(cat build/simplebuild/prefix-mode)"
+          if [[ "$mode" == "binary" ]]; then
+            (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
+          elif [[ "$mode" == "source" ]]; then
+            test ! -s build/simplebuild/prefix-archives.sha256
+          else
+            echo "Invalid prefix mode: $mode" >&2
+            exit 1
+          fi
+          actual_manifest_sha256="$(sha256sum build/simplebuild/prefix-mode build/simplebuild/prefix-archives.sha256 | sha256sum | cut -d' ' -f1)"
           test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
 
       - name: Install build dependencies
         shell: bash
         run: bash build/podman_bootstrap.sh -d
 
-      - name: Configure traditional Cookbook prerequisites build
+      - name: Configure Cookbook prerequisites build
         shell: bash
-        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=1\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=${{ steps.prefix-archives.outputs.prefix_binary }}\n' > build/.config
 
       - name: Build the Cookbook container
         shell: bash
@@ -153,6 +162,11 @@ jobs:
           actual_relibc_revision="$(git -C build/recipes/core/relibc/source rev-parse HEAD)"
           expected_relibc_revision="${{ steps.prerequisite-key.outputs.relibc_revision }}"
           test "$actual_relibc_revision" = "$expected_relibc_revision"
+          if [[ -d build/recipes/dev/llvm21/source/.git ]]; then
+            actual_llvm_revision="$(git -C build/recipes/dev/llvm21/source rev-parse HEAD)"
+            expected_llvm_revision="${{ steps.prerequisite-key.outputs.llvm_revision }}"
+            test "$actual_llvm_revision" = "$expected_llvm_revision"
+          fi
 
       - name: Verify LLVM 21 toolchain inside Debian Trixie
         shell: bash
@@ -205,6 +219,7 @@ jobs:
             build/prefix
             build/recipes/core/relibc/source
             build/simplebuild/prefix-archives.sha256
+            build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
