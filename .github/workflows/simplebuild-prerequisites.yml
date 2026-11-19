@@ -4,6 +4,10 @@ name: Prepare SimpleBuild Prerequisites
 # here; SimpleBuild image CI never invokes it.
 on:
   workflow_call:
+    outputs:
+      cache_key:
+        description: Exact prerequisite cache key created or restored by this workflow.
+        value: ${{ jobs.prepare.outputs.cache_key }}
   workflow_dispatch:
   push:
     branches:
@@ -39,6 +43,8 @@ concurrency:
 jobs:
   prepare:
     name: Compile reusable installer and package repository
+    outputs:
+      cache_key: ${{ steps.prerequisite-key.outputs.key }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
