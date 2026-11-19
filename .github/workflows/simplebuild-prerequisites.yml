@@ -69,6 +69,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Fetch and fingerprint official Redox prebuilt toolchains
+        id: prefix-archives
+        shell: bash
+        run: bash simplebuild/fetch-prefix.sh
+
       - name: Compute stable prerequisite cache key
         id: prerequisite-key
         shell: bash
@@ -82,11 +87,16 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Restore any existing compiled prerequisites
+        id: prerequisite-cache
         uses: actions/cache/restore@v4
         with:
           path: |
             build/build/podman
+            build/container.tag
+            build/build/**/repo.tag
             build/prefix
+            build/recipes/core/relibc/source
+            build/simplebuild/prefix-archives.sha256
             build/repo
             build/fstools
             build/fstools-target
@@ -98,13 +108,19 @@ jobs:
             simplebuild-prerequisites-${{ runner.os }}-
             phase2-images-${{ runner.os }}-
 
+      - name: Verify downloaded or restored Redox prefix archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
+
       - name: Install build dependencies
         shell: bash
         run: bash build/podman_bootstrap.sh -d
 
       - name: Configure traditional Cookbook prerequisites build
         shell: bash
-        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=0\n' > build/.config
+        run: printf 'PODMAN_BUILD?=1\nPREFIX_BINARY=1\n' > build/.config
 
       - name: Build the Cookbook container
         shell: bash
@@ -124,10 +140,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          started=$SECONDS
           make -C build repo fstools
+          elapsed=$((SECONDS - started))
+          echo "Prerequisite build elapsed seconds: $elapsed"
+          if [[ "${{ steps.prerequisite-cache.outputs.cache-hit }}" == "true" ]] && (( elapsed > 60 )); then
+            echo "::error::Prerequisite cache hit took ${elapsed}s; expected at most 60s."
+            exit 1
+          fi
           test -x build/fstools/bin/redox_installer
           test -d build/repo
           test -n "$(find build/repo -type f -print -quit)"
+          test -d build/prefix/x86_64-unknown-redox/sysroot
+          actual_relibc_revision="$(git -C build/recipes/core/relibc/source rev-parse HEAD)"
+          expected_relibc_revision="${{ steps.prerequisite-key.outputs.relibc_revision }}"
+          test "$actual_relibc_revision" = "$expected_relibc_revision"
+
+      - name: Verify LLVM 21 toolchain inside Debian Trixie
+        shell: bash
+        run: |
+          set -euo pipefail
+          podman run --rm --workdir /mnt/redox \
+            --volume "$GITHUB_WORKSPACE/build:/mnt/redox:Z" \
+            --volume "$GITHUB_WORKSPACE/src:/mnt/redox/src:Z" \
+            --volume "$GITHUB_WORKSPACE/ternary:/mnt/redox/ternary:Z" \
+            --volume "$GITHUB_WORKSPACE/build/podman:/root:Z" \
+            --env TARGET=x86_64-unknown-redox \
+            --env GNU_TARGET=x86_64-unknown-redox \
+            redox-base bash -euc '
+              prefix="/mnt/redox/prefix/$TARGET"
+              export PATH="$prefix/clang-install/bin:$prefix/gcc-install/bin:$prefix/rust-install/bin:$PATH"
+              clang --version
+              ld.lld --version
+              llvm-config --version
+              test "$(llvm-config --version | cut -d. -f1)" = 21
+              clang_major="$(clang --version | sed -n "s/.*version \\([0-9][0-9]*\\).*/\\1/p" | head -n1)"
+              test "$clang_major" = 21
+              test -d "$prefix/sysroot"
+              test -x "$prefix/gcc-install/bin/x86_64-unknown-redox-gcc"
+            '
 
       - name: Package and checksum reusable prerequisites
         shell: bash
@@ -149,7 +200,11 @@ jobs:
         with:
           path: |
             build/build/podman
+            build/container.tag
+            build/build/**/repo.tag
             build/prefix
+            build/recipes/core/relibc/source
+            build/simplebuild/prefix-archives.sha256
             build/repo
             build/fstools
             build/fstools-target
@@ -158,6 +213,7 @@ jobs:
             build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
+            build/simplebuild/prefix-archives.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
 
       - name: Publish reusable prerequisite bundle
