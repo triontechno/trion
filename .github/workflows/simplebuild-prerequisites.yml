@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "simplebuild/**"
+      - main
     paths:
       - "build/Makefile"
       - "build/mk/**"
@@ -60,7 +60,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: simplebuild-prerequisites-${{ github.ref }}
+  group: simplebuild-prerequisites-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
