@@ -168,7 +168,10 @@ jobs:
               prefix="/mnt/redox/prefix/$TARGET"
               export PATH="$prefix/clang-install/bin:$prefix/gcc-install/bin:$prefix/rust-install/bin:$PATH"
               clang --version
-              ld.lld --version
+              lld_version="$(ld.lld --version)"
+              echo "$lld_version"
+              lld_major="$(printf '%s\n' "$lld_version" | sed -n "s/^LLD \\([0-9][0-9]*\\).*/\\1/p")"
+              test "$lld_major" = 21
               llvm-config --version
               test "$(llvm-config --version | cut -d. -f1)" = 21
               clang_major="$(clang --version | sed -n "s/.*version \\([0-9][0-9]*\\).*/\\1/p" | head -n1)"
