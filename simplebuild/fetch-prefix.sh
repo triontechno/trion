@@ -32,10 +32,23 @@ trap cleanup EXIT
 
 for archive_name in gcc-install.tar.gz rust-install.tar.gz clang-install.tar.gz; do
   archive="$PREFIX/$archive_name"
-  url="https://static.redox-os.org/toolchain/$HOST_TARGET/$TARGET/$archive_name"
-  echo "Fetching $url"
-  wget --tries=4 --timeout=60 --user-agent="Wget/1.21.3" \
-    --output-document="$archive.partial" "$url"
+  downloaded=0
+  for base in \
+    "https://static.redox-os.org/toolchain/$HOST_TARGET/$TARGET" \
+    "https://static.redox-os.org/toolchain/$TARGET"; do
+    url="$base/$archive_name"
+    echo "Fetching $url"
+    if wget --tries=2 --timeout=60 --user-agent="Wget/1.21.3" \
+      --output-document="$archive.partial" "$url"; then
+      downloaded=1
+      break
+    fi
+    rm -f "$archive.partial"
+  done
+  if (( downloaded == 0 )); then
+    echo "No published Redox prefix archive found for $TARGET/$archive_name." >&2
+    exit 1
+  fi
 
   # Reject HTML/error pages, truncated downloads and unsafe archive paths.
   gzip -t "$archive.partial"
