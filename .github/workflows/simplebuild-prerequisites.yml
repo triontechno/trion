@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: simplebuild-prerequisites-${{ github.ref }}
+  group: simplebuild-prerequisites-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
