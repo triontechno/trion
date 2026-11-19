@@ -16,7 +16,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
   pull_request:
-    branches: [main]
+    branches: [main, simplebuild/fix-zlib-source-download]
     paths:
       - "ternary/**"
       - "src/**"
@@ -201,6 +201,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Fetch and fingerprint official Redox prebuilt toolchains
+        id: prefix-archives
+        shell: bash
+        run: bash simplebuild/fetch-prefix.sh
+
       - name: Compute stable prerequisite cache key
         id: prerequisite-key
         shell: bash
@@ -212,7 +217,11 @@ jobs:
         with:
           path: |
             build/build/podman
+            build/build/**/repo.tag
             build/prefix
+            build/recipes/core/relibc/source
+            build/simplebuild/prefix-archives.sha256
+            build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
@@ -222,6 +231,22 @@ jobs:
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
+
+      - name: Verify cached prefix archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(cat build/simplebuild/prefix-mode)"
+          if [[ "$mode" == "binary" ]]; then
+            (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
+          elif [[ "$mode" == "source" ]]; then
+            test ! -s build/simplebuild/prefix-archives.sha256
+          else
+            echo "Invalid prefix mode: $mode" >&2
+            exit 1
+          fi
+          actual_manifest_sha256="$(printf '%s\\n' "$(sha256sum build/simplebuild/prefix-mode | cut -d' ' -f1)" "$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
+          test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
 
       - name: Verify cached prerequisite checksums
         shell: bash
@@ -233,6 +258,7 @@ jobs:
             exit 1
           fi
           test -x build/fstools/bin/redox_installer
+          test -d build/prefix/x86_64-unknown-redox/sysroot
           test -d build/repo
           test -s build/simplebuild/cache/repo_archive.tar.gz
           test -s build/simplebuild/prerequisites.sha256
@@ -253,9 +279,14 @@ jobs:
         shell: bash
         run: |
           bash -n simplebuild/build.sh
+          bash -n simplebuild/fetch-prefix.sh
           bash -n simplebuild/prerequisite-key.sh
           bash -n simplebuild/qemu-test.sh
           python3 -m py_compile simplebuild/build.py
+
+      - name: Configure host-side SimpleBuild
+        shell: bash
+        run: printf 'PODMAN_BUILD?=1\\nPREFIX_BINARY=${{ steps.prefix-archives.outputs.prefix_binary }}\\n' > build/.config
 
       - name: Check SimpleBuild prerequisites
         shell: bash
