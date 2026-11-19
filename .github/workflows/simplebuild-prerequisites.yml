@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: simplebuild-prerequisites-${{ github.ref }}
+  group: simplebuild-prerequisites-pr-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
