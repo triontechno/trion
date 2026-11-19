@@ -31,7 +31,7 @@ use_source_fallback() {
   rm -f "$PREFIX"/*.tar.gz "$PREFIX"/*.partial "$PREFIX"/*.partial.list
   : > "$MANIFEST"
   printf 'source\n' > "$MODE_FILE"
-  fingerprint="$(sha256sum "$MODE_FILE" "$MANIFEST" | sha256sum | cut -d' ' -f1)"
+  fingerprint="$(printf '%s\n' "$(sha256sum "$MODE_FILE" | cut -d' ' -f1)" "$(sha256sum "$MANIFEST" | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     printf 'prefix_binary=0\n' >> "$GITHUB_OUTPUT"
     printf 'archive_sha256=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
@@ -103,7 +103,7 @@ printf 'binary\n' > "$MODE_FILE"
   cd "$ROOT"
   sha256sum --check build/simplebuild/prefix-archives.sha256
 )
-fingerprint="$(sha256sum "$MODE_FILE" "$MANIFEST" | sha256sum | cut -d' ' -f1)"
+fingerprint="$(printf '%s\n' "$(sha256sum "$MODE_FILE" | cut -d' ' -f1)" "$(sha256sum "$MANIFEST" | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
 echo "Prefix mode: prebuilt binary (PREFIX_BINARY=1)"
 echo "Redox prefix archive SHA-256 fingerprint: $fingerprint"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
