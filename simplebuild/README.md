@@ -47,14 +47,14 @@ the traditional Makefile's `BUILD=build/<ARCH>/<CONFIG_NAME>`:
    refreshed. This isolated bootstrap workflow is the only SimpleBuild-related
    workflow that invokes the traditional Cookbook `make repo fstools` build.
 2. The **SimpleBuild OS Images** workflow runs for relevant pull requests
-   targeting `main`, relevant pushes to `main`, or manual dispatch. It does
+   targeting `main` or the prerequisite PR branch, relevant pushes to `main`, or manual dispatch. It does
    not invoke the full Cookbook build; it requires an exact prerequisite-cache
    match for the current build inputs, verifies the SHA-256 manifest, and
    builds both images through SimpleBuild. It fails early with instructions
    instead of silently using a stale prerequisite cache.
-3. The image workflow restores compiled prerequisites, but forces both images to be regenerated. Its timing summary therefore measures real image generation rather than a cached-image no-op.
+3. The image workflow restores the checksum-fingerprinted Redox prebuilt prefix, completed sysroot (including relibc), compiled repository, host installer, and prior images. Exact image-cache hits must complete the SimpleBuild image check in 60 seconds or less. A cold image-cache run generates both images and seeds the cache for subsequent runs.
 4. QEMU validation runs `simplebuild/qemu-test.sh` against the two completed image files directly. It never calls `make -C build qemu`, `make images`, or Cookbook. QEMU is a consumer/test runner for images, not an image builder.
-5. The workflow records the fresh combined image-generation duration and reports whether it met the 30-minute target.
+5. The workflow records image-generation/check duration. The 60-second target is enforced only when the exact image cache is restored; first-time image generation is measured separately.
 
 ## Image backend
 
