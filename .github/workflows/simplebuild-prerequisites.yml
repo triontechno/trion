@@ -52,6 +52,7 @@ jobs:
     name: Compile reusable installer and package repository
     outputs:
       cache_key: ${{ steps.prerequisite-key.outputs.key }}
+      toolchain_key: ${{ steps.prerequisite-key.outputs.toolchain_key }}
       prefix_binary: ${{ steps.prefix-archives.outputs.prefix_binary }}
       archive_sha256: ${{ steps.prefix-archives.outputs.archive_sha256 }}
     runs-on: ubuntu-24.04
@@ -75,21 +76,31 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            build/build/podman
-            build/build/**/repo.tag
             build/prefix
+            build/target
+            build/build/fstools.tag
             build/recipes/core/relibc/source
+            build/build/**/repo.tag
             build/simplebuild/prefix-archives.sha256
             build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
-            build/fstools.tag
-            build/target
-            build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
+
+      - name: Restore the compiled Redox toolchain and sysroot
+        id: toolchain-cache
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/prefix
+            build/target
+            build/build/fstools.tag
+            build/recipes/core/relibc/source
+          key: ${{ steps.prerequisite-key.outputs.toolchain_key }}
 
       - name: Install Rust
         if: steps.prerequisite-cache.outputs.cache-hit != 'true'
@@ -141,6 +152,35 @@ jobs:
             redox-base \
             bash -e -c 'test -f /mnt/redox/src/base/Makefile'
 
+      # Save the expensive GCC/Rust/Clang/LLVM/sysroot stage before compiling
+      # any packages. A failure in the repository stage must never discard the
+      # toolchain work, and source-only changes reuse this cache.
+      - name: Build the Redox toolchain and sysroot
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ steps.prerequisite-key.outputs.target }}"
+          if [[ -d "build/prefix/$target/sysroot" ]]; then
+            echo "Restored the compiled Redox toolchain and sysroot from cache."
+          else
+            started=$SECONDS
+            make -C build prefix
+            echo "Redox toolchain build elapsed seconds: $((SECONDS - started))"
+          fi
+          test -d "build/prefix/$target/sysroot"
+
+      - name: Save the compiled Redox toolchain and sysroot
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true' && steps.toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/prefix
+            build/target
+            build/build/fstools.tag
+            build/recipes/core/relibc/source
+          key: ${{ steps.prerequisite-key.outputs.toolchain_key }}
+
       - name: Build compiled package repository and host installer
         if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
@@ -154,7 +194,7 @@ jobs:
           test -x build/fstools/bin/redox_installer
           test -d build/repo
           test -n "$(find build/repo -type f -print -quit)"
-          test -d build/prefix/x86_64-unknown-redox/sysroot
+          test -d "build/prefix/${{ steps.prerequisite-key.outputs.target }}/sysroot"
           actual_relibc_revision="$(git -C build/recipes/core/relibc/source rev-parse HEAD)"
           expected_relibc_revision="${{ steps.prerequisite-key.outputs.relibc_revision }}"
           test "$actual_relibc_revision" = "$expected_relibc_revision"
@@ -213,18 +253,16 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            build/build/podman
-            build/build/**/repo.tag
             build/prefix
+            build/target
+            build/build/fstools.tag
             build/recipes/core/relibc/source
+            build/build/**/repo.tag
             build/simplebuild/prefix-archives.sha256
             build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
-            build/fstools.tag
-            build/target
-            build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
           key: ${{ steps.prerequisite-key.outputs.key }}
@@ -234,7 +272,7 @@ jobs:
         run: |
           set -euo pipefail
           test -x build/fstools/bin/redox_installer
-          test -d build/prefix/x86_64-unknown-redox/sysroot
+          test -d "build/prefix/${{ steps.prerequisite-key.outputs.target }}/sysroot"
           test -d build/repo
           test -n "$(find build/repo -type f -print -quit)"
           test -s build/simplebuild/cache/repo_archive.tar.gz

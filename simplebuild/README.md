@@ -73,6 +73,16 @@ explicitly falls back to `PREFIX_BINARY=0` for the one-time prefix bootstrap.
 It then caches the completed prefix and sysroot (including relibc), so later
 builds restore those outputs instead of recompiling the toolchain or libc.
 
+The toolchain and sysroot are cached separately from the compiled package
+repository. Their cache key covers only the cross-compiler recipes, the
+resolved relibc/LLVM revisions and the prefix mode, so a TRION source change
+rebuilds the repository without rebuilding GCC, Rust, Clang or LLVM. The
+toolchain cache is written immediately after the sysroot is built and before
+the repository build starts, so a repository failure never discards the
+toolchain stage. Build trees under `build/recipes/**/target` are deliberately
+not cached; they dwarf the installed outputs and are only useful for
+incremental rebuilds that an exact cache hit already avoids.
+
 If Redox's archive endpoint becomes accessible, the workflow automatically
 uses the binary archives. In that mode it checks gzip/tar integrity and
 records the exact archive SHA-256 values in

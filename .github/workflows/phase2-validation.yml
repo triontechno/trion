@@ -206,18 +206,16 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            build/build/podman
-            build/build/**/repo.tag
             build/prefix
+            build/target
+            build/build/fstools.tag
             build/recipes/core/relibc/source
+            build/build/**/repo.tag
             build/simplebuild/prefix-archives.sha256
             build/simplebuild/prefix-mode
             build/repo
             build/fstools
             build/fstools-target
-            build/fstools.tag
-            build/target
-            build/recipes/**/target
             build/simplebuild/cache/repo_archive.tar.gz
             build/simplebuild/prerequisites.sha256
           key: ${{ needs.prepare-prerequisites.outputs.cache_key }}
