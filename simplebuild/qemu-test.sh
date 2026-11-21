@@ -75,12 +75,12 @@ vars_copy=$(mktemp)
 trap 'rm -f "$vars_copy"' EXIT
 cp "$ovmf_vars" "$vars_copy"
 
-run_guest "redox-live.iso" \\
-  -drive "if=pflash,format=raw,unit=0,file=$ovmf_code,readonly=on" \\
-  -drive "if=pflash,format=raw,unit=1,file=$vars_copy" \\
-  -device ich9-ahci,id=ahci \\
-  -drive "file=$live_iso,format=raw,media=cdrom,readonly=on,if=none,id=trioncd" \\
-  -device ide-cd,drive=trioncd,bus=ahci.0 \\
+run_guest "redox-live.iso" \
+  -drive "if=pflash,format=raw,unit=0,file=$ovmf_code,readonly=on" \
+  -drive "if=pflash,format=raw,unit=1,file=$vars_copy" \
+  -device ich9-ahci,id=ahci \
+  -drive "file=$live_iso,format=raw,media=cdrom,readonly=on,if=none,id=trioncd" \
+  -device ide-cd,drive=trioncd,bus=ahci.0 \
   -boot order=d
 
 echo "Both generated images passed direct QEMU boot validation."

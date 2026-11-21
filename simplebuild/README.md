@@ -47,14 +47,14 @@ the traditional Makefile's `BUILD=build/<ARCH>/<CONFIG_NAME>`:
    refreshed. This isolated bootstrap workflow is the only SimpleBuild-related
    workflow that invokes the traditional Cookbook `make repo fstools` build.
 2. The **SimpleBuild OS Images** workflow runs for relevant pull requests
-   targeting `main`, relevant pushes to `main`, or manual dispatch. It does
+   targeting `main` or the prerequisite PR branch, relevant pushes to `main`, or manual dispatch. It does
    not invoke the full Cookbook build; it requires an exact prerequisite-cache
    match for the current build inputs, verifies the SHA-256 manifest, and
    builds both images through SimpleBuild. It fails early with instructions
    instead of silently using a stale prerequisite cache.
-3. The image workflow restores compiled prerequisites, but forces both images to be regenerated. Its timing summary therefore measures real image generation rather than a cached-image no-op.
+3. The image workflow restores the checksum-fingerprinted Redox prebuilt prefix, completed sysroot (including relibc), compiled repository, host installer, and prior images. Exact image-cache hits must complete the SimpleBuild image check in 60 seconds or less. A cold image-cache run generates both images and seeds the cache for subsequent runs.
 4. QEMU validation runs `simplebuild/qemu-test.sh` against the two completed image files directly. It never calls `make -C build qemu`, `make images`, or Cookbook. QEMU is a consumer/test runner for images, not an image builder.
-5. The workflow records the fresh combined image-generation duration and reports whether it met the 30-minute target.
+5. The workflow records image-generation/check duration. The 60-second target is enforced only when the exact image cache is restored; first-time image generation is measured separately.
 
 ## Image backend
 
@@ -66,10 +66,42 @@ The backend boundary is isolated in the image-generation function.
 
 ## Cache and verification
 
-Cache reuse requires matching SHA-256 fingerprints for the filesystem
+The prerequisite workflow first attempts Redox's existing `PREFIX_BINARY=1`
+download path for the GCC, Rust and Clang/LLD archives. The current public
+toolchain endpoint returns HTTP 403 in GitHub Actions, so the workflow
+explicitly falls back to `PREFIX_BINARY=0` for the one-time prefix bootstrap.
+It then caches the completed prefix and sysroot (including relibc), so later
+builds restore those outputs instead of recompiling the toolchain or libc.
+
+The toolchain and sysroot are cached separately from the compiled package
+repository. Their cache key covers only the cross-compiler recipes, the
+resolved relibc/LLVM revisions and the prefix mode, so a TRION source change
+rebuilds the repository without rebuilding GCC, Rust, Clang or LLVM. The
+toolchain cache is written immediately after the sysroot is built and before
+the repository build starts, so a repository failure never discards the
+toolchain stage. Build trees under `build/recipes/**/target` are deliberately
+not cached; they dwarf the installed outputs and are only useful for
+incremental rebuilds that an exact cache hit already avoids.
+
+If Redox's archive endpoint becomes accessible, the workflow automatically
+uses the binary archives. In that mode it checks gzip/tar integrity and
+records the exact archive SHA-256 values in
+`build/simplebuild/prefix-archives.sha256`. The cache key includes the
+prefix mode, archive fingerprint, host/target triples, tracked build inputs,
+and the resolved upstream relibc and Redox LLVM revisions. The current archive
+hashes are generated from downloaded bytes rather than hard-coded as trusted
+checksum pins; they bind cache identity and detect cache corruption, but are
+not independent authenticity pins.
+
+The prerequisite workflow checks that Clang, LLD and `llvm-config` are LLVM 21
+inside the Debian Trixie container.
+
+Image-cache reuse requires matching SHA-256 fingerprints for the filesystem
 configuration, installer, complete compiled package repository and iPXE
-script, plus matching SHA-256 checksums for both output images. Successful
-builds write `SHA256SUMS` and `build/simplebuild/cache/<ARCH>/<BOARD>/<CONFIG>.json`.
+script, plus matching SHA-256 checksums for both output images. Exact
+image-cache hits are required to complete the SimpleBuild build/check in 60
+seconds or less. Successful builds write `SHA256SUMS` and
+`build/simplebuild/cache/<ARCH>/<BOARD>/<CONFIG>.json`.
 
 ## QEMU
 

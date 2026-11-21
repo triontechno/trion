@@ -21,6 +21,8 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     rc::Rc,
+    thread,
+    time::Duration,
 };
 
 pub struct FetchResult {
@@ -214,24 +216,52 @@ pub fn fetch(recipe: &CookRecipe, check_source: bool, logger: &PtyOut) -> Result
             let cached = if !source_dir.is_dir() {
                 // Create source.tmp
                 let source_dir_tmp = recipe_dir.join("source.tmp");
-                create_dir_clean(&source_dir_tmp)?;
 
-                // Clone the repository to source.tmp
-                let mut command = Command::new("git");
-                command
-                    .arg("clone")
-                    .arg("--recursive")
-                    .arg(translate_mirror(git));
-                if let Some(branch) = branch {
-                    command.arg("--branch").arg(branch);
-                }
-                if shallow_clone {
+                // Large treeless clones (notably Redox LLVM) can be cut off by
+                // transient transport errors. Retry from a clean directory before
+                // falling back to the RedoxFS submodule workaround below.
+                const CLONE_ATTEMPTS: u32 = 3;
+                let mut clone_error = None;
+                for attempt in 1..=CLONE_ATTEMPTS {
+                    create_dir_clean(&source_dir_tmp)?;
+
+                    let mut command = Command::new("git");
                     command
-                        .arg("--filter=tree:0")
-                        .arg("--also-filter-submodules");
+                        .arg("clone")
+                        .arg("--recursive")
+                        .arg(translate_mirror(git));
+                    if let Some(branch) = branch {
+                        command.arg("--branch").arg(branch);
+                    }
+                    if shallow_clone {
+                        command
+                            .arg("--filter=tree:0")
+                            .arg("--also-filter-submodules");
+                    }
+                    command.arg(&source_dir_tmp);
+
+                    match run_command(command, logger) {
+                        Ok(()) => {
+                            clone_error = None;
+                            break;
+                        }
+                        Err(e) => {
+                            log_to_pty!(
+                                logger,
+                                "git clone attempt {}/{} failed: {}",
+                                attempt,
+                                CLONE_ATTEMPTS,
+                                e
+                            );
+                            clone_error = Some(e);
+                            if attempt < CLONE_ATTEMPTS {
+                                thread::sleep(Duration::from_secs(u64::from(attempt) * 2));
+                            }
+                        }
+                    }
                 }
-                command.arg(&source_dir_tmp);
-                if let Err(e) = run_command(command, logger) {
+
+                if let Some(e) = clone_error {
                     if !is_redox() {
                         return Err(e);
                     }

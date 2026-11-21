@@ -101,7 +101,7 @@ impl Scheduler {
 
     /// Called only by PID 1's central waitpid loop after the child is reaped.
     /// This keeps one authoritative reaper and avoids racing Child::wait callers.
-    pub fn child_exited(&mut self, pid: usize, status: usize) {
+    pub fn child_exited(&mut self, pid: usize, status: i32) {
         let Some(mut supervised) = self.supervised.remove(&pid) else {
             return;
         };
