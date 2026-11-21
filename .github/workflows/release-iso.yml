@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       build_run_id:
-        description: "Successful TRION Image Build workflow run ID"
+        description: "Successful SimpleBuild OS Images workflow run ID"
         required: true
         type: string
 
