@@ -48,7 +48,11 @@ jobs:
       - name: Install build dependencies
         run: bash build/podman_bootstrap.sh -d
       - name: Configure canonical build backend
-        run: printf 'PODMAN_BUILD?=1\n' > build/.config
+        # The hosted prebuilt Clang archive currently returns HTTP 403.
+        # Build the prefix from source instead of depending on that external mirror.
+        run: |
+          printf 'PODMAN_BUILD?=1\n' > build/.config
+          printf 'PREFIX_BINARY=0\n' >> build/.config
       - name: Build disk image and live ISO
         run: bash simplebuild/build.sh --arch x86_64 --config desktop
       - name: Verify generated artifacts
