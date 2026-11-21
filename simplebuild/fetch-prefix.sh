@@ -56,7 +56,9 @@ if [[ ! -f "$EXPECTED" ]]; then
   echo "Missing expected checksums file: $EXPECTED" >&2
   exit 1
 fi
-while read -r hash name; do
+while IFS=' ' read -r hash name; do
+  # Strip potential carriage return from Windows line endings.
+  name="${name%$'\r'}"
   [[ -n "$hash" ]] && EXPECTED_SHA256["$name"]="$hash"
 done < "$EXPECTED"
 
