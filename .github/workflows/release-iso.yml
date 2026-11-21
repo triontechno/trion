@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       build_run_id:
-        description: "Successful TRION Image Build workflow run ID"
+        description: "Successful SimpleBuild Image Build workflow run ID"
         required: true
         type: string
 
@@ -40,8 +40,8 @@ jobs:
           workflow="$(jq -r '.workflowName' <<< "$run")"
           status="$(jq -r '.status' <<< "$run")"
           conclusion="$(jq -r '.conclusion' <<< "$run")"
-          if [[ "$workflow" != "TRION Image Build" || "$status" != "completed" || "$conclusion" != "success" ]]; then
-            echo "The supplied run must be a successfully completed TRION Image Build."
+          if [[ "$workflow" != "SimpleBuild Image Build" || "$status" != "completed" || "$conclusion" != "success" ]]; then
+            echo "The supplied run must be a successfully completed SimpleBuild Image Build."
             exit 1
           fi
 
