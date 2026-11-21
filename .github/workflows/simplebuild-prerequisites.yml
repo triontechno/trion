@@ -125,7 +125,7 @@ jobs:
                 break
               fi
             done
-            (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
+            sha256sum --check build/simplebuild/prefix-archives.sha256
           elif [[ "$mode" == "source" ]]; then
             test ! -s build/simplebuild/prefix-archives.sha256
           else
