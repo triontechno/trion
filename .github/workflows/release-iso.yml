@@ -40,7 +40,7 @@ jobs:
           workflow="$(jq -r '.workflowName' <<< "$run")"
           status="$(jq -r '.status' <<< "$run")"
           conclusion="$(jq -r '.conclusion' <<< "$run")"
-          if [[ "$workflow" != "TRION Image Build" || "$status" != "completed" || "$conclusion" != "success" ]]; then
+          if [[ "$workflow" != "SimpleBuild Image Build" || "$status" != "completed" || "$conclusion" != "success" ]]; then
             echo "The supplied run must be a successfully completed SimpleBuild Image Build."
             exit 1
           fi
