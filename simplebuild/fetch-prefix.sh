@@ -62,7 +62,7 @@ while IFS=' ' read -r hash name || [[ -n "${hash:-}${name:-}" ]]; do
   # Strip potential carriage returns from Windows line endings.
   name="${name%$'\r'}"
   [[ -n "${hash:-}" && -n "${name:-}" ]] || continue
-  if [[ ! "$hash" =~ ^[0-9a-f]{64}$ ]]; then
+  if (( ${#hash} != 64 )) || [[ "$hash" == *[!0-9a-f]* ]]; then
     echo "Invalid SHA-256 in $EXPECTED for $name" >&2
     exit 1
   fi
