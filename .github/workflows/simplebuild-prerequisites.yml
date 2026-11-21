@@ -116,6 +116,15 @@ jobs:
           set -euo pipefail
           mode="$(cat build/simplebuild/prefix-mode)"
           if [[ "$mode" == "binary" ]]; then
+            # Cache restore may replace build/prefix after the initial download.
+            # Re-fetch immediately before verification if any archive is absent.
+            target="${ARCH:-x86_64}-unknown-redox"
+            for archive in gcc-install.tar.gz rust-install.tar.gz clang-install.tar.gz; do
+              if [[ ! -s "build/prefix/$target/$archive" ]]; then
+                bash simplebuild/fetch-prefix.sh
+                break
+              fi
+            done
             (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
           elif [[ "$mode" == "source" ]]; then
             test ! -s build/simplebuild/prefix-archives.sha256
