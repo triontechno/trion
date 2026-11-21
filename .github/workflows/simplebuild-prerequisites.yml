@@ -102,6 +102,14 @@ jobs:
             build/recipes/core/relibc/source
           key: ${{ steps.prerequisite-key.outputs.toolchain_key }}
 
+      # Cache restore includes build/prefix and can replace the freshly downloaded
+      # archives. Rehydrate them after restore on a cold cache, then verify them.
+      - name: Re-fetch verified prefix archives after cache restore
+        if: steps.prerequisite-cache.outputs.cache-hit != 'true'
+        id: refreshed-prefix-archives
+        shell: bash
+        run: bash simplebuild/fetch-prefix.sh
+
       - name: Install Rust
         if: steps.prerequisite-cache.outputs.cache-hit != 'true'
         shell: bash
