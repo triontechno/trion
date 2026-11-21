@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Prefer the official Redox binary prefix. If the public toolchain endpoint
-# denies access (403/404), explicitly fall back to a one-time source bootstrap;
-# the completed prefix/sysroot is then cached by the prerequisite workflow.
+# Fetch Redox prebuilt toolchain archives (GCC, Rust, Clang/LLD).
+# Tries GitHub release assets first (reliable from Actions runners), then
+# falls back to the official static.redox-os.org endpoint. Verifies each
+# archive against pinned SHA-256 hashes to guarantee integrity.
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,6 +17,7 @@ esac
 PREFIX="$ROOT/build/prefix/$TARGET"
 MANIFEST="$ROOT/build/simplebuild/prefix-archives.sha256"
 MODE_FILE="$ROOT/build/simplebuild/prefix-mode"
+EXPECTED="$ROOT/simplebuild/prefix-archives.expected.sha256"
 mkdir -p "$PREFIX" "$(dirname "$MANIFEST")"
 manifest_tmp="$MANIFEST.tmp"
 response_log="$PREFIX/.prefix-download-response"
@@ -48,31 +50,66 @@ if [[ "$HOST_TARGET" != "x86_64-unknown-linux-gnu" ]]; then
   exit 2
 fi
 
+# Load expected SHA-256 hashes from tracked file.
+declare -A EXPECTED_SHA256
+if [[ ! -f "$EXPECTED" ]]; then
+  echo "Missing expected checksums file: $EXPECTED" >&2
+  exit 1
+fi
+while read -r hash name; do
+  [[ -n "$hash" ]] && EXPECTED_SHA256["$name"]="$hash"
+done < "$EXPECTED"
+
+# Base URLs for the GitHub release assets (primary) and official endpoint (fallback).
+RELEASE_TAG="redox-toolchain-x86_64-unknown-redox-2026-11-21"
+GITHUB_BASE="https://github.com/triontechno/trion/releases/download/$RELEASE_TAG"
+OFFICIAL_BASES=(
+  "https://static.redox-os.org/toolchain/$HOST_TARGET/$TARGET"
+  "https://static.redox-os.org/toolchain/$TARGET"
+)
+
 for archive_name in gcc-install.tar.gz rust-install.tar.gz clang-install.tar.gz; do
   archive="$PREFIX/$archive_name"
   downloaded=0
   saw_forbidden=0
 
-  for base in \
-    "https://static.redox-os.org/toolchain/$HOST_TARGET/$TARGET" \
-    "https://static.redox-os.org/toolchain/$TARGET"; do
-    url="$base/$archive_name"
-    echo "Fetching $url"
-    if wget --tries=2 --timeout=60 --user-agent="Wget/1.21.3" \
+  # Try GitHub release first (fast, reliable from Actions runners).
+  url="$GITHUB_BASE/$archive_name"
+  echo "Fetching $url"
+  if wget --tries=2 --timeout=60 --user-agent="Wget/1.21.3" \
       --output-document="$archive.partial" "$url" 2>"$response_log"; then
-      downloaded=1
-      break
-    fi
-
+    downloaded=1
+  else
     cat "$response_log"
     if grep -Eq 'HTTP request sent, awaiting response\.\.\. (403|404)' "$response_log"; then
       saw_forbidden=1
-      rm -f "$archive.partial"
-      continue
+    else
+      echo "Network or server error while fetching $archive_name from GitHub; trying official endpoint." >&2
     fi
-    echo "Network or server error while fetching $archive_name; refusing to silently fall back." >&2
-    exit 1
-  done
+    rm -f "$archive.partial"
+  fi
+
+  # Fall back to official Redox endpoint if GitHub failed with 403/404.
+  if (( downloaded == 0 )); then
+    for base in "${OFFICIAL_BASES[@]}"; do
+      url="$base/$archive_name"
+      echo "Fetching $url"
+      if wget --tries=2 --timeout=60 --user-agent="Wget/1.21.3" \
+          --output-document="$archive.partial" "$url" 2>"$response_log"; then
+        downloaded=1
+        break
+      fi
+
+      cat "$response_log"
+      if grep -Eq 'HTTP request sent, awaiting response\.\.\. (403|404)' "$response_log"; then
+        saw_forbidden=1
+        rm -f "$archive.partial"
+        continue
+      fi
+      echo "Network or server error while fetching $archive_name; refusing to silently fall back." >&2
+      exit 1
+    done
+  fi
 
   if (( downloaded == 0 )); then
     if (( saw_forbidden == 1 )); then
@@ -82,7 +119,7 @@ for archive_name in gcc-install.tar.gz rust-install.tar.gz clang-install.tar.gz;
     exit 1
   fi
 
-  # Reject HTML/error pages, truncated downloads and unsafe archive paths.
+  # Verify gzip integrity and archive contents.
   gzip -t "$archive.partial"
   listing="$archive.partial.list"
   tar -tzf "$archive.partial" > "$listing"
@@ -91,10 +128,25 @@ for archive_name in gcc-install.tar.gz rust-install.tar.gz clang-install.tar.gz;
     echo "Unsafe path in $archive_name" >&2
     exit 1
   fi
+
+  # Verify SHA-256 against pinned expected value.
+  actual="$(sha256sum "$archive.partial" | cut -d' ' -f1)"
+  expected="${EXPECTED_SHA256[$archive_name]:-}"
+  if [[ -z "$expected" ]]; then
+    echo "No expected SHA-256 for $archive_name in $EXPECTED" >&2
+    exit 1
+  fi
+  if [[ "$actual" != "$expected" ]]; then
+    echo "SHA-256 mismatch for $archive_name:" >&2
+    echo "  expected: $expected" >&2
+    echo "  actual:   $actual" >&2
+    exit 1
+  fi
+  echo "  SHA-256 verified: $actual"
+
   mv "$archive.partial" "$archive"
   rm -f "$listing"
-  printf '%s  %s\n' "$(sha256sum "$archive" | cut -d ' ' -f1)" \
-    "build/prefix/$TARGET/$archive_name" >> "$manifest_tmp"
+  printf '%s  %s\n' "$actual" "build/prefix/$TARGET/$archive_name" >> "$manifest_tmp"
 done
 
 mv "$manifest_tmp" "$MANIFEST"
