@@ -56,10 +56,17 @@ if [[ ! -f "$EXPECTED" ]]; then
   echo "Missing expected checksums file: $EXPECTED" >&2
   exit 1
 fi
-while IFS=' ' read -r hash name; do
-  # Strip potential carriage return from Windows line endings.
-  name="${name%$'\r'}"
-  [[ -n "$hash" ]] && EXPECTED_SHA256["$name"]="$hash"
+while IFS=' ' read -r hash name || [[ -n "${hash:-}${name:-}" ]]; do
+  # read returns non-zero for a final line without a newline. Process it too;
+  # otherwise the last pinned archive checksum is silently lost.
+  # Strip potential carriage returns from Windows line endings.
+  name="${name%$'\\r'}"
+  [[ -n "${hash:-}" && -n "${name:-}" ]] || continue
+  if [[ ! "$hash" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Invalid SHA-256 in $EXPECTED for $name" >&2
+    exit 1
+  fi
+  EXPECTED_SHA256["$name"]="$hash"
 done < "$EXPECTED"
 
 # Base URLs for the GitHub release assets (primary) and official endpoint (fallback).
