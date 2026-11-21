@@ -114,8 +114,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mode="$(cat build/simplebuild/prefix-mode)"
-          if [[ "$mode" == "binary" ]]; then
+          if [[ "$(cat build/simplebuild/prefix-mode)" == "binary" ]]; then
             # Cache restore may replace build/prefix after the initial download.
             # Re-fetch immediately before verification if any archive is absent.
             target="${ARCH:-x86_64}-unknown-redox"
@@ -125,15 +124,8 @@ jobs:
                 break
               fi
             done
-            sha256sum --check build/simplebuild/prefix-archives.sha256
-          elif [[ "$mode" == "source" ]]; then
-            test ! -s build/simplebuild/prefix-archives.sha256
-          else
-            echo "Invalid prefix mode: $mode" >&2
-            exit 1
           fi
-          actual_manifest_sha256="$(printf '%s\n' "$(sha256sum build/simplebuild/prefix-mode | cut -d' ' -f1)" "$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
-          test "$actual_manifest_sha256" = "${{ steps.prefix-archives.outputs.archive_sha256 }}"
+          bash simplebuild/verify-prefix.sh "${{ steps.prefix-archives.outputs.archive_sha256 }}"
 
       - name: Install build dependencies
         if: steps.prerequisite-cache.outputs.cache-hit != 'true'

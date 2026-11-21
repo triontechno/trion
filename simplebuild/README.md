@@ -4,6 +4,15 @@ Artifact-first builder for the existing TRION/Redox build tree. It generates
 both `harddrive.img` and `redox-live.iso` without invoking the full
 Cookbook/toolchain/Podman build by default.
 
+## Quick start: build the ISO
+
+```sh
+bash simplebuild/make-iso.sh              # x86_64 desktop -> build/build/x86_64/desktop/redox-live.iso
+bash simplebuild/make-iso.sh --qemu-test  # also boot-test both images
+```
+
+It fetches and verifies the prefix, checks prerequisites, builds both images and verifies `SHA256SUMS`.
+
 ## Commands
 
 ```sh

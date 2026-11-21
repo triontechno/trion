@@ -115,19 +115,7 @@ jobs:
 
       - name: Verify cached prefix archive checksums
         shell: bash
-        run: |
-          set -euo pipefail
-          mode="$(cat build/simplebuild/prefix-mode)"
-          if [[ "$mode" == "binary" ]]; then
-            (cd build && sha256sum -c simplebuild/prefix-archives.sha256)
-          elif [[ "$mode" == "source" ]]; then
-            test ! -s build/simplebuild/prefix-archives.sha256
-          else
-            echo "Invalid prefix mode: $mode" >&2
-            exit 1
-          fi
-          actual_manifest_sha256="$(printf '%s\n' "$(sha256sum build/simplebuild/prefix-mode | cut -d' ' -f1)" "$(sha256sum build/simplebuild/prefix-archives.sha256 | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
-          test "$actual_manifest_sha256" = "${{ needs.prepare-prerequisites.outputs.archive_sha256 }}"
+        run: bash simplebuild/verify-prefix.sh "${{ needs.prepare-prerequisites.outputs.archive_sha256 }}"
 
       - name: Verify cached prerequisite checksums
         shell: bash
