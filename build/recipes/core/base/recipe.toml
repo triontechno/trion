@@ -12,6 +12,14 @@ script = """
 sed -i 's|path = "../../../ternary/platform"|path = "../../../../../ternary/platform"|' \
     "${COOKBOOK_SOURCE}/trion-capd/Cargo.toml"
 
+# Bootstrap must use the monorepo's TRION-extended relibc and syscall crates.
+# Their path dependencies are written for src/base in the checkout; the recipe
+# source tree is copied two levels deeper, so rebase them to the checkout.
+sed -i \
+    -e 's|path = "../../relibc/redox-rt"|path = "../../../../../src/relibc/redox-rt"|' \
+    -e 's|path = "../../kernel/syscall"|path = "../../../../../src/kernel/syscall"|' \
+    "${COOKBOOK_SOURCE}/bootstrap/Cargo.toml"
+
 cd "${COOKBOOK_SOURCE}" && make install-base \
     SRC_DIR="${COOKBOOK_SOURCE}" SYSROOT="${COOKBOOK_SYSROOT}" \
     LINKER="${GNU_TARGET}-ld" CARGO="${COOKBOOK_CARGO}" \
