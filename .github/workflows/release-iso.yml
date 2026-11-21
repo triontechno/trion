@@ -40,15 +40,15 @@ jobs:
           workflow="$(jq -r '.workflowName' <<< "$run")"
           status="$(jq -r '.status' <<< "$run")"
           conclusion="$(jq -r '.conclusion' <<< "$run")"
-          if [[ "$workflow" != "TRION Image Build" || "$status" != "completed" || "$conclusion" != "success" ]]; then
-            echo "The supplied run must be a successfully completed TRION Image Build."
+          if [[ "$workflow" != "SimpleBuild OS Images" || "$status" != "completed" || "$conclusion" != "success" ]]; then
+            echo "The supplied run must be a successfully completed SimpleBuild OS Images run."
             exit 1
           fi
 
       - name: Download image build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: trion-images
+          name: trion-simplebuild-x86_64-desktop
           path: release-assets
           run-id: ${{ inputs.build_run_id }}
           github-token: ${{ github.token }}
