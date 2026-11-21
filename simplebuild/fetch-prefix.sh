@@ -60,7 +60,7 @@ while IFS=' ' read -r hash name || [[ -n "${hash:-}${name:-}" ]]; do
   # read returns non-zero for a final line without a newline. Process it too;
   # otherwise the last pinned archive checksum is silently lost.
   # Strip potential carriage returns from Windows line endings.
-  name="${name%
+  name="${name%$'\r'}"
   [[ -n "${hash:-}" && -n "${name:-}" ]] || continue
   if [[ ! "$hash" =~ ^[0-9a-f]{64}$ ]]; then
     echo "Invalid SHA-256 in $EXPECTED for $name" >&2
