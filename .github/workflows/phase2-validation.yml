@@ -189,7 +189,7 @@ jobs:
         run: cargo fuzz run --fuzz-dir ternary/fuzz app_bundle_plist -- -max_total_time=60 -max_len=1048576
 
   report:
-    name: Phase 2 final result
+    name: Phase 2 Rust and fuzz result
     if: always()
     needs:
       - rust-tests
