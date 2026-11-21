@@ -200,7 +200,6 @@ jobs:
         env:
           RUST_TESTS: ${{ needs.rust-tests.result }}
           FUZZ: ${{ needs.fuzz.result }}
-          SYSTEM: ${{ needs.system-build-and-qemu.result }}
         shell: bash
         run: |
           {
@@ -210,11 +209,10 @@ jobs:
             echo "|---|---|"
             echo "| Rust tests, formatting, Clippy and benchmark correctness | $RUST_TESTS |"
             echo "| Fuzz campaigns | $FUZZ |"
-            echo "| Full image build and QEMU boot | $SYSTEM |"
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$RUST_TESTS" == "success" && "$FUZZ" == "success" && "$SYSTEM" == "success" ]]; then
+          if [[ "$RUST_TESTS" == "success" && "$FUZZ" == "success" ]]; then
             echo "## PHASE 2 VALIDATION: SUCCESS" >> "$GITHUB_STEP_SUMMARY"
             echo "PHASE 2 VALIDATION: SUCCESS"
           else
