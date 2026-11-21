@@ -48,9 +48,9 @@ Preserve corpus, crash artifacts, toolchain versions, campaign duration, and cov
 
 ## 3. Automated validation and release workflows
 
-- `.github/workflows/phase2-validation.yml` runs the Phase 2 host-crate and capability-service tests, formatting, Clippy, comparative benchmark correctness gate, bounded fuzz campaigns, full x86_64 image build, and QEMU checks for kernel entry, TRION capability-service readiness, and user-space validation of all three capability endpoints.
+- `.github/workflows/phase2-validation.yml` runs the Phase 2 host-crate and capability-service tests, formatting, Clippy, comparative benchmark correctness gate, and bounded fuzz campaigns. The image build and QEMU boot checks run separately in `.github/workflows/simplebuild-images.yml`.
 - The Phase 2 validation workflow runs on relevant source/document changes on `main`, on matching pull requests, and by manual dispatch. Its final report job emits an explicit **SUCCESS** only when every validation group passes; otherwise it emits **FAILURE** and fails the workflow.
-- `.github/workflows/trion-release.yml` is the separate image-build workflow. It builds the x86_64 desktop `.img` and live `.iso`, runs the QEMU smoke test, and uploads both outputs as workflow artifacts.
+- `.github/workflows/simplebuild-images.yml` (SimpleBuild OS Images) is the separate image-build workflow. It builds the x86_64 desktop `.img` and live `.iso`, runs the QEMU smoke test, and uploads both outputs as workflow artifacts.
 - `.github/workflows/release-iso.yml` is the separate manually dispatched release workflow. It validates a `1.x.xx` version, requires a successful image-build run, and publishes the ISO as a GitHub Release.
 
 ## 4. Release acceptance gates
