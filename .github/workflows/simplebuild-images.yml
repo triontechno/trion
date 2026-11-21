@@ -5,7 +5,6 @@ on:
   pull_request:
     branches:
       - main
-      - simplebuild/fix-zlib-source-download
     paths:
       - "simplebuild/**"
       - "build/**"
@@ -239,5 +238,5 @@ jobs:
             build/build/x86_64/desktop/redox-live.iso
             build/build/x86_64/desktop/SHA256SUMS
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
           compression-level: 0
