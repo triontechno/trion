@@ -9,7 +9,7 @@ use crate::{
 };
 use redox_protocols::protocol::{O_CLOEXEC, ProcCall, ThreadCall};
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 
 use goblin::elf::header::ET_DYN;
 //TODO: allow use of either 32-bit or 64-bit programs
