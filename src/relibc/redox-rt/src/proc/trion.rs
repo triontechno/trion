@@ -677,7 +677,7 @@ fn preflight_guest_policy(
 
 
 fn finish_native_exec(
-    image_file: FdGuardUpper,
+    _image_file: FdGuardUpper,
     thread_fd: &FdGuardUpper,
     proc_fd: &FdGuardUpper,
     path: &[u8],

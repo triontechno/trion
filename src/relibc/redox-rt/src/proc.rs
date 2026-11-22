@@ -9,7 +9,7 @@ use crate::{
 };
 use redox_protocols::protocol::{O_CLOEXEC, ProcCall, ThreadCall};
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 
 use goblin::elf::header::ET_DYN;
 //TODO: allow use of either 32-bit or 64-bit programs
@@ -434,10 +434,6 @@ pub fn fexec_impl(
                             checked_page_align(voff.checked_add(filesz).ok_or(Error::new(EOVERFLOW))?)?, // size
                         )?
                     };
-                    #[cfg(target_pointer_width = "64")]
-                    let segment_p_offset = segment.p_offset;
-                    #[cfg(target_pointer_width = "32")]
-                    let segment_p_offset = u64::from(segment.p_offset);
                     pread_all(
                         &image_file,
                         file_offset,
