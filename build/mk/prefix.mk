@@ -119,7 +119,7 @@ else
 	mv $@.partial $@
 endif
 
-$(PREFIX)/gcc-install $(PREFIX)/rust-install: %: %.tar.gz | $(CONTAINER_TAG)
+$(PREFIX)/gcc-install $(PREFIX)/rust-install $(PREFIX)/clang-install: %: %.tar.gz | $(CONTAINER_TAG)
 ifeq ($(PODMAN_BUILD),1)
 	$(PODMAN_RUN) make $@
 else
@@ -130,45 +130,6 @@ else
 	mv "$@.partial" "$@"
 endif
 
-ifeq ($(PREFIX_CLANG_BINARY),1)
-$(PREFIX)/clang-install: $(PREFIX)/clang-install.tar.gz | $(CONTAINER_TAG)
-ifeq ($(PODMAN_BUILD),1)
-	$(PODMAN_RUN) make $@
-else
-	rm -rf "$@.partial" "$@"
-	mkdir -p "$@.partial"
-	tar --extract --file "$<" --directory "$@.partial" --no-same-owner --strip-components=1
-	touch "$@.partial"
-	mv "$@.partial" "$@"
-endif
-else
-# Build only Clang/LLVM from Cookbook while retaining the downloaded GCC and Rust prefixes.
-$(PREFIX)/clang-install: | $(PREFIX)/gcc-install $(FSTOOLS_TAG) $(CONTAINER_TAG)
-ifeq ($(PODMAN_BUILD),1)
-	$(PODMAN_RUN) make $@
-else
-	@echo "\033[1;36;49mBuilding clang-install from source\033[0m"
-	rm -rf "$@.partial" "$@"
-	export PATH="$(LIBTOOL_PATH)/bin:$$PATH" $(PREFIX_CONFIG) \
-		COOKBOOK_LIBTOOL_DIR=$(LIBTOOL_PATH) COOKBOOK_HOST_SYSROOT=/usr COOKBOOK_CROSS_TARGET=$(TARGET) && \
-		$(REPO_BIN) cook host:llvm21 host:clang21 host:lld21
-	cp -r "$(LLVM_TARGET)/stage/usr/". "$@.partial"
-	cp -r "$(LLVM_TARGET)/stage.runtime/usr/". "$@.partial"
-	cp -r "$(LLVM_TARGET)/stage.dev/usr/". "$@.partial"
-	cp -r "$(CLANG_TARGET)/stage/usr/". "$@.partial"
-	cp -r "$(LLD_TARGET)/stage/usr/". "$@.partial"
-	rm -rf "$@.partial/lib/"*.a
-	echo "--sysroot=$(ROOT)/$(PREFIX)/gcc-install" > "$@.partial/bin/$(GNU_TARGET).cfg"
-	ln -s clang-21 "$@.partial/bin/$(GNU_TARGET)-clang"
-	export PATH="$(ROOT)/$@.partial/bin:$$PATH" $(PREFIX_CONFIG) \
-		COOKBOOK_HOST_SYSROOT=/usr COOKBOOK_CROSS_TARGET=$(HOST_TARGET) && \
-		$(REPO_BIN) cook llvm-rt21
-	cp -r "$(LLVM_RT_TARGET)/stage/usr/". "$@.partial"
-	echo "--sysroot=<CFGDIR>/../$(GNU_TARGET)" > "$@.partial/bin/$(GNU_TARGET).cfg"
-	mv "$@.partial" "$@"
-	rm -rf $(CLANG_TARGET) $(LLD_TARGET) $(LLVM_RT_TARGET)
-endif
-endif
 # PREFIX_BINARY FOR REDOX -----------------------------------------
 else
 
