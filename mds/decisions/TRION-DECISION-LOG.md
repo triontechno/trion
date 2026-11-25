@@ -168,8 +168,8 @@ The bidirectional bridge remains a representation/data compatibility concept whe
 - Stage F: measurement, hardening and release infrastructure.
 - Stage G: direct executable engine.
 - Stage H: isolated guest process backend and security containment.
-- Stage I: Windows compatibility runtime.
-- Stage J: macOS compatibility runtime and unified dispatch.
+- Stage I: native TRION/Redox application runtime (not Windows/macOS/Linux compatibility).
+- Stage J: native system integration and unified native dispatch (not foreign-OS compatibility).
 
 ### Phase 2 validation gate
 
@@ -181,7 +181,7 @@ Implementation status must never be confused with validation status. A stage mar
 
 - Phase 6 is the final project phase, focused on UI/UX/UC (desktop shell, interaction, accessibility, app discovery/launch/file associations, settings, notifications, recovery and acceptance criteria).
 - Phase 6 was formerly called Phase H; it is distinct from Phase 2 Stage H.
-- No confirmed specifications for Phases 3–5 are available. Do not invent them.
+- Phases 3–6 are now specified in [the master roadmap](../phases/ROADMAP.md): Phase 3 Core Platform and Hardware Excellence; Phase 4 Application, Gaming and Developer Ecosystem; Phase 5 Intelligent, Automated and Connected OS; Phase 6 Desktop Shell and Complete User Experience.
 
 ## 10. Stage H security decisions and current boundary
 
@@ -231,8 +231,8 @@ This section is a point-in-time record and should be updated as code changes.
 | F | Infrastructure authored | Benchmarks/fuzz/build workflows not executed |
 | G | Implemented for restricted freestanding x86-64 profiles | No general Windows/macOS compatibility; validation deferred |
 | H | Implemented for restricted guest profile | Delegated pre-opened stream capabilities, read/write broker, cancellation, crash report and atomic cleanup; validation deferred |
-| I | Incomplete | General Windows runtime services missing |
-| J | Incomplete | General macOS runtime services missing |
+| I | Implemented for declared native TRION/Redox profile | Validation deferred; not foreign-OS compatibility |
+| J | Implemented for declared Version 1 native system scope | Validation deferred; not foreign-OS compatibility |
 
 No Phase 2 tests, builds, fuzz campaigns, benchmarks, or QEMU validation have been run under the standing deferral rule.
 
@@ -243,9 +243,9 @@ No Phase 2 tests, builds, fuzz campaigns, benchmarks, or QEMU validation have be
 3. Recover the exact original Q10 and Q15 option text; retain only the answer fragments currently known.
 4. Define hardware capability discovery evidence for any future native ternary CPU, RAM, or GPU.
 5. Define workload-specific benchmarks before claiming ternary performance, density, energy, or storage wins.
-6. Complete Stage H kernel-enforced isolation before treating native guest applications as sandboxed.
-7. Complete Stages I and J before claiming broad Windows/macOS application compatibility.
-8. Run the consolidated validation pass only after all Phase 2 implementation is complete.
+6. Keep Stage H guest isolation claims limited to its documented restricted profile.
+7. Scope Windows/macOS/Linux application compatibility as separate future compatibility work; Phase 2 Stages I/J are native Redox runtime/integration.
+8. Run the consolidated validation pass and record actual results before treating Phase 2 as verified.
 
 ## 15. Change-control rule for this record
 
@@ -261,3 +261,5 @@ When a decision changes:
 
 - **2026-11-08:** Initial consolidated decision record created from retained project memory, prior-conversation summaries, and the current `main` architecture/phase documents. Missing quiz option text and unresolved answers are explicitly identified rather than inferred.
 - **2026-11-08:** Re-ran Q1–Q7 interactively and recorded the user's explicit answers (all C) with their confirmed meanings. Q8–Q20 retained from the recovered quiz record; Q16 remains unresolved and unavailable option wording remains explicitly unknown.
+
+- **2026-11-25:** Added the cross-platform requirements matrix and consolidated Phases 3–6 roadmap from the supplied macOS/Windows comparison, the TRION vision, the recovered 20-question decisions and current repository implementation records. Phase 3 is defined as Core Platform and Hardware Excellence. Source comparison claims are treated as input, not independently verified benchmark evidence.
