@@ -34,7 +34,7 @@ jobs:
   validate-prerequisites:
     name: Build, cache, and validate prerequisites
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -52,12 +52,13 @@ jobs:
           path: |
             build/prefix
             build/target
+            build/recipes/**/target
             build/fstools
             build/fstools.tag
             build/container.tag
             build/podman
             dist/redox-base.oci
-          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'recipes/dev/**', 'recipes/core/relibc/**', 'Cargo.lock') }}
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'recipes/dev/**', 'recipes/libs/**', 'recipes/core/relibc/**', 'Cargo.lock') }}
 
       - name: Restore cached Podman build image
         run: |
@@ -65,7 +66,7 @@ jobs:
             podman load --input dist/redox-base.oci
           fi
 
-      - name: Build required Redox toolchain and sysroot
+      - name: Build GCC, Rust, and host filesystem tools from binary prefixes
         env:
           CI: "1"
         run: |
@@ -75,7 +76,34 @@ jobs:
             PREFIX_BINARY=1 \
             PODMAN_BUILD=1 \
             FSTOOLS_IN_PODMAN=1 \
-            prefix fstools
+            gcc-install rust-install fstools
+
+      - name: Build Clang/LLVM from source
+        env:
+          CI: "1"
+        run: |
+          # The upstream prebuilt clang-install.tar.gz endpoint returned HTTP 403
+          # in GitHub Actions. Build this one prefix through the canonical
+          # Cookbook recipes instead of repeatedly downloading the blocked file.
+          make -C build \
+            ARCH=x86_64 \
+            CONFIG_NAME=desktop \
+            PREFIX_BINARY=0 \
+            PODMAN_BUILD=1 \
+            FSTOOLS_IN_PODMAN=1 \
+            clang-install
+
+      - name: Assemble relibc sysroot with the prepared prefixes
+        env:
+          CI: "1"
+        run: |
+          make -C build \
+            ARCH=x86_64 \
+            CONFIG_NAME=desktop \
+            PREFIX_BINARY=1 \
+            PODMAN_BUILD=1 \
+            FSTOOLS_IN_PODMAN=1 \
+            prefix
 
       - name: Verify prerequisite outputs
         run: |
@@ -98,7 +126,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          paths=(build/prefix build/target build/podman)
+          paths=(build/prefix build/target build/recipes build/podman)
           for path in build/fstools build/fstools.tag build/container.tag; do
             if [[ -e "$path" ]]; then paths+=("$path"); fi
           done
