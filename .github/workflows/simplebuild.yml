@@ -52,6 +52,7 @@ jobs:
             build/fstools
             build/fstools.tag
             build/container.tag
+            build/podman
           key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'recipes/dev/**', 'recipes/core/relibc/**', 'Cargo.lock') }}
 
       - name: Build required Redox toolchain and sysroot
@@ -83,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          paths=(build/prefix build/target)
+          paths=(build/prefix build/target build/podman)
           for path in build/fstools build/fstools.tag build/container.tag; do
             if [[ -e "$path" ]]; then paths+=("$path"); fi
           done
@@ -97,6 +98,7 @@ jobs:
           name: simplebuild-prerequisites-${{ github.sha }}
           path: |
             dist/simplebuild-prerequisites.tar.gz
-            dist/simplebuild-prerequisites.tar.gz.sha256
+            dist/redox-base.oci
+            dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
