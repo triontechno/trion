@@ -1,4 +1,4 @@
-# TRION OS — Master Roadmap: Phases 1–6
+# TRION OS — Master Roadmap: Phases 1–7
 
 **Status:** Consolidated proposed roadmap for execution  
 **Supersedes:** The previous statement that Phases 3–5 were unspecified  
@@ -45,6 +45,7 @@ By the end of Phase 6, TRION should be a cohesive, daily-usable hybrid operating
 | 4 | Application, Gaming and Developer Ecosystem | Native SDK/apps, graphics, compatibility runtimes, tools, peripherals and distribution |
 | 5 | Intelligent, Automated and Connected OS | Local-first AI, system search/actions, automation and cross-device continuity |
 | 6 | Desktop Shell and Complete User Experience | Full desktop UI/UX/UC, accessibility, workflows and release readiness |
+| 7 | TRION Native AI | TRION-owned OS-level assistant with local inference and no TRION AI servers in the initial design |
 
 ## 4. Phase 1 — Ternary Core
 
@@ -180,11 +181,28 @@ Desktop shell/compositor/window manager; snap layouts, tiling, virtual desktops 
 
 **Exit criteria:** coherent first-party workflows; accessibility tests pass; no system surface breaks theme/accessibility contracts; multi-window/multi-monitor usability targets met; nontechnical users can configure the system; daily-driver acceptance passes on supported devices.
 
-## 10. Cross-phase quality gates
+## 10. Phase 7 — TRION Native AI
+
+**Objective:** Replace provisional or third-party AI assistant features with TRION's own native, OS-level assistant, comparable in role to Siri but powered locally on the device.
+
+- Own the assistant experience, orchestration, local inference runtime, model lifecycle, system integrations and permission model.
+- Run inference on-device; no TRION-operated AI inference servers or mandatory cloud AI in the initial architecture.
+- Work offline for core assistant functions after model installation.
+- Support natural-language conversation, local search, system/app actions and bounded multi-step automation.
+- Use documented, typed and permission-scoped OS action APIs. Require confirmation for consequential actions; retain audit, cancellation and undo where possible.
+- Respect existing identity, sandbox, filesystem, microphone and network permissions. Prompt injection and retrieved content are untrusted.
+- Use CPU inference as the baseline; GPU/NPU acceleration only when capability is detected and tested.
+- Let users install, choose, update, pause, replace, remove and fully disable models and assistant services.
+- Publish model provenance/licensing, security evaluations, memory/latency/energy/thermal measurements and supported device profiles.
+- Initial “own AI” scope means TRION owns the assistant, runtime, orchestration and OS integrations; a frontier model trained from scratch is not a prerequisite. Independently licensed local model weights may be used initially and must be replaceable.
+
+**Exit criteria:** local offline assistant on reference hardware; no TRION AI server dependency; permission-respecting local retrieval; safe audited system actions; bounded automation; model integrity/lifecycle; CPU baseline and tested accelerators; published resource budgets; disable switch stops background inference/listening; security, privacy, accessibility and quality tests pass.
+
+## 11. Cross-phase quality gates
 
 Every phase includes architecture review/threat model, unit/integration/regression/fuzz tests where applicable, performance/resource budgets, accessibility/localization review, recovery/rollback tests, documentation/examples/migration notes and an explicit unsupported-feature list. Attach CI evidence to completion records.
 
-## 11. Release definitions
+## 12. Release definitions
 
 - **Prototype:** demonstrable component, incomplete integration.
 - **Alpha:** integrated feature set with known limitations; not daily-driver safe.
@@ -192,6 +210,6 @@ Every phase includes architecture review/threat model, unit/integration/regressi
 - **Release candidate:** no known release-blocking defects; reproducible build and recovery verified.
 - **Stable:** phase acceptance gates pass on declared hardware with active security/update support.
 
-## 12. Change control
+## 13. Change control
 
 This roadmap replaces the prior unspecified Phase 3–5 gap. Phase 3 begins with repository audit and API design, then dependency-ordered implementation. Documentation alone does not complete Phase 3. Scope changes update this roadmap, the decision log and affected specifications.
