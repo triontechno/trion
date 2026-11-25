@@ -17,25 +17,17 @@ if bash simplebuild/build.sh --unknown-option >/dev/null 2>&1; then
 fi
 
 
-# Keep the Clang fallback independently selectable inside the nested Podman make.
-grep -Fq 'PREFIX_CLANG_BINARY?=$(PREFIX_BINARY)' build/mk/config.mk
-grep -Fq -- '--env PREFIX_CLANG_BINARY=$(PREFIX_CLANG_BINARY)' build/mk/podman.mk
-grep -Fq 'PREFIX_CLANG_BINARY=0' .github/workflows/simplebuild.yml
+# Validate the source-built prerequisite entrypoint, its help, and the exact
+# canonical Make target graph used by GitHub Actions. No compiler is built here.
+bash -n simplebuild/prepare-prerequisites.sh
+bash simplebuild/prepare-prerequisites.sh --help >/dev/null
+bash simplebuild/prepare-prerequisites.sh --dry-run
 
-# Parse the exact aggregate targets used by CI. This catches invalid leaf-target
-# names before an expensive toolchain build starts.
-make -n -C build \
-  ARCH=x86_64 \
-  CONFIG_NAME=desktop \
-  PREFIX_BINARY=1 \
-  PREFIX_CLANG_BINARY=0 \
-  PODMAN_BUILD=1 \
-  FSTOOLS_IN_PODMAN=1 \
-  prefix fstools >/dev/null
-
-# Host tools live under build/build because the imported Makefile sets
-# FSTOOLS=build/fstools relative to its own build/ working directory.
-grep -Fq 'build/build/fstools/bin/redox_installer' .github/workflows/simplebuild.yml
+grep -Fq '"PREFIX_BINARY=0"' simplebuild/prepare-prerequisites.sh
+grep -Fq '"PREFIX_USE_UPSTREAM_RUST_COMPILER=1"' simplebuild/prepare-prerequisites.sh
+grep -Fq 'prefix' simplebuild/prepare-prerequisites.sh
+grep -Fq 'fstools' simplebuild/prepare-prerequisites.sh
+grep -Fq 'build/build/fstools/bin/redox_installer' simplebuild/prepare-prerequisites.sh
 
 # The image build compiles redox-rt; keep the vec! macro in scope there.
 if ! grep -Fq 'use alloc::{boxed::Box, vec, vec::Vec};' src/relibc/redox-rt/src/proc.rs; then
