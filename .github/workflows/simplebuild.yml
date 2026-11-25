@@ -1,39 +1,102 @@
-name: SimpleBuild Validation
+name: SimpleBuild Prerequisite Validation
 
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, simplebuild/remove-legacy]
+    branches: [main]
     paths:
       - "simplebuild/**"
       - "build/**"
+      - "recipes/**"
       - "src/**"
       - "ternary/**"
-      - "mds/**"
+      - "Cargo.lock"
       - ".github/workflows/simplebuild.yml"
   push:
     branches: [main]
     paths:
       - "simplebuild/**"
       - "build/**"
+      - "recipes/**"
       - "src/**"
       - "ternary/**"
-      - "mds/**"
+      - "Cargo.lock"
       - ".github/workflows/simplebuild.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: simplebuild-${{ github.ref }}
+  group: simplebuild-prerequisites-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: SimpleBuild CLI and configuration checks
+  validate-prerequisites:
+    name: Build, cache, and validate prerequisites
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - name: Validate SimpleBuild scripts and configuration
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+
+      - name: Restore compiled prerequisite cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/prefix
+            build/target
+            build/fstools
+            build/fstools.tag
+            build/container.tag
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'recipes/dev/**', 'recipes/core/relibc/**', 'Cargo.lock') }}
+
+      - name: Build required Redox toolchain and sysroot
+        env:
+          CI: "1"
+        run: |
+          make -C build \
+            ARCH=x86_64 \
+            CONFIG_NAME=desktop \
+            PREFIX_BINARY=1 \
+            PODMAN_BUILD=1 \
+            prefix
+
+      - name: Verify prerequisite outputs
+        run: |
+          set -euo pipefail
+          prefix="build/prefix/x86_64-unknown-redox"
+          for output in gcc-install rust-install clang-install sysroot; do
+            test -d "$prefix/$output"
+            test -n "$(find "$prefix/$output" -mindepth 1 -print -quit)"
+          done
+          test -x build/target/release/repo
+          echo "Compiled/extracted GCC, Rust, Clang, relibc sysroot, and Cookbook tooling are present."
+
+      - name: Run SimpleBuild CLI and regression validation
         run: bash simplebuild/test.sh
+
+      - name: Package prerequisites for the dedicated ISO workflow
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          paths=(build/prefix build/target)
+          for path in build/fstools build/fstools.tag build/container.tag; do
+            if [[ -e "$path" ]]; then paths+=("$path"); fi
+          done
+          tar -czf dist/simplebuild-prerequisites.tar.gz "${paths[@]}"
+          test -s dist/simplebuild-prerequisites.tar.gz
+          sha256sum dist/simplebuild-prerequisites.tar.gz > dist/simplebuild-prerequisites.tar.gz.sha256
+
+      - name: Upload reusable prerequisites
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplebuild-prerequisites-${{ github.sha }}
+          path: |
+            dist/simplebuild-prerequisites.tar.gz
+            dist/simplebuild-prerequisites.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
