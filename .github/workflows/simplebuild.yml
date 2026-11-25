@@ -126,11 +126,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          paths=(build/prefix build/target build/recipes build/podman)
+          paths=(build/prefix build/target build/podman)
           for path in build/fstools build/fstools.tag build/container.tag; do
             if [[ -e "$path" ]]; then paths+=("$path"); fi
           done
-          tar -czf dist/simplebuild-prerequisites.tar.gz "${paths[@]}"
+          tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz \
+            "${paths[@]}" --null --files-from <(find build/recipes -type d -name target -prune -print0)
           podman save --format oci-archive --output dist/redox-base.oci redox-base
           test -s dist/simplebuild-prerequisites.tar.gz
           test -s dist/redox-base.oci
