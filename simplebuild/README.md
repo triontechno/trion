@@ -6,34 +6,35 @@ filesystem installation, or image-generation logic.
 
 ## Prerequisite validation
 
-The `SimpleBuild Prerequisite Validation` workflow performs these steps on
-Ubuntu 24.04 for the x86_64 desktop target:
+The `SimpleBuild Prerequisite Validation` workflow prepares the x86_64 desktop
+build environment on Ubuntu 24.04:
 
-1. Restores a versioned GitHub Actions cache of the Redox toolchain outputs.
-2. Runs the canonical `make -C build ... prefix` target with
-   `PREFIX_BINARY=1` and Podman enabled. The build system obtains and unpacks
-   the GCC, Rust, and Clang binary-prefix packages and constructs the target
-   sysroot, including the relibc stage. It also compiles the
-   installer and RedoxFS host tools inside the prepared Podman environment.
-3. Verifies that the compiler prefixes, sysroot, Cookbook executable, installer,
-   and filesystem utilities exist and are executable.
-4. Runs `bash simplebuild/test.sh` for CLI, configuration, and regression
+1. Restores a versioned cache of compiler prefixes, Cookbook outputs, recipe
+   build targets, filesystem tools, and the Podman environment.
+2. Uses Redox's published binary prefixes for GCC and Rust.
+3. Builds the Clang/LLVM prefix from the canonical Cookbook recipes. This is a
+   deliberate fallback because the upstream `clang-install.tar.gz` download
+   returned HTTP 403 from `static.redox-os.org` in GitHub Actions. The workflow
+   no longer depends on that blocked download.
+4. Assembles the target sysroot, including the relibc stage, using the prepared
+   prefixes.
+5. Verifies the compiler prefixes, sysroot, Cookbook executable, installer,
+   and filesystem utilities.
+6. Runs `bash simplebuild/test.sh` for CLI, configuration, and regression
    checks.
-5. Uploads a checksummed `simplebuild-prerequisites-<commit>` artifact for a
-   separate ISO workflow to consume.
+7. Uploads a checksummed prerequisite artifact for a separate ISO workflow.
 
-The binary-prefix mode intentionally uses Redox's published compiler packages;
-it does not rebuild GCC, Rust, or LLVM from source on every run. The relibc
-sysroot and Cookbook tooling are prepared by the canonical build system.
-The cache key includes the build definitions and relevant recipe/toolchain
-sources so changes invalidate stale outputs.
+The source-built Clang/LLVM outputs and relevant recipe target directories are
+cached so subsequent runs can reuse completed compilation. The workflow does
+not build an ISO. GCC and Rust continue to use Redox's published binary-prefix
+packages; they are not rebuilt from source on every run.
 
 The uploaded artifact is retained for 30 days. The future ISO workflow should
 download the artifact from the successful prerequisite workflow run, verify
-its SHA-256 manifest, extract it into the repository workspace, and invoke
-SimpleBuild without rerunning the prerequisite stage. GitHub Actions cache
-entries are an acceleration layer; the uploaded artifact is the explicit
-handoff between workflows.
+its SHA-256 manifest, extract the prepared build outputs into the repository
+workspace, and invoke the image targets without rerunning prerequisite
+compilation. GitHub Actions cache entries accelerate later prerequisite runs;
+the uploaded artifact is the explicit handoff between workflows.
 
 ## Local usage
 
