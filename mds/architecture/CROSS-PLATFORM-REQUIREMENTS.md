@@ -67,6 +67,7 @@ All requirements remain subject to TRION's adaptive binary/ternary architecture,
 - **Phase 4 — Application and gaming ecosystem:** graphics, native SDK/apps, compatibility runtimes, developer tools, distribution, peripherals and device protocols.
 - **Phase 5 — Intelligent and connected OS:** local-first AI, search/actions, automation, continuity and privacy controls.
 - **Phase 6 — Desktop experience:** shell, window manager, file manager UX, launcher, settings, notifications, accessibility, theming and final interaction design.
+- **Phase 7 — TRION Native AI:** TRION-owned OS-level assistant, local inference runtime, model lifecycle, permissioned system actions, local context and bounded automation; no TRION-operated AI servers in the initial architecture.
 
 ## 6. Guardrails
 
