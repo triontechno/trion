@@ -7,7 +7,6 @@ on:
     paths:
       - "simplebuild/**"
       - "build/**"
-      - "recipes/**"
       - "src/**"
       - "ternary/**"
       - "Cargo.lock"
@@ -17,7 +16,6 @@ on:
     paths:
       - "simplebuild/**"
       - "build/**"
-      - "recipes/**"
       - "src/**"
       - "ternary/**"
       - "Cargo.lock"
@@ -34,7 +32,7 @@ jobs:
   validate-prerequisites:
     name: Build, cache, and validate prerequisites
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
@@ -53,12 +51,12 @@ jobs:
             build/prefix
             build/target
             build/recipes/**/target
-            build/fstools
-            build/fstools.tag
-            build/container.tag
-            build/podman
+            build/build/fstools
+            build/build/fstools.tag
+            build/build/container.tag
+            build/build/podman
             dist/redox-base.oci
-          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'recipes/dev/**', 'recipes/libs/**', 'recipes/core/relibc/**', 'Cargo.lock') }}
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/dev/**', 'build/recipes/libs/**', 'build/recipes/core/relibc/**', 'build/recipes/core/installer/**', 'build/recipes/core/redoxfs/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}
 
       - name: Restore cached Podman build image
         run: |
@@ -66,44 +64,22 @@ jobs:
             podman load --input dist/redox-base.oci
           fi
 
-      - name: Build GCC, Rust, and host filesystem tools from binary prefixes
+      - name: Build, cache, and validate all prerequisites
         env:
           CI: "1"
+          COOKBOOK_MAKE_JOBS: "2"
         run: |
+          # Keep the fast, published GCC and Rust prefixes. Build only Clang/LLVM
+          # from the checked-out Cookbook recipes because the published Clang
+          # archive currently returns HTTP 403 from static.redox-os.org.
           make -C build \
             ARCH=x86_64 \
             CONFIG_NAME=desktop \
             PREFIX_BINARY=1 \
+            PREFIX_CLANG_BINARY=0 \
             PODMAN_BUILD=1 \
             FSTOOLS_IN_PODMAN=1 \
-            gcc-install rust-install fstools
-
-      - name: Build Clang/LLVM from source
-        env:
-          CI: "1"
-        run: |
-          # The upstream prebuilt clang-install.tar.gz endpoint returned HTTP 403
-          # in GitHub Actions. Build this one prefix through the canonical
-          # Cookbook recipes instead of repeatedly downloading the blocked file.
-          make -C build \
-            ARCH=x86_64 \
-            CONFIG_NAME=desktop \
-            PREFIX_BINARY=0 \
-            PODMAN_BUILD=1 \
-            FSTOOLS_IN_PODMAN=1 \
-            clang-install
-
-      - name: Assemble relibc sysroot with the prepared prefixes
-        env:
-          CI: "1"
-        run: |
-          make -C build \
-            ARCH=x86_64 \
-            CONFIG_NAME=desktop \
-            PREFIX_BINARY=1 \
-            PODMAN_BUILD=1 \
-            FSTOOLS_IN_PODMAN=1 \
-            prefix
+            prefix fstools
 
       - name: Verify prerequisite outputs
         run: |
@@ -114,9 +90,11 @@ jobs:
             test -n "$(find "$prefix/$output" -mindepth 1 -print -quit)"
           done
           test -x build/target/release/repo
-          test -x build/fstools/bin/redox_installer
-          test -x build/fstools/bin/redoxfs
-          test -x build/fstools/bin/redoxfs-mkfs
+          test -s build/build/fstools.tag
+          test -s build/build/container.tag
+          test -x build/build/fstools/bin/redox_installer
+          test -x build/build/fstools/bin/redoxfs
+          test -x build/build/fstools/bin/redoxfs-mkfs
           echo "Compiler prefixes, relibc sysroot, Cookbook, installer, and filesystem tools are ready."
 
       - name: Run SimpleBuild CLI and regression validation
@@ -126,12 +104,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          paths=(build/prefix build/target build/podman)
-          for path in build/fstools build/fstools.tag build/container.tag; do
-            if [[ -e "$path" ]]; then paths+=("$path"); fi
-          done
-          tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz \
-            "${paths[@]}" --null --files-from <(find build/recipes -type d -name target -prune -print0)
+          {
+            printf '%s\\0' \
+              build/prefix \
+              build/target \
+              build/build/fstools \
+              build/build/fstools.tag \
+              build/build/container.tag \
+              build/build/podman
+            find build/recipes -type d -name target -prune -print0
+          } | tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz --null --files-from=-
           podman save --format oci-archive --output dist/redox-base.oci redox-base
           test -s dist/simplebuild-prerequisites.tar.gz
           test -s dist/redox-base.oci
