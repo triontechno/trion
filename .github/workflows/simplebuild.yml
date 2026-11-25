@@ -74,7 +74,8 @@ jobs:
             CONFIG_NAME=desktop \
             PREFIX_BINARY=1 \
             PODMAN_BUILD=1 \
-            prefix
+            FSTOOLS_IN_PODMAN=1 \
+            prefix fstools
 
       - name: Verify prerequisite outputs
         run: |
@@ -85,7 +86,10 @@ jobs:
             test -n "$(find "$prefix/$output" -mindepth 1 -print -quit)"
           done
           test -x build/target/release/repo
-          echo "Compiled/extracted GCC, Rust, Clang, relibc sysroot, and Cookbook tooling are present."
+          test -x build/fstools/bin/redox_installer
+          test -x build/fstools/bin/redoxfs
+          test -x build/fstools/bin/redoxfs-mkfs
+          echo "Compiler prefixes, relibc sysroot, Cookbook, installer, and filesystem tools are ready."
 
       - name: Run SimpleBuild CLI and regression validation
         run: bash simplebuild/test.sh
