@@ -89,8 +89,10 @@ jobs:
             if [[ -e "$path" ]]; then paths+=("$path"); fi
           done
           tar -czf dist/simplebuild-prerequisites.tar.gz "${paths[@]}"
+          podman save --format oci-archive --output dist/redox-base.oci redox-base
           test -s dist/simplebuild-prerequisites.tar.gz
-          sha256sum dist/simplebuild-prerequisites.tar.gz > dist/simplebuild-prerequisites.tar.gz.sha256
+          test -s dist/redox-base.oci
+          sha256sum dist/simplebuild-prerequisites.tar.gz dist/redox-base.oci > dist/SHA256SUMS
 
       - name: Upload reusable prerequisites
         uses: actions/upload-artifact@v4
