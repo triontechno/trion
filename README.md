@@ -29,6 +29,12 @@ Automation lives in .github/ and helper scripts live in scripts/. See mds/archit
 - [Phase 2 Stage G — Direct Executable Engine](mds/phases/Phase%202%20Stage%20G.md)
 - [Direct executable engine foundation](mds/ternary/executable/README.md)
 
+## Product requirements and roadmap
+
+- [Cross-platform strengths and corrected trade-offs](mds/architecture/CROSS-PLATFORM-REQUIREMENTS.md)
+- [Master roadmap — Phases 1–6](mds/phases/ROADMAP.md)
+- [Phase 3 — Core Platform and Hardware Excellence](mds/phases/Phase%203.md)
+
 ## Final project phase
 
 - [Phase H — UI / UX / UC](mds/phases/Phase%20H.md)
