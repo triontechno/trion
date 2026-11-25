@@ -32,7 +32,8 @@ Automation lives in .github/ and helper scripts live in scripts/. See mds/archit
 ## Product requirements and roadmap
 
 - [Cross-platform strengths and corrected trade-offs](mds/architecture/CROSS-PLATFORM-REQUIREMENTS.md)
-- [Master roadmap — Phases 1–6](mds/phases/ROADMAP.md)
+- [Master roadmap — Phases 1–7](mds/phases/ROADMAP.md)
+- [Phase 7 — TRION Native AI](mds/phases/Phase%207.md)
 - [Phase 3 — Core Platform and Hardware Excellence](mds/phases/Phase%203.md)
 
 ## Final project phase
