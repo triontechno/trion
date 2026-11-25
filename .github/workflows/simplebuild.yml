@@ -56,7 +56,7 @@ jobs:
             build/build/container.tag
             build/build/podman
             dist/redox-base.oci
-          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/dev/**', 'build/recipes/libs/**', 'build/recipes/core/relibc/**', 'build/recipes/core/installer/**', 'build/recipes/core/redoxfs/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}
 
       - name: Restore cached Podman build image
         run: |
@@ -64,49 +64,14 @@ jobs:
             podman load --input dist/redox-base.oci
           fi
 
-      - name: Dry-run canonical prerequisite targets
-        run: |
-          make -n -C build \
-            ARCH=x86_64 \
-            CONFIG_NAME=desktop \
-            PREFIX_BINARY=1 \
-            PREFIX_CLANG_BINARY=0 \
-            PODMAN_BUILD=1 \
-            FSTOOLS_IN_PODMAN=1 \
-            prefix fstools >/dev/null
+      - name: Validate canonical prerequisite target graph
+        run: bash simplebuild/prepare-prerequisites.sh --dry-run
 
-      - name: Build, cache, and validate all prerequisites
+      - name: Build and verify reusable prerequisites
         env:
           CI: "1"
           COOKBOOK_MAKE_JOBS: "2"
-        run: |
-          # Keep the fast, published GCC and Rust prefixes. Build only Clang/LLVM
-          # from the checked-out Cookbook recipes because the published Clang
-          # archive currently returns HTTP 403 from static.redox-os.org.
-          make -C build \
-            ARCH=x86_64 \
-            CONFIG_NAME=desktop \
-            PREFIX_BINARY=1 \
-            PREFIX_CLANG_BINARY=0 \
-            PODMAN_BUILD=1 \
-            FSTOOLS_IN_PODMAN=1 \
-            prefix fstools
-
-      - name: Verify prerequisite outputs
-        run: |
-          set -euo pipefail
-          prefix="build/prefix/x86_64-unknown-redox"
-          for output in gcc-install rust-install clang-install sysroot; do
-            test -d "$prefix/$output"
-            test -n "$(find "$prefix/$output" -mindepth 1 -print -quit)"
-          done
-          test -x build/target/release/repo
-          test -s build/build/fstools.tag
-          test -s build/build/container.tag
-          test -x build/build/fstools/bin/redox_installer
-          test -x build/build/fstools/bin/redoxfs
-          test -x build/build/fstools/bin/redoxfs-mkfs
-          echo "Compiler prefixes, relibc sysroot, Cookbook, installer, and filesystem tools are ready."
+        run: bash simplebuild/prepare-prerequisites.sh
 
       - name: Run SimpleBuild CLI and regression validation
         run: bash simplebuild/test.sh
@@ -116,7 +81,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           {
-            printf '%s\0' \
+            printf '%s\\0' \
               build/prefix \
               build/target \
               build/build/fstools \
@@ -125,6 +90,7 @@ jobs:
               build/build/podman
             find build/recipes -type d -name target -prune -print0
           } | tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz --null --files-from=-
+          podman image exists redox-base
           podman save --format oci-archive --output dist/redox-base.oci redox-base
           test -s dist/simplebuild-prerequisites.tar.gz
           test -s dist/redox-base.oci
