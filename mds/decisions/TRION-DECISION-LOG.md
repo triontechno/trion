@@ -181,7 +181,18 @@ Implementation status must never be confused with validation status. A stage mar
 
 - Phase 6 is the final project phase, focused on UI/UX/UC (desktop shell, interaction, accessibility, app discovery/launch/file associations, settings, notifications, recovery and acceptance criteria).
 - Phase 6 was formerly called Phase H; it is distinct from Phase 2 Stage H.
-- Phases 3–6 are now specified in [the master roadmap](../phases/ROADMAP.md): Phase 3 Core Platform and Hardware Excellence; Phase 4 Application, Gaming and Developer Ecosystem; Phase 5 Intelligent, Automated and Connected OS; Phase 6 Desktop Shell and Complete User Experience.
+- Phases 3–7 are specified in [the master roadmap](../phases/ROADMAP.md): Phase 3 Core Platform and Hardware Excellence; Phase 4 Application, Gaming and Developer Ecosystem; Phase 5 Intelligent, Automated and Connected OS; Phase 6 Desktop Shell and Complete User Experience; Phase 7 TRION Native AI.
+
+### Phase 7 — TRION Native AI (decision recorded 2026-11-25)
+
+- Add a dedicated Phase 7 after Phase 6 to replace provisional/third-party assistant features with TRION's own native OS-level AI assistant, comparable in role to Siri.
+- The initial architecture is on-device inference only: no TRION-operated AI inference servers, mandatory cloud AI, or online account dependency.
+- Core assistant functions must work offline once local models are installed.
+- TRION owns the assistant experience, orchestration, inference runtime, model lifecycle, OS integrations and permission/safety system. A frontier model trained from scratch is not a prerequisite; independently licensed local model weights may be used initially if provenance/licensing are verified and the model remains replaceable.
+- Natural-language assistance, permissioned local search, system/app actions and bounded multi-step automation are in scope. Speech features are optional, permission-gated and never always-listening by default.
+- The assistant must respect OS capabilities and data access controls, require confirmation for consequential actions, maintain auditable tool execution and be fully disableable.
+- CPU inference is the baseline; GPU/NPU acceleration is conditional on detected and tested support.
+- This supplements Phase 5's AI/search/action foundations and Phase 6's shell integration; it does not duplicate or discard those phases.
 
 ## 10. Stage H security decisions and current boundary
 
