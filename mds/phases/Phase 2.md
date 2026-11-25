@@ -64,4 +64,4 @@ Phase 2 implementation is complete only when Stages A–C and E–J are implemen
 
 Only after all implementation stages are complete may the consolidated validation pass run: automated tests, fuzz campaigns, comparative benchmarks, native executable capability checks, supported OS builds, and QEMU boot validation. Until then, all such execution remains deferred.
 
-The final project phase is **Phase 6** (formerly named Phase H); it is separate from Phase 2. The repository currently has no confirmed Phase 3–5 specifications, so their scope must not be invented or inferred from this Phase 2 plan.
+The final project phase is **Phase 6** (formerly named Phase H); it is separate from Phase 2. Phases 3–6 are now defined in [the master roadmap](ROADMAP.md). Phase 3 is Core Platform and Hardware Excellence; Phase 4 is Application, Gaming and Developer Ecosystem; Phase 5 is Intelligent, Automated and Connected OS; Phase 6 is Desktop Shell and Complete User Experience.
