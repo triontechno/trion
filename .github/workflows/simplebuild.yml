@@ -64,6 +64,17 @@ jobs:
             podman load --input dist/redox-base.oci
           fi
 
+      - name: Dry-run canonical prerequisite targets
+        run: |
+          make -n -C build \
+            ARCH=x86_64 \
+            CONFIG_NAME=desktop \
+            PREFIX_BINARY=1 \
+            PREFIX_CLANG_BINARY=0 \
+            PODMAN_BUILD=1 \
+            FSTOOLS_IN_PODMAN=1 \
+            prefix fstools >/dev/null
+
       - name: Build, cache, and validate all prerequisites
         env:
           CI: "1"
