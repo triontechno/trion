@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           {
-            printf '%s\\0' \
+            printf '%s\0' \
               build/prefix \
               build/target \
               build/build/fstools \
