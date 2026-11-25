@@ -43,6 +43,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes podman
 
+      - name: Prepare cache directory
+        run: mkdir -p dist
+
       - name: Restore compiled prerequisite cache
         uses: actions/cache@v4
         with:
@@ -53,7 +56,14 @@ jobs:
             build/fstools.tag
             build/container.tag
             build/podman
+            dist/redox-base.oci
           key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'recipes/dev/**', 'recipes/core/relibc/**', 'Cargo.lock') }}
+
+      - name: Restore cached Podman build image
+        run: |
+          if [[ -s dist/redox-base.oci ]]; then
+            podman load --input dist/redox-base.oci
+          fi
 
       - name: Build required Redox toolchain and sysroot
         env:
