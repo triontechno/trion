@@ -15,4 +15,10 @@ if bash simplebuild/build.sh --unknown-option >/dev/null 2>&1; then
   echo "unknown option was accepted" >&2
   exit 1
 fi
+
+# The image build compiles redox-rt; keep the vec! macro in scope there.
+if ! grep -Fq 'use alloc::{boxed::Box, vec, vec::Vec};' src/relibc/redox-rt/src/proc.rs; then
+  echo "redox-rt proc.rs must import alloc::vec for vec! macro usage" >&2
+  exit 1
+fi
 echo "SimpleBuild validation passed."
