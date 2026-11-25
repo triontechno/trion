@@ -13,9 +13,10 @@ Ubuntu 24.04 for the x86_64 desktop target:
 2. Runs the canonical `make -C build ... prefix` target with
    `PREFIX_BINARY=1` and Podman enabled. The build system obtains and unpacks
    the GCC, Rust, and Clang binary-prefix packages and constructs the target
-   sysroot, including the relibc stage.
-3. Verifies that the compiler prefixes, sysroot, and Cookbook executable
-   exist and are non-empty.
+   sysroot, including the relibc stage. It also compiles the
+   installer and RedoxFS host tools inside the prepared Podman environment.
+3. Verifies that the compiler prefixes, sysroot, Cookbook executable, installer,
+   and filesystem utilities exist and are executable.
 4. Runs `bash simplebuild/test.sh` for CLI, configuration, and regression
    checks.
 5. Uploads a checksummed `simplebuild-prerequisites-<commit>` artifact for a
