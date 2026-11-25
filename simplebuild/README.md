@@ -1,23 +1,40 @@
 # SimpleBuild
 
-SimpleBuild is TRION's small command-line interface for producing OS images.
-It intentionally delegates compilation, package resolution, filesystem
-installation, and image creation to the canonical Redox-derived build system
-in `build/`.
+SimpleBuild is TRION's command-line front end for the canonical Redox-derived
+build system in `build/`. It does not duplicate Cookbook, package resolution,
+filesystem installation, or image-generation logic.
 
-This avoids maintaining two independent implementations of the same build
-pipeline. SimpleBuild owns argument validation, configuration selection,
-build invocation, artifact verification, and optional QEMU launch.
+## Prerequisite validation
 
-## Requirements
+The `SimpleBuild Prerequisite Validation` workflow performs these steps on
+Ubuntu 24.04 for the x86_64 desktop target:
 
-- Bash 4+
-- GNU Make
-- SHA-256 utilities (`sha256sum`)
-- The host dependencies and Podman configuration required by `build/`
-- QEMU x86_64 and UEFI firmware only when using `--qemu`
+1. Restores a versioned GitHub Actions cache of the Redox toolchain outputs.
+2. Runs the canonical `make -C build ... prefix` target with
+   `PREFIX_BINARY=1` and Podman enabled. The build system obtains and unpacks
+   the GCC, Rust, and Clang binary-prefix packages and constructs the target
+   sysroot, including the relibc stage.
+3. Verifies that the compiler prefixes, sysroot, and Cookbook executable
+   exist and are non-empty.
+4. Runs `bash simplebuild/test.sh` for CLI, configuration, and regression
+   checks.
+5. Uploads a checksummed `simplebuild-prerequisites-<commit>` artifact for a
+   separate ISO workflow to consume.
 
-## Usage
+The binary-prefix mode intentionally uses Redox's published compiler packages;
+it does not rebuild GCC, Rust, or LLVM from source on every run. The relibc
+sysroot and Cookbook tooling are prepared by the canonical build system.
+The cache key includes the build definitions and relevant recipe/toolchain
+sources so changes invalidate stale outputs.
+
+The uploaded artifact is retained for 30 days. The future ISO workflow should
+download the artifact from the successful prerequisite workflow run, verify
+its SHA-256 manifest, extract it into the repository workspace, and invoke
+SimpleBuild without rerunning the prerequisite stage. GitHub Actions cache
+entries are an acceleration layer; the uploaded artifact is the explicit
+handoff between workflows.
+
+## Local usage
 
 ```sh
 bash simplebuild/build.sh --help
@@ -26,17 +43,12 @@ bash simplebuild/build.sh --arch x86_64 --config desktop
 bash simplebuild/build.sh --arch x86_64 --config desktop --qemu
 ```
 
-Supported target architectures are `x86_64`, `aarch64`, `i586`, and
-`riscv64gc`. Configuration lookup follows the same precedence as
-`build/mk/config.mk`: board-specific, architecture-specific, then shared.
-
-The generated files are placed at
-`build/build/<arch>/<config>/harddrive.img` and
-`build/build/<arch>/<config>/redox-live.iso`. A `SHA256SUMS` manifest is
-written and checked after both artifacts are verified as non-empty.
+The image build remains delegated to `build/Makefile`. QEMU is only needed
+when explicitly launching the generated image with `--qemu`; it is not
+required to build an ISO.
 
 ## Validation
 
-Run `bash simplebuild/test.sh` for fast CLI/configuration checks. Pull requests
-also run the SimpleBuild CI workflow, which validates the CLI and performs a
-full image build through the canonical build system.
+Run `bash simplebuild/test.sh` for fast CLI/configuration checks. The GitHub
+workflow additionally prepares and verifies reusable build prerequisites
+before running those checks.
