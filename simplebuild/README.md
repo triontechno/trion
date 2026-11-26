@@ -24,20 +24,39 @@ Redox's prebuilt prefix archives:
    the canonical `make prefix fstools` targets.
 4. Verifies all compiler prefixes, sysroot, Cookbook executable, installer,
    and filesystem utilities.
-5. Runs `bash simplebuild/test.sh` and uploads a checksummed prerequisite
-   artifact for the separate ISO workflow.
+5. Runs `bash simplebuild/test.sh` after prerequisite validation.
 
 The `simplebuild/prepare-prerequisites.sh` script owns the exact Make
 invocation and output checks. Its `--dry-run` mode validates the target graph
-without compiling. The workflow caches compiler prefixes, Cookbook output,
-recipe build targets, filesystem tools, and the Podman environment so later
-runs can reuse completed work.
+without compiling. Make's `fstools.tag` and `container.tag` files are
+zero-byte sentinel files, so validation checks their existence rather than
+requiring nonzero file size.
 
-The workflow does not build an ISO. The uploaded artifact is retained for
-30 days. The future ISO workflow should download the artifact from the
-successful prerequisite workflow run, verify its SHA-256 manifest, extract
-the prepared build outputs into the repository workspace, and invoke the
-image targets without rerunning prerequisite compilation.
+## Incremental preservation
+
+Successful compilation is preserved even if a later build or validation step
+fails:
+
+- The workflow restores the newest compatible prerequisite cache before
+  building.
+- An unconditional snapshot step packages all existing compiler prefixes,
+  Cookbook outputs, recipe target directories, and partial build directories.
+- If the Podman `redox-base` image exists, it is exported into the snapshot.
+- The snapshot is uploaded as a 30-day GitHub Actions artifact regardless of
+  the job conclusion.
+- An unconditional cache-save step stores the available build directories
+  under a run-specific immutable key. The next run restores a compatible
+  prior snapshot using the cache restore-key prefix.
+
+This means a failed run can still supply completed compiler/tool outputs to a
+subsequent run. A partial snapshot is not considered a validated complete
+prerequisite bundle: the next run must resume the build and pass all output
+checks before the separate ISO workflow consumes it.
+
+The workflow does not build an ISO. The future ISO workflow should download a
+successful prerequisite artifact, verify its SHA-256 manifest, extract the
+prepared build outputs into the repository workspace, and invoke the image
+targets without rerunning prerequisite compilation.
 
 ## Local usage
 
@@ -57,4 +76,4 @@ required to build an ISO.
 Run `bash simplebuild/test.sh` for CLI/configuration tests, prerequisite
 Make-target dry-run validation, and regression checks. The GitHub workflow
 additionally compiles and verifies reusable build prerequisites before
-packaging the artifact.
+publishing the complete prerequisite artifact.
