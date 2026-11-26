@@ -40,7 +40,7 @@ jobs:
             if (context.eventName === "workflow_run") {
               run = context.payload.workflow_run;
             } else {
-              const requestedId = core.getInput("prerequisite_run_id").trim();
+              const requestedId = String(context.payload.inputs?.prerequisite_run_id || "").trim();
               if (requestedId) {
                 const response = await github.rest.actions.getWorkflowRun({
                   owner: context.repo.owner,
