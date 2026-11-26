@@ -1,0 +1,97 @@
+name: SimpleBuild CI Watchdog
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: simplebuild-ci-watchdog
+  cancel-in-progress: false
+
+jobs:
+  inspect-and-recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect the active SimpleBuild validation
+        id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$REPO/pulls/34")"
+          pr_state="$(jq -r '.state' <<<"$pr")"
+          head_sha="$(jq -r '.head.sha' <<<"$pr")"
+
+          if [[ "$pr_state" == "open" ]]; then
+            runs="$(gh api --paginate "repos/$REPO/actions/runs?head_sha=$head_sha&per_page=100")"
+            run="$(jq -c '[.workflow_runs[] | select(.name == "SimpleBuild Prerequisite Validation" and .event == "pull_request")] | sort_by(.created_at) | last // empty' <<<"$runs")"
+            label="PR #34 ISO integration validation"
+          else
+            runs="$(gh api --paginate "repos/$REPO/actions/runs?branch=main&per_page=100")"
+            run="$(jq -c '[.workflow_runs[] | select(.name == "SimpleBuild ISO Generation")] | sort_by(.created_at) | last // empty' <<<"$runs")"
+            label="main-branch ISO generation"
+          fi
+
+          if [[ -z "$run" ]]; then
+            echo "No matching SimpleBuild run exists yet."
+            exit 0
+          fi
+
+          run_id="$(jq -r '.id' <<<"$run")"
+          status="$(jq -r '.status' <<<"$run")"
+          conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+          attempt="$(jq -r '.run_attempt' <<<"$run")"
+          run_url="$(jq -r '.html_url' <<<"$run")"
+
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "attempt=$attempt" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
+          echo "Monitoring $label: run $run_id, status=$status, conclusion=$conclusion, attempt=$attempt"
+      
+      - name: Retry failed jobs (maximum three attempts)
+        if: steps.inspect.outputs.status == 'completed' && steps.inspect.outputs.conclusion == 'failure' && fromJSON(steps.inspect.outputs.attempt) < 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.inspect.outputs.run_id }}
+        run: |
+          gh api --method POST "repos/$REPO/actions/runs/$RUN_ID/rerun-failed-jobs"
+          echo "Requested retry for failed SimpleBuild jobs."
+
+      - name: Report persistent failure for repair
+        if: steps.inspect.outputs.status == 'completed' && steps.inspect.outputs.conclusion == 'failure' && fromJSON(steps.inspect.outputs.attempt) >= 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ steps.inspect.outputs.run_url }}
+          LABEL: ${{ steps.inspect.outputs.label }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="[SimpleBuild] Persistent CI failure needs repair"
+          existing="$(gh issue list --repo "$REPO" --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            echo "Tracking issue #$existing is already open."
+            exit 0
+          fi
+          gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$(cat <<EOF
+          The 15-minute SimpleBuild watchdog detected a persistent failure after three workflow attempts.
+
+          - Target: $LABEL
+          - Failed run: $RUN_URL
+
+          Please inspect the failed job logs, identify the root cause, implement a code/workflow fix, and verify a fresh successful ISO build. Automatic retries cannot repair deterministic source or configuration defects.
+          EOF
+          )"
