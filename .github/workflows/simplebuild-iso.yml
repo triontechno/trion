@@ -54,10 +54,15 @@ jobs:
                   repo: context.repo.repo,
                   workflow_id: "simplebuild.yml",
                   branch: "main",
-                  status: "success",
-                  per_page: 1,
+                  status: "completed",
+                  per_page: 20,
                 });
-                run = response.data.workflow_runs[0];
+                run = response.data.workflow_runs.find(candidate =>
+                  candidate.name === expectedName &&
+                  candidate.path === ".github/workflows/simplebuild.yml" &&
+                  candidate.head_branch === "main" &&
+                  candidate.conclusion === "success");
+
               }
             }
 
