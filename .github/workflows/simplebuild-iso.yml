@@ -127,6 +127,9 @@ jobs:
           podman load --input dist/prerequisites/redox-base.oci
           podman image exists redox-base
 
+          # Refresh Make sentinel mtimes after extracting outputs from the older run.
+          touch build/build/container.tag build/build/fstools.tag
+
       - name: Build ISO without rebuilding prerequisites
         env:
           ARCH: x86_64
