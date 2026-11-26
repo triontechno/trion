@@ -12,8 +12,11 @@ shift 3
 log_file="$(mktemp)"
 trap 'rm -f "$log_file"' EXIT
 
-"$@" >"$log_file" 2>&1
-command_status=$?
+if "$@" >"$log_file" 2>&1; then
+  command_status=0
+else
+  command_status=$?
+fi
 
 # Report warnings even if the command later fails.
 grep -Ei '(^|[[:space:]])(warning:|warning\\[|WARN:)' "$log_file" |
