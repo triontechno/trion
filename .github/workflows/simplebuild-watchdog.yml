@@ -31,11 +31,11 @@ jobs:
           head_sha="$(jq -r '.head.sha' <<<"$pr")"
 
           if [[ "$pr_state" == "open" ]]; then
-            runs="$(gh api --paginate "repos/$REPO/actions/runs?head_sha=$head_sha&per_page=100")"
+            runs="$(gh api "repos/$REPO/actions/runs?head_sha=$head_sha&per_page=100")"
             run="$(jq -c '[.workflow_runs[] | select(.name == "SimpleBuild Prerequisite Validation" and .event == "pull_request")] | sort_by(.created_at) | last // empty' <<<"$runs")"
             label="PR #34 ISO integration validation"
           else
-            runs="$(gh api --paginate "repos/$REPO/actions/runs?branch=main&per_page=100")"
+            runs="$(gh api "repos/$REPO/actions/runs?branch=main&per_page=100")"
             run="$(jq -c '[.workflow_runs[] | select(.name == "SimpleBuild ISO Generation")] | sort_by(.created_at) | last // empty' <<<"$runs")"
             label="main-branch ISO generation"
           fi
@@ -86,7 +86,7 @@ jobs:
             echo "Tracking issue #$existing is already open."
             exit 0
           fi
-          gh issue create --repo "$REPO" --title "$title" --label "bug" --body "$(cat <<EOF
+          gh issue create --repo "$REPO" --title "$title" --body "$(cat <<EOF
           The 15-minute SimpleBuild watchdog detected a persistent failure after three workflow attempts.
 
           - Target: $LABEL
