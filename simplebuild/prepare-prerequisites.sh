@@ -20,7 +20,7 @@ Builds the reusable x86_64 desktop prerequisites through the canonical
 Redox Makefile. The compiler prefix is built from source because the
 published Redox binary-prefix endpoint returns HTTP 403. The official
 upstream Rust toolchain is used to avoid rebuilding Rust itself.
---dry-run validates the canonical Make target graph without compiling.
+--dry-run validates the target graph without compiling.
 EOF
     exit 0
     ;;
@@ -68,8 +68,9 @@ for output in gcc-install rust-install clang-install sysroot; do
 done
 
 test -x "$ROOT/build/target/release/repo"
-test -s "$ROOT/build/build/fstools.tag"
-test -s "$ROOT/build/build/container.tag"
+# These are Makefile sentinel/tag files created with `touch`; zero bytes is valid.
+test -f "$ROOT/build/build/fstools.tag"
+test -f "$ROOT/build/build/container.tag"
 test -x "$ROOT/build/build/fstools/bin/redox_installer"
 test -x "$ROOT/build/build/fstools/bin/redoxfs"
 test -x "$ROOT/build/build/fstools/bin/redoxfs-mkfs"
