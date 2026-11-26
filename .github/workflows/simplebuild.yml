@@ -37,7 +37,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare the build environment
-        run: bash simplebuild/ci-status.sh --success 'Complete: Build environment is ready.' -- bash -c 'sudo apt-get update && sudo apt-get install --yes podman'
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: Build environment is ready.' -- bash -c 'sudo apt-get update && sudo apt-get install --yes podman'
 
       - name: Prepare storage for saved build files
         run: mkdir -p dist
@@ -67,16 +68,19 @@ jobs:
           fi
 
       - name: Check that the required build steps are available
-        run: bash simplebuild/ci-status.sh --success 'Complete: All required build steps are available.' -- bash simplebuild/prepare-prerequisites.sh --dry-run
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: All required build steps are available.' -- bash simplebuild/prepare-prerequisites.sh --dry-run
 
       - name: Build and save the tools TRION needs
         env:
           CI: "1"
           COOKBOOK_MAKE_JOBS: "2"
-        run: bash simplebuild/ci-status.sh --success 'Complete: Built and checked the tools TRION needs.' -- bash simplebuild/prepare-prerequisites.sh
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: Built and checked the tools TRION needs.' -- bash simplebuild/prepare-prerequisites.sh
 
       - name: Check the build instructions
-        run: bash simplebuild/ci-status.sh --success 'Complete: Build instructions and checks passed.' -- bash simplebuild/test.sh
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: Build instructions and checks passed.' -- bash simplebuild/test.sh
 
       # This runs after success OR failure. It snapshots all extant build
       # outputs, including .partial directories left by an interrupted build.
@@ -170,7 +174,8 @@ jobs:
           PREFIX_USE_UPSTREAM_RUST_COMPILER: "1"
           CI: "1"
           COOKBOOK_MAKE_JOBS: "2"
-        run: bash simplebuild/ci-status.sh --success 'Complete: Built and checked the TRION desktop ISO.' -- bash simplebuild/build.sh --arch x86_64 --config desktop
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: Built and checked the TRION desktop ISO.' -- bash simplebuild/build.sh --arch x86_64 --config desktop
 
       - name: Store the finished TRION desktop ISO
         if: always() && github.event_name == 'pull_request' && hashFiles('build/build/x86_64/desktop/redox-live.iso') != ''
