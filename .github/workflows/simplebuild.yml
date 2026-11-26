@@ -1,4 +1,4 @@
-name: SimpleBuild Prerequisite Validation
+name: SimpleBuild — clear build results
 
 on:
   workflow_dispatch:
@@ -30,23 +30,23 @@ concurrency:
 
 jobs:
   validate-prerequisites:
-    name: Build, cache, and validate prerequisites
+    name: Prepare and save the tools needed to build TRION
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Podman
+      - name: Prepare the build environment
         run: |
           sudo apt-get update
           sudo apt-get install --yes podman
 
-      - name: Prepare cache directory
+      - name: Prepare storage for saved build files
         run: mkdir -p dist
 
       # Use explicit restore/save actions: the save step below runs even when
       # compilation or validation fails, preserving whatever was completed.
-      - name: Restore compiled prerequisite cache
+      - name: Reuse previously completed build work
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -59,27 +59,27 @@ jobs:
           restore-keys: |
             simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-
 
-      - name: Restore cached Podman build image
+      - name: Reuse the saved build environment
         run: |
           if [[ -s dist/redox-base.oci ]]; then
             podman load --input dist/redox-base.oci
           fi
 
-      - name: Validate canonical prerequisite target graph
+      - name: Check that the required build steps are available
         run: bash simplebuild/prepare-prerequisites.sh --dry-run
 
-      - name: Build and verify reusable prerequisites
+      - name: Build and save the tools TRION needs
         env:
           CI: "1"
           COOKBOOK_MAKE_JOBS: "2"
-        run: bash simplebuild/prepare-prerequisites.sh
+        run: bash simplebuild/ci-status.sh --success 'Complete: Built and checked the tools TRION needs.' -- bash simplebuild/prepare-prerequisites.sh
 
-      - name: Run SimpleBuild CLI and regression validation
-        run: bash simplebuild/test.sh
+      - name: Check the build instructions
+        run: bash simplebuild/ci-status.sh --success 'Complete: Build instructions and checks passed.' -- bash simplebuild/test.sh
 
       # This runs after success OR failure. It snapshots all extant build
       # outputs, including .partial directories left by an interrupted build.
-      - name: Package every prerequisite completed so far
+      - name: Save all completed build work
         if: always()
         env:
           RUN_ID: ${{ github.run_id }}
@@ -125,7 +125,7 @@ jobs:
             sha256sum "${checksum_files[@]}" > dist/SHA256SUMS
           fi
 
-      - name: Upload partial or complete prerequisite snapshot
+      - name: Store the completed build work
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -142,7 +142,7 @@ jobs:
 
       # Cache entries are immutable, so each run/attempt gets its own key.
       # The next run restores the newest compatible snapshot via restore-keys.
-      - name: Save successful and partial compilation cache
+      - name: Keep completed work for the next build
         if: always()
         uses: actions/cache/save@v4
         with:
@@ -157,7 +157,7 @@ jobs:
       # PRs must prove they can generate the actual desktop ISO, not merely
       # pass CLI/configuration checks. Main-branch ISO builds use the dedicated
       # artifact-restoring workflow to avoid doing this work twice.
-      - name: Build and verify desktop ISO (pull request integration test)
+      - name: Build and check the TRION desktop ISO
         if: github.event_name == 'pull_request'
         env:
           ARCH: x86_64
@@ -168,9 +168,9 @@ jobs:
           PREFIX_USE_UPSTREAM_RUST_COMPILER: "1"
           CI: "1"
           COOKBOOK_MAKE_JOBS: "2"
-        run: bash simplebuild/build.sh --arch x86_64 --config desktop
+        run: bash simplebuild/ci-status.sh --success 'Complete: Built and checked the TRION desktop ISO.' -- bash simplebuild/build.sh --arch x86_64 --config desktop
 
-      - name: Upload pull-request ISO test artifact
+      - name: Store the finished TRION desktop ISO
         if: always() && github.event_name == 'pull_request' && hashFiles('build/build/x86_64/desktop/redox-live.iso') != ''
         uses: actions/upload-artifact@v4
         with:
