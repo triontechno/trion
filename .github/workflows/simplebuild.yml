@@ -1,15 +1,15 @@
-name: SimpleBuild Validation
+name: SimpleBuild Prerequisite Validation
 
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, simplebuild/remove-legacy]
+    branches: [main]
     paths:
       - "simplebuild/**"
       - "build/**"
       - "src/**"
       - "ternary/**"
-      - "mds/**"
+      - "Cargo.lock"
       - ".github/workflows/simplebuild.yml"
   push:
     branches: [main]
@@ -18,22 +18,138 @@ on:
       - "build/**"
       - "src/**"
       - "ternary/**"
-      - "mds/**"
+      - "Cargo.lock"
       - ".github/workflows/simplebuild.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: simplebuild-${{ github.ref }}
+  group: simplebuild-prerequisites-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: SimpleBuild CLI and configuration checks
+  validate-prerequisites:
+    name: Build, cache, and validate prerequisites
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
-      - name: Validate SimpleBuild scripts and configuration
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+
+      - name: Prepare cache directory
+        run: mkdir -p dist
+
+      # Use explicit restore/save actions: the save step below runs even when
+      # compilation or validation fails, preserving whatever was completed.
+      - name: Restore compiled prerequisite cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/prefix
+            build/target
+            build/recipes/**/target
+            build/build
+            dist/redox-base.oci
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-
+
+      - name: Restore cached Podman build image
+        run: |
+          if [[ -s dist/redox-base.oci ]]; then
+            podman load --input dist/redox-base.oci
+          fi
+
+      - name: Validate canonical prerequisite target graph
+        run: bash simplebuild/prepare-prerequisites.sh --dry-run
+
+      - name: Build and verify reusable prerequisites
+        env:
+          CI: "1"
+          COOKBOOK_MAKE_JOBS: "2"
+        run: bash simplebuild/prepare-prerequisites.sh
+
+      - name: Run SimpleBuild CLI and regression validation
         run: bash simplebuild/test.sh
+
+      # This runs after success OR failure. It snapshots all extant build
+      # outputs, including .partial directories left by an interrupted build.
+      - name: Package every prerequisite completed so far
+        if: always()
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          paths_file=dist/prerequisite-paths.txt
+          : > "$paths_file"
+
+          for path in build/prefix build/target build/build; do
+            if [[ -e "$path" ]]; then
+              printf '%s\n' "$path" >> "$paths_file"
+            fi
+          done
+
+          if [[ -d build/recipes ]]; then
+            find build/recipes -type d -name target -prune -print >> "$paths_file"
+          fi
+
+          if [[ -s "$paths_file" ]]; then
+            tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz --files-from="$paths_file"
+          else
+            printf 'No compiled prerequisite directories were present.\n' > dist/NO_BUILD_OUTPUTS.txt
+          fi
+
+          if podman image exists redox-base; then
+            podman save --format oci-archive --output dist/redox-base.oci redox-base
+          fi
+
+          {
+            printf 'commit=%s\nrun_id=%s\nrun_attempt=%s\n' "$COMMIT_SHA" "$RUN_ID" "$RUN_ATTEMPT"
+            printf 'Captured paths:\n'
+            cat "$paths_file"
+          } > dist/BUILD-SNAPSHOT.txt
+
+          checksum_files=()
+          for file in dist/simplebuild-prerequisites.tar.gz dist/redox-base.oci; do
+            if [[ -s "$file" ]]; then checksum_files+=("$file"); fi
+          done
+          if (( ${#checksum_files[@]} > 0 )); then
+            sha256sum "${checksum_files[@]}" > dist/SHA256SUMS
+          fi
+
+      - name: Upload partial or complete prerequisite snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplebuild-prerequisites-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            dist/simplebuild-prerequisites.tar.gz
+            dist/redox-base.oci
+            dist/SHA256SUMS
+            dist/BUILD-SNAPSHOT.txt
+            dist/prerequisite-paths.txt
+            dist/NO_BUILD_OUTPUTS.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Cache entries are immutable, so each run/attempt gets its own key.
+      # The next run restores the newest compatible snapshot via restore-keys.
+      - name: Save successful and partial compilation cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/prefix
+            build/target
+            build/recipes/**/target
+            build/build
+            dist/redox-base.oci
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
