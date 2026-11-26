@@ -32,7 +32,7 @@ jobs:
   validate-prerequisites:
     name: Build, cache, and validate prerequisites
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
@@ -153,3 +153,31 @@ jobs:
             build/build
             dist/redox-base.oci
           key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # PRs must prove they can generate the actual desktop ISO, not merely
+      # pass CLI/configuration checks. Main-branch ISO builds use the dedicated
+      # artifact-restoring workflow to avoid doing this work twice.
+      - name: Build and verify desktop ISO (pull request integration test)
+        if: github.event_name == 'pull_request'
+        env:
+          ARCH: x86_64
+          CONFIG_NAME: desktop
+          PODMAN_BUILD: "1"
+          FSTOOLS_IN_PODMAN: "1"
+          PREFIX_BINARY: "0"
+          PREFIX_USE_UPSTREAM_RUST_COMPILER: "1"
+          CI: "1"
+          COOKBOOK_MAKE_JOBS: "2"
+        run: bash simplebuild/build.sh --arch x86_64 --config desktop
+
+      - name: Upload pull-request ISO test artifact
+        if: always() && github.event_name == 'pull_request' && hashFiles('build/build/x86_64/desktop/redox-live.iso') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: trion-os-pr-iso-${{ github.sha }}
+          path: |
+            build/build/x86_64/desktop/redox-live.iso
+            build/build/x86_64/desktop/harddrive.img
+            build/build/x86_64/desktop/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
