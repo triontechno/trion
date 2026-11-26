@@ -102,17 +102,14 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          cd dist/prerequisites
-
-          test -s simplebuild-prerequisites.tar.gz
-          test -s redox-base.oci
-          test -s SHA256SUMS
-          sha256sum --check SHA256SUMS
-
-          grep -F "commit=${{ steps.prerequisite.outputs.head_sha }}" BUILD-SNAPSHOT.txt
-          tar --extract --gzip --file simplebuild-prerequisites.tar.gz --directory "$GITHUB_WORKSPACE"
-
           cd "$GITHUB_WORKSPACE"
+          test -s dist/prerequisites/simplebuild-prerequisites.tar.gz
+          test -s dist/prerequisites/redox-base.oci
+          test -s dist/prerequisites/SHA256SUMS
+          sed 's#  dist/#  dist/prerequisites/#' dist/prerequisites/SHA256SUMS | sha256sum --check -
+
+          grep -F "commit=${{ steps.prerequisite.outputs.head_sha }}" dist/prerequisites/BUILD-SNAPSHOT.txt
+          tar --extract --gzip --file dist/prerequisites/simplebuild-prerequisites.tar.gz --directory "$GITHUB_WORKSPACE"
           for path in \
             build/prefix/x86_64-unknown-redox/gcc-install \
             build/prefix/x86_64-unknown-redox/rust-install \
