@@ -1,4 +1,4 @@
-name: SimpleBuild — clear build results
+name: SimpleBuild Prerequisite Validation
 
 on:
   workflow_dispatch:
@@ -37,9 +37,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare the build environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes podman
+        run: bash simplebuild/ci-status.sh --success 'Complete: Build environment is ready.' -- bash -c 'sudo apt-get update && sudo apt-get install --yes podman'
 
       - name: Prepare storage for saved build files
         run: mkdir -p dist
@@ -62,11 +60,14 @@ jobs:
       - name: Reuse the saved build environment
         run: |
           if [[ -s dist/redox-base.oci ]]; then
-            podman load --input dist/redox-base.oci
+            podman load --input dist/redox-base.oci >/dev/null 2>&1
+            echo "Complete: Reused the saved build environment."
+          else
+            echo "WARNING: No saved build environment was found; a fresh one will be prepared if needed."
           fi
 
       - name: Check that the required build steps are available
-        run: bash simplebuild/prepare-prerequisites.sh --dry-run
+        run: bash simplebuild/ci-status.sh --success 'Complete: All required build steps are available.' -- bash simplebuild/prepare-prerequisites.sh --dry-run
 
       - name: Build and save the tools TRION needs
         env:
@@ -102,13 +103,13 @@ jobs:
           fi
 
           if [[ -s "$paths_file" ]]; then
-            tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz --files-from="$paths_file"
+            tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz --files-from="$paths_file" >/dev/null 2>&1
           else
             printf 'No compiled prerequisite directories were present.\n' > dist/NO_BUILD_OUTPUTS.txt
           fi
 
           if podman image exists redox-base; then
-            podman save --format oci-archive --output dist/redox-base.oci redox-base
+            podman save --format oci-archive --output dist/redox-base.oci redox-base >/dev/null 2>&1
           fi
 
           {
@@ -124,6 +125,7 @@ jobs:
           if (( ${#checksum_files[@]} > 0 )); then
             sha256sum "${checksum_files[@]}" > dist/SHA256SUMS
           fi
+          echo "Complete: Saved all build work that was available."
 
       - name: Store the completed build work
         if: always()
