@@ -45,6 +45,20 @@ jobs:
 
       # Use explicit restore/save actions: the save step below runs even when
       # compilation or validation fails, preserving whatever was completed.
+      - name: Calculate prerequisite source fingerprint
+        id: cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(
+            git ls-files -z -- build/mk build/podman build/code build/recipes build/Cargo.toml build/Cargo.lock build/UPSTREAM.lock |
+              sort -z |
+              xargs -0 -r sha256sum |
+              sha256sum |
+              cut -d ' ' -f 1
+          )"
+          echo "hash=$fingerprint" >> "$GITHUB_OUTPUT"
+
       - name: Reuse previously completed build work
         uses: actions/cache/restore@v4
         with:
@@ -54,9 +68,9 @@ jobs:
             build/recipes/**/target
             build/build
             dist/redox-base.oci
-          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ steps.cache-key.outputs.hash }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-
+            simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ steps.cache-key.outputs.hash }}-
 
       - name: Reuse the saved build environment
         run: |
@@ -158,7 +172,7 @@ jobs:
             build/recipes/**/target
             build/build
             dist/redox-base.oci
-          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ steps.cache-key.outputs.hash }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # PRs must prove they can generate the actual desktop ISO, not merely
       # pass CLI/configuration checks. Main-branch ISO builds use the dedicated
