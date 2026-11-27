@@ -35,7 +35,8 @@ function DYNAMIC_INIT {
 
     # TODO: check paths for spaces
     export LDFLAGS="${USER_LDFLAGS}-Wl,-rpath-link,${COOKBOOK_SYSROOT}/lib -L${COOKBOOK_SYSROOT}/lib -Wl,--export-dynamic"
-    export RUSTFLAGS="-C target-feature=-crt-static -L native=${COOKBOOK_SYSROOT}/lib -C link-arg=-Wl,-rpath-link,${COOKBOOK_SYSROOT}/lib"
+    # Preserve caller-provided Rust flags and suppress only the upstream public async-trait lint.
+    export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-feature=-crt-static -L native=${COOKBOOK_SYSROOT}/lib -C link-arg=-Wl,-rpath-link,${COOKBOOK_SYSROOT}/lib -A async_fn_in_trait"
     export COOKBOOK_DYNAMIC=1
 
     if [ "function" = "$(type -t reexport_flags)" ]; then
