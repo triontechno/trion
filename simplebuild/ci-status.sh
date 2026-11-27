@@ -33,14 +33,17 @@ if [[ "$command_status" -eq 0 ]]; then
 else
   reason="$(grep -Ei -m 1 '(^|[[:space:]])(error:|error\[|fatal error:|failed:|could not|cannot |unable to )' "$log_file" || true)"
   if [[ -z "$reason" ]]; then
-    reason="$(tail -n 1 "$log_file" | tr -d '\r' | cut -c1-240)"
+    reason="the build command exited with code $command_status; see the diagnostic details below"
   fi
-  [[ -n "$reason" ]] || reason="the command exited with code $command_status and gave no further details"
   printf 'ERROR: Could not complete the task because %s\n' "$reason"
   {
     printf 'ERROR: Could not complete the task because %s\n' "$reason"
     printf '\n<details><summary>Relevant diagnostic details</summary>\n\n'
-    grep -Ei 'error:|error\[|fatal error:|failed:|could not|cannot |unable to ' "$log_file" | tail -n 12 || tail -n 12 "$log_file"
+    if grep -Eiq 'error:|error\[|fatal error:|failed:|could not|cannot |unable to ' "$log_file"; then
+      grep -Ei 'error:|error\[|fatal error:|failed:|could not|cannot |unable to ' "$log_file" | tail -n 30
+    else
+      tail -n 80 "$log_file"
+    fi
     printf '\n</details>\n'
   } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   exit "$command_status"
