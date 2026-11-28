@@ -84,6 +84,11 @@ fi
 make_args=(-C "$BUILD_DIR" "ARCH=$ARCH" "CONFIG_NAME=$CONFIG_NAME")
 if [[ -n "$BOARD" ]]; then make_args+=("BOARD=$BOARD"); fi
 log "building disk image and live ISO"
+
+# Redox's upstream Rust recipes may emit this forward-compatibility lint for
+# public async traits. Keep other Rust warnings enabled; suppress only this lint.
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-A async_fn_in_trait"
+
 "$MAKE_BIN" "${make_args[@]}" images
 
 [[ -s "$IMAGE" ]] || fail "disk image missing or empty: $IMAGE"

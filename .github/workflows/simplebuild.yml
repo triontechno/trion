@@ -30,23 +30,36 @@ concurrency:
 
 jobs:
   validate-prerequisites:
-    name: Build, cache, and validate prerequisites
+    name: Prepare and save the tools needed to build TRION
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Podman
+      - name: Prepare the build environment
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes podman
+          bash simplebuild/ci-status.sh --success 'Complete: Build environment is ready.' -- bash -c 'sudo apt-get update && sudo apt-get install --yes podman'
 
-      - name: Prepare cache directory
+      - name: Prepare storage for saved build files
         run: mkdir -p dist
 
       # Use explicit restore/save actions: the save step below runs even when
       # compilation or validation fails, preserving whatever was completed.
-      - name: Restore compiled prerequisite cache
+      - name: Calculate prerequisite source fingerprint
+        id: cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(
+            git ls-files -z -- build/mk build/podman build/code build/recipes build/Cargo.toml build/Cargo.lock build/UPSTREAM.lock |
+              sort -z |
+              xargs -0 -r sha256sum |
+              sha256sum |
+              cut -d ' ' -f 1
+          )"
+          echo "hash=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse previously completed build work
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -55,31 +68,37 @@ jobs:
             build/recipes/**/target
             build/build
             dist/redox-base.oci
-          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ steps.cache-key.outputs.hash }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-
+            simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ steps.cache-key.outputs.hash }}-
 
-      - name: Restore cached Podman build image
+      - name: Reuse the saved build environment
         run: |
           if [[ -s dist/redox-base.oci ]]; then
-            podman load --input dist/redox-base.oci
+            podman load --input dist/redox-base.oci >/dev/null 2>&1
+            echo "Complete: Reused the saved build environment."
+          else
+            echo "WARNING: No saved build environment was found; a fresh one will be prepared if needed."
           fi
 
-      - name: Validate canonical prerequisite target graph
-        run: bash simplebuild/prepare-prerequisites.sh --dry-run
+      - name: Check that the required build steps are available
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: All required build steps are available.' -- bash simplebuild/prepare-prerequisites.sh --dry-run
 
-      - name: Build and verify reusable prerequisites
+      - name: Build and save the tools TRION needs
         env:
           CI: "1"
           COOKBOOK_MAKE_JOBS: "2"
-        run: bash simplebuild/prepare-prerequisites.sh
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: Built and checked the tools TRION needs.' -- bash simplebuild/prepare-prerequisites.sh
 
-      - name: Run SimpleBuild CLI and regression validation
-        run: bash simplebuild/test.sh
+      - name: Check the build instructions
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: Build instructions and checks passed.' -- bash simplebuild/test.sh
 
       # This runs after success OR failure. It snapshots all extant build
       # outputs, including .partial directories left by an interrupted build.
-      - name: Package every prerequisite completed so far
+      - name: Save all completed build work
         if: always()
         env:
           RUN_ID: ${{ github.run_id }}
@@ -102,13 +121,13 @@ jobs:
           fi
 
           if [[ -s "$paths_file" ]]; then
-            tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz --files-from="$paths_file"
+            tar --create --gzip --file dist/simplebuild-prerequisites.tar.gz --files-from="$paths_file" >/dev/null 2>&1
           else
             printf 'No compiled prerequisite directories were present.\n' > dist/NO_BUILD_OUTPUTS.txt
           fi
 
           if podman image exists redox-base; then
-            podman save --format oci-archive --output dist/redox-base.oci redox-base
+            podman save --format oci-archive --output dist/redox-base.oci redox-base >/dev/null 2>&1
           fi
 
           {
@@ -124,8 +143,9 @@ jobs:
           if (( ${#checksum_files[@]} > 0 )); then
             sha256sum "${checksum_files[@]}" > dist/SHA256SUMS
           fi
+          echo "Complete: Saved all build work that was available."
 
-      - name: Upload partial or complete prerequisite snapshot
+      - name: Store the completed build work
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -142,7 +162,7 @@ jobs:
 
       # Cache entries are immutable, so each run/attempt gets its own key.
       # The next run restores the newest compatible snapshot via restore-keys.
-      - name: Save successful and partial compilation cache
+      - name: Keep completed work for the next build
         if: always()
         uses: actions/cache/save@v4
         with:
@@ -152,4 +172,33 @@ jobs:
             build/recipes/**/target
             build/build
             dist/redox-base.oci
-          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ hashFiles('build/mk/**', 'build/podman/**', 'build/code/**', 'build/recipes/**', 'build/Cargo.toml', 'build/Cargo.lock', 'build/UPSTREAM.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: simplebuild-prerequisites-${{ runner.os }}-x86_64-desktop-${{ steps.cache-key.outputs.hash }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # PRs must prove they can generate the actual desktop ISO, not merely
+      # pass CLI/configuration checks. Main-branch ISO builds use the dedicated
+      # artifact-restoring workflow to avoid doing this work twice.
+      - name: Build and check the TRION desktop ISO
+        if: github.event_name == 'pull_request'
+        env:
+          ARCH: x86_64
+          CONFIG_NAME: desktop
+          PODMAN_BUILD: "1"
+          FSTOOLS_IN_PODMAN: "1"
+          PREFIX_BINARY: "0"
+          PREFIX_USE_UPSTREAM_RUST_COMPILER: "1"
+          CI: "1"
+          COOKBOOK_MAKE_JOBS: "2"
+        run: |
+          bash simplebuild/ci-status.sh --success 'Complete: Built and checked the TRION desktop ISO.' -- bash simplebuild/build.sh --arch x86_64 --config desktop
+
+      - name: Store the finished TRION desktop ISO
+        if: always() && github.event_name == 'pull_request' && hashFiles('build/build/x86_64/desktop/redox-live.iso') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: trion-os-pr-iso-${{ github.sha }}
+          path: |
+            build/build/x86_64/desktop/redox-live.iso
+            build/build/x86_64/desktop/harddrive.img
+            build/build/x86_64/desktop/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,177 @@
+name: SimpleBuild ISO Generation
+
+on:
+  workflow_run:
+    workflows: ["SimpleBuild Prerequisite Validation"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      prerequisite_run_id:
+        description: "Optional successful SimpleBuild prerequisite workflow run ID"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: simplebuild-iso-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-iso:
+    name: Restore prerequisites and build desktop ISO
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Resolve successful prerequisite run
+        id: prerequisite
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const expectedName = "SimpleBuild Prerequisite Validation";
+            let run;
+
+            if (context.eventName === "workflow_run") {
+              run = context.payload.workflow_run;
+            } else {
+              const requestedId = String(context.payload.inputs?.prerequisite_run_id || "").trim();
+              if (requestedId) {
+                const response = await github.rest.actions.getWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: Number(requestedId),
+                });
+                run = response.data;
+              } else {
+                const response = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: "simplebuild.yml",
+                  branch: "main",
+                  status: "completed",
+                  per_page: 20,
+                });
+                run = response.data.workflow_runs.find(candidate =>
+                  candidate.name === expectedName &&
+                  candidate.path === ".github/workflows/simplebuild.yml" &&
+                  candidate.head_branch === "main" &&
+                  candidate.conclusion === "success");
+
+              }
+            }
+
+            if (!run) {
+              core.setFailed("No successful prerequisite workflow run was found.");
+              return;
+            }
+            if (run.name !== expectedName ||
+                run.path !== ".github/workflows/simplebuild.yml" ||
+                run.head_branch !== "main" ||
+                run.conclusion !== "success") {
+              core.setFailed("Selected run is not a successful main-branch prerequisite build.");
+              return;
+            }
+
+            core.setOutput("run_id", String(run.id));
+            core.setOutput("head_sha", run.head_sha);
+            core.setOutput("run_attempt", String(run.run_attempt));
+            core.setOutput("artifact_name",
+              "simplebuild-prerequisites-" + run.head_sha + "-" + run.run_attempt);
+            core.info("Using prerequisite run " + run.id + " at " + run.head_sha);
+
+      - name: Check out matching source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.prerequisite.outputs.head_sha }}
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+
+      - name: Download completed prerequisite artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.prerequisite.outputs.artifact_name }}
+          run-id: ${{ steps.prerequisite.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: dist/prerequisites
+
+      - name: Verify and restore prerequisite snapshot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd "$GITHUB_WORKSPACE"
+          test -s dist/prerequisites/simplebuild-prerequisites.tar.gz
+          test -s dist/prerequisites/redox-base.oci
+          test -s dist/prerequisites/SHA256SUMS
+          sed 's#  dist/#  dist/prerequisites/#' dist/prerequisites/SHA256SUMS | sha256sum --check -
+
+          grep -F "commit=${{ steps.prerequisite.outputs.head_sha }}" dist/prerequisites/BUILD-SNAPSHOT.txt
+          tar --extract --gzip --file dist/prerequisites/simplebuild-prerequisites.tar.gz --directory "$GITHUB_WORKSPACE"
+          for path in \
+            build/prefix/x86_64-unknown-redox/gcc-install \
+            build/prefix/x86_64-unknown-redox/rust-install \
+            build/prefix/x86_64-unknown-redox/clang-install \
+            build/prefix/x86_64-unknown-redox/sysroot \
+            build/target/release/repo \
+            build/build/fstools/bin/redox_installer \
+            build/build/fstools/bin/redoxfs \
+            build/build/fstools/bin/redoxfs-mkfs \
+            build/build/container.tag \
+            build/build/fstools.tag; do
+            test -e "$path" || { echo "Missing prerequisite output: $path" >&2; exit 1; }
+          done
+
+          podman load --input dist/prerequisites/redox-base.oci
+          podman image exists redox-base
+
+          # Refresh Make sentinel mtimes after extracting outputs from the older run.
+          touch build/build/container.tag build/build/fstools.tag
+
+      - name: Build ISO without rebuilding prerequisites
+        env:
+          ARCH: x86_64
+          CONFIG_NAME: desktop
+          PODMAN_BUILD: "1"
+          FSTOOLS_IN_PODMAN: "1"
+          PREFIX_BINARY: "0"
+          PREFIX_USE_UPSTREAM_RUST_COMPILER: "1"
+          CI: "1"
+          COOKBOOK_MAKE_JOBS: "2"
+        run: |
+          bash simplebuild/build.sh --arch x86_64 --config desktop
+
+      - name: Verify ISO and publish build metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          output="build/build/x86_64/desktop"
+          test -s "$output/redox-live.iso"
+          test -s "$output/harddrive.img"
+          (cd "$output" && sha256sum --check SHA256SUMS)
+          mkdir -p dist/iso
+          cp "$output/redox-live.iso" dist/iso/
+          cp "$output/SHA256SUMS" dist/iso/
+          {
+            echo "source_commit=${{ steps.prerequisite.outputs.head_sha }}"
+            echo "prerequisite_run_id=${{ steps.prerequisite.outputs.run_id }}"
+            echo "iso_workflow_run_id=${{ github.run_id }}"
+            echo "architecture=x86_64"
+            echo "configuration=desktop"
+            echo "iso=redox-live.iso"
+          } > dist/iso/BUILD-METADATA.txt
+
+      - name: Upload TRION OS desktop ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: trion-os-desktop-iso-${{ steps.prerequisite.outputs.head_sha }}
+          path: dist/iso/*
+          if-no-files-found: error
+          retention-days: 30
