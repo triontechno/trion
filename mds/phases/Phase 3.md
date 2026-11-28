@@ -1,6 +1,6 @@
 # TRION OS — Phase 3: Core Platform and Hardware Excellence
 
-**Status:** Planned; implementation begins after Phase 2 closeout review  
+**Status:** In progress — P3-A repository and Phase 2 closeout audit. P3-B through P3-G remain gated on verified Phase 2 closeout.  
 **Parent roadmap:** ROADMAP.md  
 **Architecture:** ../architecture/TRION-ARCHITECTURE.md  
 **Requirements:** ../architecture/CROSS-PLATFORM-REQUIREMENTS.md
